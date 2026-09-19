@@ -1,7 +1,8 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-import { requireVerifiedDriver, type VehicleCaller } from './vehicles.js';
+import { auditTakenOffline, offlineFields } from './availability.js';
+import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -57,9 +58,10 @@ export async function reviewVerification(
   const { firestore } = deps;
   const collection = COLLECTIONS[target];
   const ref = firestore.collection(collection).doc(driverId);
+  const driverRef = firestore.collection('drivers').doc(driverId);
 
   return firestore.runTransaction(async (tx): Promise<ReviewResult> => {
-    const snapshot = await tx.get(ref);
+    const [snapshot, driverSnapshot] = await Promise.all([tx.get(ref), tx.get(driverRef)]);
     if (!snapshot.exists) {
       throw new HttpsError('not-found', `There is no ${target.toLowerCase()} with that ID.`);
     }
@@ -68,12 +70,25 @@ export async function reviewVerification(
     const previousReason: unknown = snapshot.get('verificationReason') ?? null;
     if (previousStatus === decision && previousReason === reason) return { status: 'unchanged' };
 
+    // A driver who loses their verification, or whose vehicle does, cannot stay online.
+    const offline = decision === 'REJECTED' ? offlineFields(driverSnapshot) : undefined;
     tx.update(ref, {
       verificationStatus: decision,
       verificationReason: reason,
       verificationReviewedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
+      ...(target === 'DRIVER' ? offline : undefined),
     });
+    if (offline) {
+      if (target === 'VEHICLE') tx.update(driverRef, offline);
+      auditTakenOffline(
+        tx,
+        firestore,
+        driverId,
+        actor,
+        `The ${target.toLowerCase()} is no longer verified`,
+      );
+    }
     tx.create(firestore.collection('auditLogs').doc(), {
       timestamp: FieldValue.serverTimestamp(),
       actor,
@@ -114,7 +129,7 @@ export function reviewAsStaff(
  */
 export async function requestReview(
   deps: { firestore: Firestore },
-  caller: VehicleCaller,
+  caller: DriverCaller,
   rawInput: unknown,
 ): Promise<RequestReviewResult> {
   requireVerifiedDriver(caller);

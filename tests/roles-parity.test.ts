@@ -5,6 +5,12 @@ import {
 } from '../functions/src/roles';
 import { NEW_DRIVER_PROFILE_DEFAULTS as functionsDriverDefaults } from '../functions/src/drivers';
 import {
+  AVAILABILITY_TARGETS as functionsAvailabilityTargets,
+  GO_ONLINE_REQUIREMENTS as functionsRequirements,
+  evaluateGoOnline as functionsEvaluate,
+  setAvailabilityInputSchema as functionsAvailabilitySchema,
+} from '../functions/src/availability';
+import {
   REVIEWER_ROLES as functionsReviewerRoles,
   REVIEW_DECISIONS as functionsDecisions,
   REVIEW_REASON_MAX_LENGTH as functionsReasonMax,
@@ -23,6 +29,10 @@ import {
   setVehicleCapacityInputSchema as functionsCapacitySchema,
 } from '../functions/src/vehicles';
 import {
+  AVAILABILITY_TARGETS,
+  GO_ONLINE_REQUIREMENTS,
+  evaluateGoOnline,
+  setAvailabilityInputSchema as sharedAvailabilitySchema,
   DRIVER_AVAILABILITY_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   NEW_DRIVER_PROFILE_DEFAULTS,
@@ -185,6 +195,42 @@ describe('functions and shared types stay aligned', () => {
       expect(functionsRequestSchema.safeParse(input).success).toBe(
         sharedRequestSchema.safeParse(input).success,
       );
+    }
+  });
+
+  it('uses the same availability targets and go-online requirements', () => {
+    expect([...functionsAvailabilityTargets]).toEqual([...AVAILABILITY_TARGETS]);
+    expect([...AVAILABILITY_TARGETS].sort()).toEqual([...DRIVER_AVAILABILITY_STATUSES].sort());
+    expect([...functionsRequirements]).toEqual([...GO_ONLINE_REQUIREMENTS]);
+    for (const input of [
+      { status: 'ONLINE' },
+      { status: 'OFFLINE' },
+      { status: 'BUSY' },
+      {},
+      { status: null },
+    ]) {
+      expect(functionsAvailabilitySchema.safeParse(input).success).toBe(
+        sharedAvailabilitySchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('decides who may go online identically, over every combination', () => {
+    const statuses = ['PENDING', 'VERIFIED', 'REJECTED', null] as const;
+    for (const accountActive of [true, false]) {
+      for (const driverStatus of statuses) {
+        for (const vehicleStatus of statuses) {
+          for (const seatCapacity of [null, 1, 4]) {
+            const facts = { accountActive, driverStatus, vehicleStatus, seatCapacity };
+            const shared = evaluateGoOnline(facts);
+            const server = functionsEvaluate(facts);
+            expect(server.eligible).toBe(shared.eligible);
+            expect(server.unmet).toEqual(
+              shared.checks.filter((check) => !check.met).map((check) => check.requirement),
+            );
+          }
+        }
+      }
     }
   });
 });

@@ -5,6 +5,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { buildHealthResponse } from './health.js';
 import { registerUser } from './registration.js';
+import { setAvailability as setDriverAvailability } from './availability.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
   saveVehicle as saveDriverVehicle,
@@ -82,4 +83,8 @@ export const reviewVehicle = onCall((request) =>
 
 export const requestReview = onCall((request) =>
   requestDriverReview({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const setAvailability = onCall((request) =>
+  setDriverAvailability({ firestore: getFirestore() }, callerOf(request), request.data),
 );

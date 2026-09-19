@@ -21,20 +21,20 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.4)
+## What exists now (through Module 2.5)
 
-| Area            | Location                                  | State                                                                                                  |
-| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.              |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.                           |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                            |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review and `requestReview` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                   |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                      |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                  |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                             |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.              |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                    |
+| Area            | Location                                  | State                                                                                                                     |
+| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                 |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                  |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                               |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                      |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                         |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                     |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                 |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                       |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -201,13 +201,44 @@ can have a vehicle that is still pending, and the reverse. Statuses are `PENDING
   photos are collected or stored in the app; the identity check itself happens outside it. Adding
   documents would need Firebase Storage, retention rules and a privacy review, and is left for a
   later module.
-- **Not enforced yet:** verification does not yet stop anything. Going online (Module 2.5) and
-  creating journeys will require a `VERIFIED` driver and vehicle with seats set; those modules own
-  that check.
+- **What it gates:** going online (see Availability below) needs a `VERIFIED` driver and vehicle
+  with seats set, and losing verification takes the driver offline. Creating journeys and matching
+  will check it in the modules that own them.
 - **App:** the "Driver details" and "Your vehicle" cards show the status through the shared
   `ReviewStatus` component. The passenger app shows none of it.
 - The reviewer roles, decisions, reason limit and schemas are duplicated in
   `functions/src/verification.ts`; `tests/roles-parity.test.ts` keeps them aligned.
+
+## Availability (Phase 2)
+
+A driver is `ONLINE` or `OFFLINE` (`availabilityStatus` on `drivers/{uid}`, with
+`availabilityChangedAt`). New drivers are `OFFLINE`. It is the driver's own switch, on the Home
+tab, but it is changed only by the `setAvailability` function (`functions/src/availability.ts`);
+the client cannot write it.
+
+- **Going online needs all of these** (`evaluateGoOnline`): an ACTIVE account, a `VERIFIED` driver
+  profile, a vehicle that has been added and is `VERIFIED`, and its passenger seats set
+  (`seatCapacity`, not the per-journey `availableSeats` of Module 2.7). Otherwise the function
+  refuses with `failed-precondition` and lists what is unmet. Going offline always works.
+- **Losing a requirement takes the driver offline at once.** If staff reject the driver profile or
+  the vehicle, the driver changes the vehicle's details, or raises its seats (each sends the
+  vehicle back to `PENDING`), the same transaction sets an `ONLINE` driver `OFFLINE` and writes a
+  `DRIVER_TAKEN_OFFLINE` audit entry (actor: the staff uid or the driver). Lowering seats, a new
+  `VERIFIED` decision and saving identical details leave the driver online. Ordinary toggles are not
+  audited; the time of the last change is in `availabilityChangedAt`.
+- **Home tab** (`DriverHomeScreen`): "You are offline" or "You are online", a Go online / Go
+  offline button, and, while the driver cannot go online, a "Before you can go online" checklist
+  showing each requirement as done or what is left to do. The button is disabled until every
+  requirement is met. The screen follows the driver profile, vehicle and account live, so a staff
+  decision shows up without a reload. The same requirement list exists in `@ridemesh/types`
+  (`evaluateGoOnline`, for the checklist) and in the function (which enforces it);
+  `tests/roles-parity.test.ts` checks them against every combination.
+- **No automatic expiry.** A driver who goes online and closes the app, or loses connection, stays
+  `ONLINE` until they go offline or lose a requirement. Expiring stale drivers needs a heartbeat or
+  a scheduled function (Blaze plan) and belongs with the location strategy (spec section 72);
+  matching must not treat an old `availabilityChangedAt` as proof the driver is still there.
+- **Online does not mean matched.** Nothing uses `ONLINE` yet. Destination (2.6), seats on offer
+  (2.7) and detour (2.8) will add their requirements to the same list.
 
 ## Design tokens
 

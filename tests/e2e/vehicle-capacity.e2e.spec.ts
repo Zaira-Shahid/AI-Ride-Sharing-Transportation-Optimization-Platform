@@ -152,7 +152,7 @@ test.describe('driver app: passenger seats', () => {
     await signInAndOpenProfile(page, driver, email);
 
     await expect(page.getByRole('button', { name: 'Add vehicle' })).toBeVisible();
-    await expect(page.getByText('Passenger seats')).toHaveCount(0);
+    await expect(page.getByText('Passenger seats', { exact: true })).toHaveCount(0);
     await expect(saveSeats(page)).toHaveCount(0);
   });
 });
@@ -167,6 +167,6 @@ test.describe('passenger app: passenger seats', () => {
     await signInAndOpenProfile(page, passenger, email);
 
     await expect(page.getByLabel('Full name')).toHaveValue('Pat Passenger');
-    await expect(page.getByText('Passenger seats')).toHaveCount(0);
+    await expect(page.getByText('Passenger seats', { exact: true })).toHaveCount(0);
   });
 });
