@@ -13,6 +13,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@ridemesh/config": "*",
+    "@ridemesh/firebase": "*",
     "@ridemesh/ui": "*",
     "expo": "~57.0.24",
     "expo-constants": "~57.0.19",

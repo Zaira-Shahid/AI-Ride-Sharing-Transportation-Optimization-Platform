@@ -19,6 +19,7 @@
 | `npm run dev:passenger` / `dev:driver`                 | Expo dev servers                                 |
 | `npm run build:functions`                              | Compile Cloud Functions to `functions/lib`       |
 | `npm run emulators`                                    | Build functions and start Firebase emulators     |
+| `npm run verify:firebase`                              | Live check against the real Firebase project     |
 | `npm run export:check --workspace @ridemesh/passenger` | Verify the Android bundle compiles (also driver) |
 
 ## Environment configuration
@@ -33,6 +34,11 @@ values from the Firebase console (Project settings, Your apps, Web app config):
 prefixed `NEXT_PUBLIC_` or `EXPO_PUBLIC_` is shipped to the client, so never put a secret in one.
 Privileged credentials such as service account keys, Stripe secret keys and webhook secrets belong
 in Firebase secret management on the server side only.
+
+To confirm the local env files work and the app reaches the real project, run
+`npm run verify:firebase`. It checks that every app reads a complete config for the pinned project
+and that Firestore is reachable and rejects an unauthenticated read (the deny-all rules). It needs
+the local env files and network access, so it is not part of `npm run verify` or CI.
 
 `@ridemesh/firebase` validates the values at startup and reports which keys are missing without
 printing any values. Build the raw object from literal `process.env.X` references; bundlers only

@@ -19,6 +19,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:firebase": "vitest run --config vitest.live.config.mts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test",
     "dev:admin": "npm run dev --workspace @ridemesh/admin",
     "dev:passenger": "npm run start --workspace @ridemesh/passenger",

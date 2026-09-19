@@ -89,8 +89,18 @@ describe('locationSchema', () => {
     expect(locationSchema.safeParse({ ...valid, longitude: -181 }).success).toBe(false);
   });
 
-  it('rejects a missing address or place id', () => {
+  it('allows placeId to be omitted or null for a raw GPS pin', () => {
+    const withoutPlaceId = {
+      latitude: valid.latitude,
+      longitude: valid.longitude,
+      formattedAddress: valid.formattedAddress,
+    };
+    expect(locationSchema.safeParse(withoutPlaceId).success).toBe(true);
+    expect(locationSchema.safeParse({ ...valid, placeId: null }).success).toBe(true);
+  });
+
+  it('rejects an empty place id and a missing address', () => {
+    expect(locationSchema.safeParse({ ...valid, placeId: '' }).success).toBe(false);
     expect(locationSchema.safeParse({ ...valid, formattedAddress: '' }).success).toBe(false);
-    expect(locationSchema.safeParse({ ...valid, placeId: undefined }).success).toBe(false);
   });
 });

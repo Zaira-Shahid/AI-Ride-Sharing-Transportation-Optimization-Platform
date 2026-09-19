@@ -32,7 +32,7 @@ controls routing or safety constraints.
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, Firestore rules deny all client access.                |
 | Shared types    | `packages/types`                          | Roles, state enumerations, `Location`, all with Zod schemas.                                 |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.        |
-| Firebase config | `packages/firebase`                       | Validates the Firebase web config; the SDK is not initialised yet.                           |
+| Firebase client | `packages/firebase`                       | Validates the Firebase web config and initialises the shared Firebase app.                   |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                          |
 
 Nothing here is mocked product logic. No fake data is displayed.
@@ -62,11 +62,21 @@ while driving. Each is a one-line change in the app's `src/theme.ts`.
 ## Firebase
 
 - Project ID: `ai-ride-sharing-system-a6743`, pinned in `.firebaserc`.
+- Region: Firestore and Cloud Functions both use `europe-west1` (Belgium). The constant lives in
+  `packages/config/src/firebase.ts`; `functions/src/index.ts` sets the same value, and a repository
+  test keeps them aligned. A Firestore location cannot be changed after creation.
 - `firestore.rules` denies all client reads and writes. Role-based rules arrive with authentication
   (Phase 1). Roles will be verified server-side through custom claims; a client-side role field is
   never trusted.
-- Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000.
-- Web app configuration values are not in the repository. See `docs/development.md`.
+- Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Local function URLs include
+  the region: `http://127.0.0.1:5001/<project>/europe-west1/healthCheck`.
+- One Firebase web app ("Ride Sharing App") serves the admin, passenger and driver apps. Its
+  configuration values are kept in local, git-ignored env files; see `docs/development.md`.
+- Each app has its own small env reader (`apps/admin/lib/firebase.ts`,
+  `apps/*/src/firebase.ts`) that builds the config from literal `process.env` references, validates
+  it and initialises the shared app from `@ridemesh/firebase`.
+- Mobile bundle identifiers: `com.ridemesh.passenger`, `com.ridemesh.driver`. `com.ridemesh.admin`
+  is recorded in `packages/config` but unused, because the admin dashboard is a web app.
 
 ## Constraints carried forward from the specification
 
@@ -82,12 +92,11 @@ while driving. Each is a one-line change in the app's `src/theme.ts`.
 These are intentionally not decided yet and need an explicit answer before the module that depends
 on them.
 
-| Decision                                                                                                    | Needed by |
-| ----------------------------------------------------------------------------------------------------------- | --------- |
-| Firestore database location (the project currently has no resource location set)                            | Phase 1   |
-| Cloud Functions region                                                                                      | Phase 1   |
-| Location field casing. Spec section 8 uses snake_case and section 10 uses camelCase; camelCase is used now. | Phase 3   |
-| Whether a location may omit `placeId` (for example a raw GPS pin). It is currently required.                | Phase 3   |
-| Passenger flexibility profile fields. Spec sections 3 and 10 name them differently.                         | Phase 3   |
-| Mobile bundle identifiers and app store metadata                                                            | Phase 14  |
-| Target country, currency and legal requirements (emergency features, privacy)                               | Phase 1+  |
+| Decision                                                                                                        | Needed by |
+| --------------------------------------------------------------------------------------------------------------- | --------- |
+| Passenger flexibility profile fields. Spec sections 3 and 10 name them differently (camelCase is the standard). | Phase 3   |
+| App store metadata, icons and splash screens                                                                    | Phase 14  |
+| Target country, currency and legal requirements (emergency features, privacy)                                   | Phase 1+  |
+
+Resolved: camelCase is the field-name standard across the specification, `placeId` is optional or
+null (a raw GPS pin has none), and the Firestore and Functions region is `europe-west1`.
