@@ -6,8 +6,8 @@ import { deleteApp, getApps } from 'firebase/app';
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFirebaseConfig as readAdminConfig } from '../../apps/admin/lib/firebase';
-import { readFirebaseConfig as readDriverConfig } from '../../apps/driver/src/firebase';
-import { readFirebaseConfig as readPassengerConfig } from '../../apps/passenger/src/firebase';
+import { readFirebaseConfig as readDriverConfig } from '../../apps/driver/src/firebase-config';
+import { readFirebaseConfig as readPassengerConfig } from '../../apps/passenger/src/firebase-config';
 import { initializeFirebaseApp } from '../../packages/firebase/src';
 
 const root = resolve(__dirname, '../..');

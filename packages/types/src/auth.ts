@@ -31,6 +31,17 @@ export type RegistrationValidation =
   | { ok: true; data: ValidatedRegistration }
   | { ok: false; errors: Partial<Record<RegistrationField, string>> };
 
+export const LOGIN_FIELDS = ['email', 'password'] as const;
+export type LoginField = (typeof LOGIN_FIELDS)[number];
+
+export interface LoginFormValues {
+  email: string;
+  password: string;
+}
+
+export type LoginValidation =
+  { ok: true; data: LoginFormValues } | { ok: false; errors: Partial<Record<LoginField, string>> };
+
 const PHONE_ALLOWED = /^[+\d\s().-]+$/;
 
 function isPlausiblePhone(value: string) {
@@ -80,4 +91,19 @@ export function validateRegistration(values: RegistrationFormValues): Registrati
       password: values.password,
     },
   };
+}
+
+/**
+ * Validates the sign-in form. The password is only checked for presence, not length, so accounts
+ * created before a length rule existed can still sign in.
+ */
+export function validateLogin(values: LoginFormValues): LoginValidation {
+  const errors: Partial<Record<LoginField, string>> = {};
+
+  const email = emailSchema.safeParse(values.email);
+  if (!email.success) errors.email = 'Enter a valid email address.';
+  if (values.password.length === 0) errors.password = 'Enter your password.';
+
+  if (Object.keys(errors).length > 0 || !email.success) return { ok: false, errors };
+  return { ok: true, data: { email: email.data, password: values.password } };
 }
