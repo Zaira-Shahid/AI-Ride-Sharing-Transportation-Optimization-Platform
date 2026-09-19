@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "RideMesh Driver",
+    "slug": "ridemesh-driver",
+    "scheme": "ridemesh-driver",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": ["expo-router"]
+  }
+}

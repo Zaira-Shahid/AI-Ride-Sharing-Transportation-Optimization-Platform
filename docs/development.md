@@ -1,0 +1,83 @@
+# Development guide
+
+## Requirements
+
+- Node.js 22 or newer and npm 10 or newer
+- Firebase CLI (`npm i -g firebase-tools`), logged in with `firebase login`
+- Java 21 or newer, only for the Firestore emulator
+
+## Commands
+
+| Command                                                | Purpose                                          |
+| ------------------------------------------------------ | ------------------------------------------------ |
+| `npm run verify`                                       | Format check, lint, type check and tests         |
+| `npm run lint` / `npm run lint:fix`                    | ESLint                                           |
+| `npm run format` / `npm run format:check`              | Prettier                                         |
+| `npm run typecheck`                                    | `tsc --noEmit` in every workspace and at root    |
+| `npm test`                                             | Vitest                                           |
+| `npm run dev:admin`                                    | Admin dashboard on port 3000                     |
+| `npm run dev:passenger` / `dev:driver`                 | Expo dev servers                                 |
+| `npm run build:functions`                              | Compile Cloud Functions to `functions/lib`       |
+| `npm run emulators`                                    | Build functions and start Firebase emulators     |
+| `npm run export:check --workspace @ridemesh/passenger` | Verify the Android bundle compiles (also driver) |
+
+## Environment configuration
+
+Each app has a `.env.example` listing the variables it reads. Copy it to a local file and fill in
+values from the Firebase console (Project settings, Your apps, Web app config):
+
+- `apps/admin`: copy to `.env.local` (variables prefixed `NEXT_PUBLIC_`)
+- `apps/passenger`, `apps/driver`: copy to `.env` (variables prefixed `EXPO_PUBLIC_`)
+
+`.env` and `.env.*` files are git-ignored; only `.env.example` files are committed. Anything
+prefixed `NEXT_PUBLIC_` or `EXPO_PUBLIC_` is shipped to the client, so never put a secret in one.
+Privileged credentials such as service account keys, Stripe secret keys and webhook secrets belong
+in Firebase secret management on the server side only.
+
+`@ridemesh/firebase` validates the values at startup and reports which keys are missing without
+printing any values. Build the raw object from literal `process.env.X` references; bundlers only
+inline variables referenced literally.
+
+## Git workflow
+
+```text
+main       production / stable
+develop    integration
+feature/*  one branch per module, for example feature/foundation
+```
+
+Every module follows the same sequence:
+
+1. Read the specification section and inspect existing code.
+2. Create `feature/<module>` from `develop`.
+3. Implement only that module. Keep frontend and backend integration real.
+4. Run `npm run verify`, fix everything.
+5. Verify the UI and any Firebase rules.
+6. Update documentation.
+7. Commit, push the feature branch, open a pull request using the template.
+8. Review, then merge into `develop` and verify the integration.
+9. Merge `develop` into `main` only when the work is accepted.
+
+Never develop directly on `main`. A module is not finished while lint, type checks or tests fail,
+while temporary mocks remain, or while the working tree is dirty. The full Definition of Done is
+specification section 82.
+
+### Commit messages
+
+Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`, `security:`.
+Example: `feat: add passenger trip request flow`.
+
+## Testing
+
+Vitest runs unit tests that live next to their code (`*.test.ts`) and repository-level checks in
+`tests/`. The repository tests protect structural rules: package scoping, the pinned Firebase
+project, deny-all Firestore rules, no committed env values, and no coding-agent branding in product
+source.
+
+Firestore rules tests, integration tests and Playwright end-to-end tests are added with the modules
+that introduce the behavior they cover.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs format check, lint, type check, tests and the functions build on
+pull requests and on pushes to `develop` and `main`.

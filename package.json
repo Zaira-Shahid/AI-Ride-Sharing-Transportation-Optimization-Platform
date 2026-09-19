@@ -1,0 +1,42 @@
+{
+  "name": "ridemesh",
+  "version": "0.0.0",
+  "private": true,
+  "description": "RideMesh - AI-powered ride-sharing optimization platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "functions"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "dev:admin": "npm run dev --workspace @ridemesh/admin",
+    "dev:passenger": "npm run start --workspace @ridemesh/passenger",
+    "dev:driver": "npm run start --workspace @ridemesh/driver",
+    "build:functions": "npm run build --workspace @ridemesh/functions",
+    "emulators": "npm run build:functions && firebase emulators:start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "~19.2.2",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.0.0",
+    "prettier": "^3.9.8",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "extends": ["expo/tsconfig.base", "@ridemesh/config/tsconfig.base.json"],
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "jsx": "react-native"
+  },
+  "include": ["**/*.ts", "**/*.tsx", "expo-env.d.ts"],
+  "exclude": ["node_modules", ".expo"]
+}
