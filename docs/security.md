@@ -1,7 +1,8 @@
 # Roles, access and security
 
-Status: through Module 1.6 (profile). Module 1.1 defined the role system and Firestore rules;
-registration, login, logout, password reset and profile editing are built on top of it.
+Status: through Module 2.1 (driver profile). Module 1.1 defined the role system and Firestore
+rules; registration, login, logout, password reset, profile editing and the driver profile are
+built on top of it.
 
 ## Roles
 
@@ -104,6 +105,34 @@ when the person verifies.
   informational only; nothing authorizes from it.
 - Profile edits are not written to `auditLogs`; only role and status changes are audited.
 
+## Driver profile
+
+- `drivers/{uid}` is created by the server (`completeRegistration`, or the backfill script below),
+  never by a client. The document ID is the driver's uid.
+- **Read:** the driver themselves (verified email, and the `DRIVER` role claim), or verified staff
+  (any of the four staff roles). A passenger cannot read one, even one keyed by their own uid. The
+  `role` field stored inside a document is never used.
+- **Write:** nobody from a client, including the driver, so a driver cannot verify themselves, edit
+  their rating or trip count, or go online. Staff have read access only for now; how staff change
+  verification is decided in Module 2.4. Later Phase 2 modules open only the specific fields each
+  one owns.
+- A new driver starts `PENDING` and `OFFLINE`, with rating `null` and 0 trips; detour settings stay
+  `null` until the driver sets them.
+- Creation writes a `DRIVER_PROFILE_CREATED` audit entry.
+- Nothing about a driver's verification is enforced elsewhere yet. Access to journeys and matching
+  will check it in the modules that own them.
+
+```bash
+npm run admin:backfill-driver-profiles -- --confirm-production
+```
+
+- Creates a driver profile for every driver account that does not have one (accounts registered
+  before Module 2.1). It leaves existing profiles untouched, so it is safe to repeat, and writes an
+  audit entry (`actor: script:backfill-driver-profiles`) for each one it creates.
+- Same safety rules as the staff-role script: against the real project it needs
+  `GOOGLE_APPLICATION_CREDENTIALS` and the explicit `--confirm-production` flag; without the flag it
+  refuses to run unless the Firestore emulator is configured.
+
 ## Staff roles
 
 ```bash
@@ -123,6 +152,7 @@ npm run admin:set-staff-role -- <email> <SUPPORT|OPERATIONS|ADMIN|SUPER_ADMIN> -
 | Collection      | Read                                                     | Write                                         |
 | --------------- | -------------------------------------------------------- | --------------------------------------------- |
 | `users/{uid}`   | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
+| `drivers/{uid}` | That driver, or any driver profile for verified staff    | Nobody                                        |
 | everything else | Nobody                                                   | Nobody                                        |
 
 Creating and deleting profiles, and every other write, happens through Cloud Functions or scripts

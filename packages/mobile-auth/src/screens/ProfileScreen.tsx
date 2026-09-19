@@ -2,11 +2,13 @@ import {
   describeAuthError,
   saveProfile,
   type AuthFailure,
+  type DriverProfileData,
   type ProfileData,
 } from '@ridemesh/firebase';
-import { useAuth, useProfile } from '@ridemesh/firebase/react';
+import { useAuth, useDriverProfile, useProfile } from '@ridemesh/firebase/react';
 import {
   validateProfileUpdate,
+  type DriverVerificationStatus,
   type ProfileField,
   type ProfileUpdateValues,
 } from '@ridemesh/types';
@@ -25,6 +27,12 @@ import {
 } from '../components';
 
 const DRIVER_PHONE_HINT = "You'll need to add a phone number before accepting rides.";
+
+const VERIFICATION_LABELS: Record<DriverVerificationStatus, string> = {
+  PENDING: 'Pending review',
+  VERIFIED: 'Verified',
+  REJECTED: 'Not approved',
+};
 
 type FieldErrors = Partial<Record<ProfileField, string>>;
 
@@ -48,6 +56,49 @@ function AccountCard({ profile }: { profile?: ProfileData }) {
         Your email address cannot be changed here.
       </Text>
     </View>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  const theme = useAuthTheme();
+  return (
+    <View style={styles.row}>
+      <Text style={[styles.caption, { color: theme.textSecondary }]}>{label}</Text>
+      <Text style={[styles.value, { color: theme.textPrimary }]}>{value}</Text>
+    </View>
+  );
+}
+
+function DriverDetails({ driver }: { driver: DriverProfileData }) {
+  const theme = useAuthTheme();
+  return (
+    <View
+      style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
+      accessibilityLabel="Driver details"
+    >
+      <Text style={[styles.heading, { color: theme.textPrimary }]}>Driver details</Text>
+      <DetailRow label="Verification" value={VERIFICATION_LABELS[driver.verificationStatus]} />
+      <DetailRow label="Completed trips" value={String(driver.totalTrips)} />
+      <DetailRow
+        label="Rating"
+        value={driver.rating === null ? 'No ratings yet' : driver.rating.toFixed(1)}
+      />
+    </View>
+  );
+}
+
+/** Loads and shows drivers/{uid}. Rendered for the driver app only, so passengers never read it. */
+function DriverSection() {
+  const driver = useDriverProfile();
+  if (driver.status === 'loading') {
+    return <ActivityIndicator accessibilityLabel="Loading your driver details" />;
+  }
+  if (driver.status === 'ready') return <DriverDetails driver={driver.driver} />;
+  return (
+    <>
+      <Notice tone="error">We could not load your driver details. Please try again.</Notice>
+      <SecondaryButton label="Try again" onPress={driver.retry} />
+    </>
   );
 }
 
@@ -169,6 +220,7 @@ export function ProfileScreen({ app, theme }: AuthScreenProps) {
       {profile.status === 'loading' ? (
         <ActivityIndicator accessibilityLabel="Loading your details" color={theme.accent} />
       ) : null}
+      {profile.status === 'ready' && app === 'driver' ? <DriverSection /> : null}
       {profile.status === 'ready' ? <DetailsForm app={app} profile={profile.profile} /> : null}
       {profile.status === 'missing' || profile.status === 'error' ? (
         <>
@@ -198,4 +250,7 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[6], gap: spacing[1] },
   caption: { fontSize: fontSize.sm },
   name: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold },
+  heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
+  row: { gap: spacing[1] },
+  value: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
 });

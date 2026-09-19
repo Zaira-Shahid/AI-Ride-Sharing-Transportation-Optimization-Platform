@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { FirebaseClient } from './client';
+import { subscribeToDriverProfile, type DriverProfileData } from './driver';
 import { subscribeToProfile, type ProfileData } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
 
@@ -128,6 +129,34 @@ export function useProfile(): ProfileState & { retry: () => void } {
     setState({ status: 'loading' });
     if (!uid) return undefined;
     return subscribeToProfile(
+      client,
+      uid,
+      (snapshot) => setState(snapshot),
+      () => setState({ status: 'error' }),
+    );
+  }, [client, uid, attempt]);
+
+  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  return { ...state, retry };
+}
+
+export type DriverProfileState =
+  | { status: 'loading' }
+  | { status: 'ready'; driver: DriverProfileData }
+  | { status: 'missing' }
+  | { status: 'error' };
+
+/** The signed-in driver's drivers/{uid} document, kept up to date. Use it in driver screens only. */
+export function useDriverProfile(): DriverProfileState & { retry: () => void } {
+  const { client, user } = useAuth();
+  const uid = user?.uid;
+  const [state, setState] = useState<DriverProfileState>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    setState({ status: 'loading' });
+    if (!uid) return undefined;
+    return subscribeToDriverProfile(
       client,
       uid,
       (snapshot) => setState(snapshot),

@@ -24,6 +24,7 @@
 | `npm run test:e2e`                                     | Playwright: real app UI against the emulators          |
 | `npm run web --workspace @ridemesh/passenger`          | Run an app in the browser for development (driver too) |
 | `npm run admin:set-staff-role -- <email> <ROLE>`       | Assign a staff role (see docs/security.md)             |
+| `npm run admin:backfill-driver-profiles`               | Create missing driver profiles (see docs/security.md)  |
 | `npm run export:check --workspace @ridemesh/passenger` | Verify the Android bundle compiles (also driver)       |
 
 ## Environment configuration
