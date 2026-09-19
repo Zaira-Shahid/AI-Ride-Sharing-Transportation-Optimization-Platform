@@ -1,11 +1,14 @@
 import {
   describeAuthError,
   saveVehicle,
+  setVehicleCapacity,
   type AuthFailure,
   type VehicleData,
 } from '@ridemesh/firebase';
 import { useAuth, useVehicle } from '@ridemesh/firebase/react';
 import {
+  SEAT_CAPACITY_MAX,
+  SEAT_CAPACITY_MIN,
   VEHICLE_TYPES,
   validateVehicle,
   type VehicleField,
@@ -14,7 +17,7 @@ import {
   type VehicleVerificationStatus,
 } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   Notice,
@@ -39,33 +42,43 @@ const VERIFICATION_LABELS: Record<VehicleVerificationStatus, string> = {
 
 type FieldErrors = Partial<Record<VehicleField, string>>;
 
-function TypeChoice({
+interface Choice<Value extends string | number> {
+  value: Value;
+  label: string;
+}
+
+/** A row of exclusive choices (radio buttons) that is quick to use with a thumb. */
+function ChoiceGroup<Value extends string | number>({
+  label,
+  choices,
   value,
   onChange,
   error,
   disabled,
 }: {
-  value: VehicleFormValues['type'];
-  onChange: (type: VehicleType) => void;
-  error: string | undefined;
+  label: string;
+  choices: readonly Choice<Value>[];
+  value: Value | '' | null;
+  onChange: (value: Value) => void;
+  error?: string | undefined;
   disabled: boolean;
 }) {
   const theme = useAuthTheme();
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, { color: theme.textPrimary }]}>Vehicle type</Text>
-      <View role="radiogroup" aria-label="Vehicle type" style={styles.choices}>
-        {VEHICLE_TYPES.map((type) => {
-          const selected = value === type;
+      <Text style={[styles.label, { color: theme.textPrimary }]}>{label}</Text>
+      <View role="radiogroup" aria-label={label} style={styles.choices}>
+        {choices.map((choice) => {
+          const selected = value === choice.value;
           return (
             <Pressable
-              key={type}
+              key={choice.value}
               role="radio"
-              aria-label={TYPE_LABELS[type]}
+              aria-label={choice.label}
               aria-checked={selected}
               aria-disabled={disabled}
               disabled={disabled}
-              onPress={() => onChange(type)}
+              onPress={() => onChange(choice.value)}
               style={[
                 styles.choice,
                 {
@@ -75,9 +88,7 @@ function TypeChoice({
                 },
               ]}
             >
-              <Text style={[styles.choiceLabel, { color: theme.textPrimary }]}>
-                {TYPE_LABELS[type]}
-              </Text>
+              <Text style={[styles.choiceLabel, { color: theme.textPrimary }]}>{choice.label}</Text>
             </Pressable>
           );
         })}
@@ -87,6 +98,86 @@ function TypeChoice({
           {error}
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+const TYPE_CHOICES = VEHICLE_TYPES.map((type) => ({ value: type, label: TYPE_LABELS[type] }));
+
+const SEAT_CHOICES = Array.from(
+  { length: SEAT_CAPACITY_MAX - SEAT_CAPACITY_MIN + 1 },
+  (_unused, index) => ({
+    value: SEAT_CAPACITY_MIN + index,
+    label: String(SEAT_CAPACITY_MIN + index),
+  }),
+);
+
+/** Passenger seats of the saved vehicle. */
+function SeatsControl({ vehicle }: { vehicle: VehicleData }) {
+  const theme = useAuthTheme();
+  const { client } = useAuth();
+  const stored = vehicle.seatCapacity;
+  const [selected, setSelected] = useState<number | null>(stored);
+  const [failure, setFailure] = useState<AuthFailure | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Follow the stored value, for example right after it has been saved.
+  useEffect(() => setSelected(stored), [stored]);
+
+  // More seats than the reviewed number, or seats never reviewed, mean a new review.
+  const needsReview =
+    vehicle.verificationStatus === 'VERIFIED' &&
+    selected !== null &&
+    (stored === null || selected > stored);
+
+  const choose = (seats: number) => {
+    setSelected(seats);
+    setFailure(null);
+    setJustSaved(false);
+  };
+
+  const save = async () => {
+    setFailure(null);
+    setJustSaved(false);
+    setSaving(true);
+    try {
+      await setVehicleCapacity(client, selected);
+      setJustSaved(true);
+    } catch (error) {
+      setFailure(describeAuthError(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.seats}>
+      <ChoiceGroup
+        label="Passenger seats"
+        choices={SEAT_CHOICES}
+        value={selected}
+        onChange={choose}
+        disabled={saving}
+      />
+      <Text style={[styles.message, { color: theme.textSecondary }]}>
+        {stored === null
+          ? 'Not set yet. Count the seats for passengers, not your own.'
+          : 'Seats for passengers, not counting your own.'}
+      </Text>
+      {needsReview ? (
+        <Text style={[styles.message, { color: theme.textSecondary }]}>
+          More seats means your vehicle will be reviewed again.
+        </Text>
+      ) : null}
+      {justSaved ? <Notice tone="info">Your seats have been saved.</Notice> : null}
+      {failure ? <Notice tone="error">{failure.message}</Notice> : null}
+      <PrimaryButton
+        label={saving ? 'Saving' : failure?.retryable ? 'Try again' : 'Save seats'}
+        onPress={() => void save()}
+        loading={saving}
+        disabled={selected === null || selected === stored}
+      />
     </View>
   );
 }
@@ -152,7 +243,9 @@ function VehicleForm({
         </Text>
       ) : null}
       {failure ? <Notice tone="error">{failure.message}</Notice> : null}
-      <TypeChoice
+      <ChoiceGroup
+        label="Vehicle type"
+        choices={TYPE_CHOICES}
         value={values.type}
         onChange={set('type')}
         error={fieldErrors.type}
@@ -262,6 +355,7 @@ export function VehicleSection() {
           <DetailRow label="Vehicle" value={`${current.make} ${current.model}`} />
           <DetailRow label="Plate number" value={current.plateNumber} />
           <DetailRow label="Verification" value={VERIFICATION_LABELS[current.verificationStatus]} />
+          <SeatsControl vehicle={current} />
           <SecondaryButton label="Edit vehicle" onPress={startEditing} />
         </>
       ) : (
@@ -284,6 +378,7 @@ const styles = StyleSheet.create({
   row: { gap: spacing[1] },
   value: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
   field: { gap: spacing[1] },
+  seats: { gap: spacing[3] },
   label: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },
   choices: { flexDirection: 'row', gap: spacing[2] },
   choice: {

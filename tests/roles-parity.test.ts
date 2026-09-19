@@ -9,7 +9,10 @@ import {
   VEHICLE_TYPES as functionsVehicleTypes,
   isValidPlate as functionsIsValidPlate,
   normalizePlate as functionsNormalizePlate,
+  SEAT_CAPACITY_MAX as functionsSeatMax,
+  SEAT_CAPACITY_MIN as functionsSeatMin,
   saveVehicleInputSchema as functionsVehicleSchema,
+  setVehicleCapacityInputSchema as functionsCapacitySchema,
 } from '../functions/src/vehicles';
 import {
   DRIVER_AVAILABILITY_STATUSES,
@@ -19,8 +22,11 @@ import {
   VEHICLE_TYPES,
   VEHICLE_VERIFICATION_STATUSES,
   isValidPlate,
+  SEAT_CAPACITY_MAX,
+  SEAT_CAPACITY_MIN,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
+  setVehicleCapacityInputSchema as sharedCapacitySchema,
   SELF_SERVICE_ROLES,
   STAFF_ROLES,
   USER_ROLES,
@@ -103,6 +109,26 @@ describe('functions and shared types stay aligned', () => {
       expect(functionsNormalizePlate(plate)).toEqual(normalizePlate(plate));
       expect(functionsIsValidPlate(functionsNormalizePlate(plate))).toBe(
         isValidPlate(normalizePlate(plate)),
+      );
+    }
+  });
+
+  it('validates seat capacity identically', () => {
+    expect([functionsSeatMin, functionsSeatMax]).toEqual([SEAT_CAPACITY_MIN, SEAT_CAPACITY_MAX]);
+    const inputs: unknown[] = [
+      { seatCapacity: 1 },
+      { seatCapacity: 6 },
+      { seatCapacity: 0 },
+      { seatCapacity: 7 },
+      { seatCapacity: 2.5 },
+      { seatCapacity: '4' },
+      { seatCapacity: null },
+      { seatCapacity: Number.NaN },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsCapacitySchema.safeParse(input).success).toBe(
+        sharedCapacitySchema.safeParse(input).success,
       );
     }
   });

@@ -281,6 +281,7 @@ describe('reading the vehicle as the driver (real auth tokens)', () => {
             make: 'Toyota',
             model: 'Corolla',
             plateNumber: 'ABC-123',
+            seatCapacity: null,
             verificationStatus: 'PENDING',
           },
         });
