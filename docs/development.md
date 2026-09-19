@@ -20,6 +20,8 @@
 | `npm run build:functions`                              | Compile Cloud Functions to `functions/lib`       |
 | `npm run emulators`                                    | Build functions and start Firebase emulators     |
 | `npm run verify:firebase`                              | Live check against the real Firebase project     |
+| `npm run test:integration`                             | Emulator tests: rules, functions, admin script   |
+| `npm run admin:set-staff-role -- <email> <ROLE>`       | Assign a staff role (see docs/security.md)       |
 | `npm run export:check --workspace @ridemesh/passenger` | Verify the Android bundle compiles (also driver) |
 
 ## Environment configuration
@@ -80,10 +82,15 @@ Vitest runs unit tests that live next to their code (`*.test.ts`) and repository
 project, deny-all Firestore rules, no committed env values, and no coding-agent branding in product
 source.
 
-Firestore rules tests, integration tests and Playwright end-to-end tests are added with the modules
-that introduce the behavior they cover.
+Integration tests live in `tests/integration` and run against the local Auth, Functions and
+Firestore emulators (`npm run test:integration`, needs Java 21). They use the real rules file, the
+real functions and the real admin script. Playwright end-to-end tests are added with the modules
+that introduce the UI they cover.
+
+Cloud Functions are tested on the emulators only. The project is on the Spark plan, which cannot
+deploy functions, so nothing is deployed until the plan is upgraded.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs format check, lint, type check, tests and the functions build on
-pull requests and on pushes to `develop` and `main`.
+`.github/workflows/ci.yml` runs format check, lint, type check, unit tests and the emulator
+integration tests on pull requests and on pushes to `develop` and `main`.
