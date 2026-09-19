@@ -1,0 +1,12 @@
+node_modules
+functions/lib
+dist
+.next
+.expo
+.firebase
+coverage
+package-lock.json
+next-env.d.ts
+
+# The specification is the source of truth and is never reformatted automatically.
+AI_Ride_Sharing_Platform_Professional_Spec.md
