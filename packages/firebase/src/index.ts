@@ -2,6 +2,7 @@ export * from './app';
 export * from './auth-errors';
 export * from './client';
 export * from './config';
+export * from './driver';
 export * from './password-reset';
 export * from './profile';
 export * from './register';

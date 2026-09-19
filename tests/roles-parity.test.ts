@@ -3,7 +3,16 @@ import {
   STAFF_ROLES as functionsStaff,
   USER_STATUSES as functionsStatuses,
 } from '../functions/src/roles';
-import { SELF_SERVICE_ROLES, STAFF_ROLES, USER_ROLES, USER_STATUSES } from '@ridemesh/types';
+import { NEW_DRIVER_PROFILE_DEFAULTS as functionsDriverDefaults } from '../functions/src/drivers';
+import {
+  DRIVER_AVAILABILITY_STATUSES,
+  DRIVER_VERIFICATION_STATUSES,
+  NEW_DRIVER_PROFILE_DEFAULTS,
+  SELF_SERVICE_ROLES,
+  STAFF_ROLES,
+  USER_ROLES,
+  USER_STATUSES,
+} from '@ridemesh/types';
 import { describe, expect, it } from 'vitest';
 import { completeRegistrationInputSchema as functionsSchema } from '../functions/src/registration';
 import { completeRegistrationInputSchema as sharedSchema } from '@ridemesh/types';
@@ -33,5 +42,14 @@ describe('functions and shared types stay aligned', () => {
         sharedSchema.safeParse(sample).success,
       );
     }
+  });
+
+  it('starts a new driver profile with the same values', () => {
+    expect(functionsDriverDefaults).toEqual(NEW_DRIVER_PROFILE_DEFAULTS);
+  });
+
+  it('starts a new driver profile in states the shared types allow', () => {
+    expect(DRIVER_VERIFICATION_STATUSES).toContain(functionsDriverDefaults.verificationStatus);
+    expect(DRIVER_AVAILABILITY_STATUSES).toContain(functionsDriverDefaults.availabilityStatus);
   });
 });

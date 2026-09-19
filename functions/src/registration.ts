@@ -2,6 +2,7 @@ import type { Auth } from 'firebase-admin/auth';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { createDriverProfile } from './drivers.js';
 import { SELF_SERVICE_ROLES, type SelfServiceRole } from './roles.js';
 
 export const completeRegistrationInputSchema = z.object({
@@ -44,11 +45,26 @@ export async function registerUser(
   }
 
   const profileRef = deps.firestore.collection('users').doc(uid);
+  const driverRef = deps.firestore.collection('drivers').doc(uid);
   await deps.firestore.runTransaction(async (tx) => {
     const snapshot = await tx.get(profileRef);
+    const driverSnapshot = input.role === 'DRIVER' ? await tx.get(driverRef) : undefined;
+    const needsDriverProfile = driverSnapshot !== undefined && !driverSnapshot.exists;
+
     if (snapshot.exists) {
       if (snapshot.get('role') !== input.role) {
         throw new HttpsError('failed-precondition', 'This account already has a role.');
+      }
+      // A repeat call also repairs a driver whose driver profile is missing.
+      if (needsDriverProfile) {
+        createDriverProfile(
+          tx,
+          driverRef,
+          deps.firestore.collection('auditLogs').doc(),
+          uid,
+          uid,
+          'Driver profile created on repeat registration',
+        );
       }
       return;
     }
@@ -72,6 +88,16 @@ export async function registerUser(
       newState: { role: input.role },
       reason: 'Self-service registration',
     });
+    if (needsDriverProfile) {
+      createDriverProfile(
+        tx,
+        driverRef,
+        deps.firestore.collection('auditLogs').doc(),
+        uid,
+        uid,
+        'Self-service driver registration',
+      );
+    }
   });
 
   if (existingRole !== input.role) {
