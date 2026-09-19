@@ -1,6 +1,9 @@
 export type AuthErrorKind =
   | 'validation'
   | 'email-in-use'
+  | 'invalid-credential'
+  | 'account-disabled'
+  | 'role-mismatch'
   | 'invalid-email'
   | 'weak-password'
   | 'network'
@@ -36,6 +39,15 @@ const failures: Record<AuthErrorKind, Omit<AuthFailure, 'kind'>> = {
     message: 'An account with this email address already exists.',
     retryable: false,
   },
+  'invalid-credential': { message: 'Incorrect email or password.', retryable: false },
+  'account-disabled': {
+    message: 'This account has been disabled. Please contact support.',
+    retryable: false,
+  },
+  'role-mismatch': {
+    message: 'This account cannot be used in this app.',
+    retryable: false,
+  },
   'invalid-email': { message: 'Enter a valid email address.', retryable: false },
   'weak-password': {
     message: 'Choose a stronger password of at least 8 characters.',
@@ -61,6 +73,11 @@ const failures: Record<AuthErrorKind, Omit<AuthFailure, 'kind'>> = {
 const kindByCode: Record<string, AuthErrorKind> = {
   'auth/email-already-in-use': 'email-in-use',
   'auth/invalid-email': 'invalid-email',
+  'auth/invalid-credential': 'invalid-credential',
+  'auth/invalid-login-credentials': 'invalid-credential',
+  'auth/user-not-found': 'invalid-credential',
+  'auth/wrong-password': 'invalid-credential',
+  'auth/user-disabled': 'account-disabled',
   'auth/weak-password': 'weak-password',
   'auth/network-request-failed': 'network',
   'auth/too-many-requests': 'too-many-requests',

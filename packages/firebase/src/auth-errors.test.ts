@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { AuthFlowError, describeAuthError } from './auth-errors';
 import { deriveSessionStatus } from './session';
+import { roleMismatchMessage } from './sign-in';
 
 describe('describeAuthError', () => {
   it.each([
     ['auth/email-already-in-use', 'email-in-use', false],
     ['auth/invalid-email', 'invalid-email', false],
     ['auth/weak-password', 'weak-password', false],
+    ['auth/invalid-credential', 'invalid-credential', false],
+    ['auth/invalid-login-credentials', 'invalid-credential', false],
+    ['auth/user-not-found', 'invalid-credential', false],
+    ['auth/wrong-password', 'invalid-credential', false],
+    ['auth/user-disabled', 'account-disabled', false],
     ['auth/network-request-failed', 'network', true],
     ['auth/too-many-requests', 'too-many-requests', true],
     ['functions/unavailable', 'network', true],
@@ -19,6 +25,13 @@ describe('describeAuthError', () => {
     const failure = describeAuthError({ code, message: 'Firebase: raw technical text' });
     expect(failure.kind).toBe(kind);
     expect(failure.retryable).toBe(retryable);
+  });
+
+  it('does not reveal whether an email address has an account', () => {
+    const unknownUser = describeAuthError({ code: 'auth/user-not-found' });
+    const wrongPassword = describeAuthError({ code: 'auth/wrong-password' });
+    expect(unknownUser).toEqual(wrongPassword);
+    expect(unknownUser.message).toBe('Incorrect email or password.');
   });
 
   it('never leaks raw technical text', () => {
@@ -50,6 +63,23 @@ describe('describeAuthError', () => {
       message: 'Please check the fields.',
       retryable: false,
     });
+  });
+});
+
+describe('roleMismatchMessage', () => {
+  it('points a driver account at the driver app and a passenger account at the passenger app', () => {
+    expect(roleMismatchMessage('DRIVER')).toBe(
+      'This is a driver account. Please sign in with the RideMesh Driver app.',
+    );
+    expect(roleMismatchMessage('PASSENGER')).toBe(
+      'This is a passenger account. Please sign in with the RideMesh app.',
+    );
+  });
+
+  it('does not reveal staff roles', () => {
+    for (const role of ['ADMIN', 'SUPER_ADMIN', 'SUPPORT', 'OPERATIONS']) {
+      expect(roleMismatchMessage(role)).toBe('This account cannot be used in this app.');
+    }
   });
 });
 

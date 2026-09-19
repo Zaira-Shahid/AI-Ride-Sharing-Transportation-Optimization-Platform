@@ -21,19 +21,19 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 1.2)
+## What exists now (through Module 1.3)
 
 | Area            | Location                                  | State                                                                                     |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, registration and email verification, then Home, Trips, Wallet, Profile tabs.     |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile. |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.              |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.               |
 | Cloud Functions | `functions`                               | `healthCheck` and the `completeRegistration` callable (role assignment). Emulator-tested. |
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.      |
 | Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                    |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.     |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, registration flow, friendly errors, `AuthProvider`.    |
-| Mobile auth     | `packages/mobile-auth`                    | Shared Welcome, Register and Verify Email screens and form components.                    |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, registration and sign-in flows, `AuthProvider`.        |
+| Mobile auth     | `packages/mobile-auth`                    | Shared Welcome, Login, Register, Verify Email screens, form components, mobile client.    |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                       |
 
 Nothing here is mocked product logic. No fake data is displayed.
@@ -59,7 +59,7 @@ Both mobile apps gate their screens on a session status derived from Firebase Au
 | Status       | Meaning                                    | Screen shown             |
 | ------------ | ------------------------------------------ | ------------------------ |
 | `loading`    | First auth state not known yet             | Loading indicator        |
-| `signedOut`  | Nobody signed in                           | Welcome, then Register   |
+| `signedOut`  | Nobody signed in                           | Welcome, Login, Register |
 | `unverified` | Signed in, email not verified              | Verify Email             |
 | `incomplete` | Email verified but no server-assigned role | Register (finish set-up) |
 | `ready`      | Signed in, verified and has a role         | Tabs                     |
@@ -72,7 +72,18 @@ where it stopped.
 
 The screens live in `packages/mobile-auth` so the passenger and driver apps share them. Each app
 passes its own `app` key and theme, which decide the role (`PASSENGER` or `DRIVER`) and the
-look. Until sign-in is built (Module 1.3) the session is held in memory only.
+look.
+
+Sign-in (`signIn` in `packages/firebase/src/sign-in.ts`) refuses an account whose role belongs to
+the other app, signs it out again and shows a clear message ("This is a driver account. Please
+sign in with the RideMesh Driver app."). Accounts with no role yet, or an unverified email, are let
+through so the session gate can guide them. The first screen of the `(auth)` group is pinned with
+`unstable_settings` so it does not depend on route ordering.
+
+Sessions persist across restarts. `createMobileFirebaseClient` (`packages/mobile-auth`) stores the
+session in AsyncStorage on phones and uses the browser default on web. Each app keeps its
+environment reader in `src/firebase-config.ts` (plain TypeScript, safe to import from Node tests)
+and creates its client in `src/firebase.ts` (React Native).
 
 ## Design tokens
 

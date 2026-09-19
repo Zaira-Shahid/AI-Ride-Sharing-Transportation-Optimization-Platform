@@ -54,6 +54,23 @@ when the person verifies.
   to change a role that is already assigned.
 - Error messages shown to people never contain raw Firebase or technical text.
 
+## Sign-in and sessions
+
+- Sign-in uses Firebase email and password. Wrong password and unknown email produce the same
+  message ("Incorrect email or password."), so the form does not reveal which addresses have an
+  account.
+- Repeated failures are limited by Firebase's built-in temporary lockout. No custom attempt-based
+  rule exists yet; that was a deliberate decision for now.
+- A disabled account gets its own clear message.
+- **Cross-role refusal is a convenience, not access control.** The apps sign a driver account out of
+  the passenger app (and the reverse) and explain why. Rules and functions authorize from the
+  server-set role claim; they do not rely on which app was used. Staff accounts are refused in both
+  apps without naming the role.
+- Sessions persist: AsyncStorage on phones, the browser's storage on web. AsyncStorage is not
+  encrypted storage; moving the token to the platform keychain is a hardening item for Phase 14.
+- After a role is changed by the staff script the person's sessions are revoked and they must sign
+  in again.
+
 ## Staff roles
 
 ```bash
@@ -93,7 +110,12 @@ Collections other than `users` stay closed until the module that owns each one d
 ## Known limitations (planned later)
 
 - No App Check or rate limiting on `completeRegistration` yet (Phase 14 hardening).
-- Password minimum length is enforced by the apps, not by Firebase Auth itself (see above).
+- Password minimum length is enforced by the apps, not by Firebase Auth itself (see above). This
+  is a known gap to close when the project moves to the Blaze plan and Auth password policy can be
+  enabled.
+- Session tokens are kept in AsyncStorage on phones, which is not encrypted storage.
+- Native session persistence is verified by the Android bundle containing the React Native storage
+  implementation and by web tests; it has not been exercised on a physical device or simulator.
 - `status` (`ACTIVE`, `SUSPENDED`) is stored but not enforced by rules or functions until the admin
   module.
 - Staff roles all have the same read-only access for now; per-role permissions are defined in the

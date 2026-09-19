@@ -5,6 +5,11 @@ import { theme } from '../../src/theme';
 export default function Welcome() {
   const router = useRouter();
   return (
-    <WelcomeScreen app="driver" theme={theme} onCreateAccount={() => router.push('/register')} />
+    <WelcomeScreen
+      app="driver"
+      theme={theme}
+      onSignIn={() => router.push('/login')}
+      onCreateAccount={() => router.push('/register')}
+    />
   );
 }

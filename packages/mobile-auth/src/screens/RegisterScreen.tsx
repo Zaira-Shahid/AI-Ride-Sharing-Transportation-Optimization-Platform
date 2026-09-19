@@ -8,7 +8,7 @@ import {
 import { useRef, useState } from 'react';
 import { type TextInput } from 'react-native';
 import { ROLE_BY_APP, appName, type AuthScreenProps } from '../app-info';
-import { AuthFrame, Heading, Notice, PrimaryButton, TextField } from '../components';
+import { AuthFrame, Heading, Notice, PrimaryButton, TextButton, TextField } from '../components';
 
 type FieldErrors = Partial<Record<RegistrationField, string>>;
 
@@ -20,7 +20,11 @@ const EMPTY: RegistrationFormValues = {
   confirmPassword: '',
 };
 
-export function RegisterScreen({ app, theme }: AuthScreenProps) {
+export function RegisterScreen({
+  app,
+  theme,
+  onSignIn,
+}: AuthScreenProps & { onSignIn: () => void }) {
   const { client, runAuthFlow, status } = useAuth();
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -148,6 +152,11 @@ export function RegisterScreen({ app, theme }: AuthScreenProps) {
         }
         onPress={() => void submit()}
         loading={submitting}
+      />
+      <TextButton
+        label="Already have an account? Sign in"
+        onPress={onSignIn}
+        disabled={submitting}
       />
     </AuthFrame>
   );

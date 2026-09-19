@@ -4,3 +4,4 @@ export * from './client';
 export * from './config';
 export * from './register';
 export * from './session';
+export * from './sign-in';

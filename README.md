@@ -11,9 +11,10 @@ the single source of truth for scope, sequencing and the definition of done.
 
 ## Status
 
-Phase 1, Module 1.2 (registration). Phase 0 and the role system are complete. Passengers and
-drivers can register and verify their email; sign-in, password reset and product features are not
-built yet, and the signed-in screens are still empty states.
+Phase 1, Module 1.3 (login). Phase 0, the role system and registration are complete. Passengers
+and drivers can register, verify their email and sign in, and stay signed in; sign-out, password
+reset, profile and product features are not built yet, and the signed-in screens are still empty
+states.
 
 ## Repository layout
 

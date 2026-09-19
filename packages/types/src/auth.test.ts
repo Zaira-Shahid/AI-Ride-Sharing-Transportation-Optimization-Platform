@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { PASSWORD_MIN_LENGTH, validateRegistration, type RegistrationFormValues } from './auth';
+import {
+  PASSWORD_MIN_LENGTH,
+  validateLogin,
+  validateRegistration,
+  type RegistrationFormValues,
+} from './auth';
 
 const valid: RegistrationFormValues = {
   name: 'Ada Lovelace',
@@ -72,5 +77,24 @@ describe('validateRegistration', () => {
   it('rejects an oversized name', () => {
     const result = validateRegistration({ ...valid, name: 'x'.repeat(101) });
     expect(!result.ok && result.errors.name).toBeDefined();
+  });
+});
+
+describe('validateLogin', () => {
+  it('accepts a valid email and any non-empty password, normalising the email', () => {
+    expect(validateLogin({ email: '  ADA@Example.com ', password: 'x' })).toEqual({
+      ok: true,
+      data: { email: 'ada@example.com', password: 'x' },
+    });
+  });
+
+  it('does not enforce the registration password length at sign-in', () => {
+    expect(validateLogin({ email: 'ada@example.com', password: '123456' }).ok).toBe(true);
+  });
+
+  it('reports a missing password and an invalid email', () => {
+    const result = validateLogin({ email: 'nope', password: '' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(Object.keys(result.errors).sort()).toEqual(['email', 'password']);
   });
 });
