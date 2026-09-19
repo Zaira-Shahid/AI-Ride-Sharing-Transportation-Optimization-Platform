@@ -95,6 +95,7 @@ async function createProfileDoc(
 }
 
 interface DriverDocFields {
+  availabilityStatus?: string;
   verificationStatus?: string;
   verificationReason?: string | null;
   totalTrips?: number;
@@ -117,7 +118,7 @@ export async function writeDriverDoc(uid: string, fields: DriverDocFields = {}) 
             ? { nullValue: null }
             : { stringValue: fields.verificationReason },
         verificationReviewedAt: { nullValue: null },
-        availabilityStatus: { stringValue: 'OFFLINE' },
+        availabilityStatus: { stringValue: fields.availabilityStatus ?? 'OFFLINE' },
         rating: rating === null ? { nullValue: null } : { doubleValue: rating },
         totalTrips: { integerValue: String(fields.totalTrips ?? 0) },
         maxDetourMinutes: { nullValue: null },
@@ -273,4 +274,49 @@ export async function readDriverVerification(uid: string) {
     verificationStatus: fields.verificationStatus?.stringValue,
     verificationReason: fields.verificationReason?.stringValue ?? null,
   };
+}
+
+/** availabilityStatus stored in drivers/{uid}. */
+export async function readDriverAvailability(uid: string) {
+  const response = await fetch(`${firestoreDocs}/drivers/${uid}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  const { fields } = (await response.json()) as {
+    fields: Record<string, { stringValue?: string }>;
+  };
+  return fields.availabilityStatus?.stringValue;
+}
+
+const functionsUrl = `http://127.0.0.1:5001/${projectId}/europe-west1`;
+
+/**
+ * Makes a staff decision the way the admin dashboard will: a real ADMIN account calls the real
+ * reviewDriver or reviewVehicle function.
+ */
+export async function reviewAsAdmin(
+  target: 'driver' | 'vehicle',
+  driverId: string,
+  decision: 'VERIFIED' | 'REJECTED',
+  reason?: string,
+) {
+  const email = uniqueEmail('e2e-admin');
+  await createAccount(email, 'ADMIN', true);
+  const signIn = await fetch(
+    `${authEmulator}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
+    },
+  );
+  const { idToken } = (await signIn.json()) as { idToken: string };
+  const response = await fetch(
+    `${functionsUrl}/review${target === 'driver' ? 'Driver' : 'Vehicle'}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ data: { driverId, decision, ...(reason ? { reason } : {}) } }),
+    },
+  );
+  expect(response.ok).toBe(true);
 }

@@ -12,6 +12,7 @@ export const NEW_DRIVER_PROFILE_DEFAULTS = {
   verificationReason: null,
   verificationReviewedAt: null,
   availabilityStatus: 'OFFLINE',
+  availabilityChangedAt: null,
   rating: null,
   totalTrips: 0,
   maxDetourMinutes: null,

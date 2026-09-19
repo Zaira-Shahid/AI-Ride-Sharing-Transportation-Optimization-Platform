@@ -22,6 +22,8 @@ export interface DriverProfile {
   /** When staff last decided. Null until then, and again after a new review is requested. */
   verificationReviewedAt: FirestoreTimestamp | null;
   availabilityStatus: DriverAvailabilityStatus;
+  /** When availabilityStatus last changed. Null until the driver first goes online. */
+  availabilityChangedAt: FirestoreTimestamp | null;
   rating: number | null;
   totalTrips: number;
   maxDetourMinutes: number | null;
@@ -38,6 +40,7 @@ export const NEW_DRIVER_PROFILE_DEFAULTS = {
   verificationReason: null,
   verificationReviewedAt: null,
   availabilityStatus: 'OFFLINE',
+  availabilityChangedAt: null,
   rating: null,
   totalTrips: 0,
   maxDetourMinutes: null,

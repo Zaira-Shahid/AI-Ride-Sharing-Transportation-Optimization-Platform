@@ -4,6 +4,9 @@ import {
   VEHICLE_TYPES,
   isValidPlate,
   normalizePlate,
+  GO_ONLINE_REQUIREMENTS,
+  evaluateGoOnline,
+  setAvailabilityInputSchema,
   REVIEWER_ROLES,
   REVIEW_DECISIONS,
   REVIEW_TARGETS,
@@ -139,6 +142,7 @@ describe('driver profile (spec section 10)', () => {
       verificationReason: null,
       verificationReviewedAt: null,
       availabilityStatus: 'OFFLINE',
+      availabilityChangedAt: null,
       rating: null,
       totalTrips: 0,
       maxDetourMinutes: null,
@@ -258,5 +262,56 @@ describe('verification reviews', () => {
     expect(requestReviewInputSchema.safeParse({ target: 'DRIVER' }).success).toBe(true);
     expect(requestReviewInputSchema.safeParse({ target: 'VEHICLE' }).success).toBe(true);
     expect(requestReviewInputSchema.safeParse({ target: 'PASSENGER' }).success).toBe(false);
+  });
+});
+
+describe('going online', () => {
+  const ready = {
+    accountActive: true,
+    driverStatus: 'VERIFIED',
+    vehicleStatus: 'VERIFIED',
+    seatCapacity: 4,
+  } as const;
+
+  it('lists the requirements in the order the driver sees them', () => {
+    expect(GO_ONLINE_REQUIREMENTS).toEqual([
+      'accountActive',
+      'driverVerified',
+      'vehicleAdded',
+      'vehicleVerified',
+      'seatsSet',
+    ]);
+  });
+
+  it('lets a verified driver with a verified vehicle and seats go online', () => {
+    const result = evaluateGoOnline(ready);
+    expect(result.eligible).toBe(true);
+    expect(result.checks.every((check) => check.met)).toBe(true);
+  });
+
+  it.each([
+    ['an inactive account', { accountActive: false }, 'accountActive'],
+    ['a pending driver', { driverStatus: 'PENDING' }, 'driverVerified'],
+    ['a rejected driver', { driverStatus: 'REJECTED' }, 'driverVerified'],
+    ['no driver profile', { driverStatus: null }, 'driverVerified'],
+    ['a pending vehicle', { vehicleStatus: 'PENDING' }, 'vehicleVerified'],
+    ['a rejected vehicle', { vehicleStatus: 'REJECTED' }, 'vehicleVerified'],
+    ['no seats set', { seatCapacity: null }, 'seatsSet'],
+  ] as const)('does not let a driver with %s go online', (_label, change, requirement) => {
+    const result = evaluateGoOnline({ ...ready, ...change });
+    expect(result.eligible).toBe(false);
+    expect(result.checks.find((check) => check.requirement === requirement)?.met).toBe(false);
+  });
+
+  it('reports no vehicle as missing, with no seats and no verification', () => {
+    const result = evaluateGoOnline({ ...ready, vehicleStatus: null, seatCapacity: 4 });
+    const unmet = result.checks.filter((check) => !check.met).map((check) => check.requirement);
+    expect(unmet).toEqual(['vehicleAdded', 'vehicleVerified', 'seatsSet']);
+  });
+
+  it('only accepts ONLINE and OFFLINE', () => {
+    expect(setAvailabilityInputSchema.safeParse({ status: 'ONLINE' }).success).toBe(true);
+    expect(setAvailabilityInputSchema.safeParse({ status: 'OFFLINE' }).success).toBe(true);
+    expect(setAvailabilityInputSchema.safeParse({ status: 'BUSY' }).success).toBe(false);
   });
 });

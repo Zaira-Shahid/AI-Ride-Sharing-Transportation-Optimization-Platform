@@ -1,6 +1,8 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { auditTakenOffline, offlineFields } from './availability.js';
+import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -49,19 +51,7 @@ export function isValidPlate({
   );
 }
 
-export interface VehicleCaller {
-  uid: string;
-  role: unknown;
-  emailVerified: boolean;
-}
-
 export type SaveVehicleResult = { status: 'created' | 'updated' | 'unchanged' };
-
-export function requireVerifiedDriver(caller: VehicleCaller): void {
-  if (caller.role !== 'DRIVER' || !caller.emailVerified) {
-    throw new HttpsError('permission-denied', 'Only verified drivers can change a vehicle.');
-  }
-}
 
 const IDENTITY_FIELDS = ['type', 'make', 'model', 'plateNumber', 'plateKey'] as const;
 
@@ -75,7 +65,7 @@ const IDENTITY_FIELDS = ['type', 'make', 'model', 'plateNumber', 'plateKey'] as 
  */
 export async function saveVehicle(
   deps: { firestore: Firestore },
-  caller: VehicleCaller,
+  caller: DriverCaller,
   rawInput: unknown,
 ): Promise<SaveVehicleResult> {
   requireVerifiedDriver(caller);
@@ -152,6 +142,12 @@ export async function saveVehicle(
       newState: { ...details, verificationStatus: NEW_VEHICLE_DEFAULTS.verificationStatus },
       reason: 'Driver changed their vehicle details',
     });
+    // The vehicle needs a new review, so the driver cannot stay online with it.
+    const offline = offlineFields(driver);
+    if (offline) {
+      tx.update(driverRef, offline);
+      auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle details changed');
+    }
     return { status: 'updated' };
   });
 }
@@ -167,7 +163,7 @@ export type SetVehicleCapacityResult = { status: 'updated' | 'unchanged' };
  */
 export async function setVehicleCapacity(
   deps: { firestore: Firestore },
-  caller: VehicleCaller,
+  caller: DriverCaller,
   rawInput: unknown,
 ): Promise<SetVehicleCapacityResult> {
   requireVerifiedDriver(caller);
@@ -181,9 +177,14 @@ export async function setVehicleCapacity(
   const { firestore } = deps;
   const vehicleRef = firestore.collection('vehicles').doc(caller.uid);
   const userRef = firestore.collection('users').doc(caller.uid);
+  const driverRef = firestore.collection('drivers').doc(caller.uid);
 
   return firestore.runTransaction(async (tx): Promise<SetVehicleCapacityResult> => {
-    const [user, vehicle] = await Promise.all([tx.get(userRef), tx.get(vehicleRef)]);
+    const [user, vehicle, driver] = await Promise.all([
+      tx.get(userRef),
+      tx.get(vehicleRef),
+      tx.get(driverRef),
+    ]);
     if (!user.exists || user.get('status') !== 'ACTIVE' || !vehicle.exists) {
       throw new HttpsError('failed-precondition', 'This account cannot change seats right now.');
     }
@@ -220,6 +221,12 @@ export async function setVehicleCapacity(
       newState: { seatCapacity, availableSeats, verificationStatus },
       reason: 'Driver changed the passenger seats of their vehicle',
     });
+    // More seats than were reviewed need a new review, so the driver cannot stay online.
+    const offline = raised ? offlineFields(driver) : undefined;
+    if (offline) {
+      tx.update(driverRef, offline);
+      auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle seats raised');
+    }
     return { status: 'updated' };
   });
 }

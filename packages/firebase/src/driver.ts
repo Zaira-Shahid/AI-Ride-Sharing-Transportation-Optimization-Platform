@@ -1,4 +1,9 @@
-import { DRIVER_VERIFICATION_STATUSES, type DriverVerificationStatus } from '@ridemesh/types';
+import {
+  DRIVER_AVAILABILITY_STATUSES,
+  DRIVER_VERIFICATION_STATUSES,
+  type DriverAvailabilityStatus,
+  type DriverVerificationStatus,
+} from '@ridemesh/types';
 import { doc, onSnapshot } from 'firebase/firestore';
 import type { FirebaseClient } from './client';
 
@@ -6,6 +11,8 @@ export interface DriverProfileData {
   verificationStatus: DriverVerificationStatus;
   /** Why staff rejected the driver, when they did. */
   verificationReason: string | null;
+  /** Never trusted from the client; only the setAvailability function changes it. */
+  availabilityStatus: DriverAvailabilityStatus;
   rating: number | null;
   totalTrips: number;
 }
@@ -41,6 +48,12 @@ export function subscribeToDriverProfile(
             : 'PENDING',
           verificationReason:
             typeof data.verificationReason === 'string' ? data.verificationReason : null,
+          // Anything unrecognised counts as offline, the safe state.
+          availabilityStatus: (DRIVER_AVAILABILITY_STATUSES as readonly unknown[]).includes(
+            data.availabilityStatus,
+          )
+            ? (data.availabilityStatus as DriverAvailabilityStatus)
+            : 'OFFLINE',
           rating: typeof data.rating === 'number' ? data.rating : null,
           totalTrips: typeof data.totalTrips === 'number' ? data.totalTrips : 0,
         },

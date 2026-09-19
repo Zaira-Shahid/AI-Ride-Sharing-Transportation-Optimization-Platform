@@ -1,6 +1,6 @@
 # Roles, access and security
 
-Status: through Module 2.4 (driver verification). Module 1.1 defined the role system and Firestore
+Status: through Module 2.5 (availability). Module 1.1 defined the role system and Firestore
 rules; registration, login, logout, password reset, profile editing, the driver profile and the
 vehicle are built on top of it.
 
@@ -120,7 +120,7 @@ when the person verifies.
   reason; detour settings stay `null` until the driver sets them.
 - Creation writes a `DRIVER_PROFILE_CREATED` audit entry.
 - Nothing about a driver's verification is enforced elsewhere yet. Access to journeys and matching
-  will check it in the modules that own them (Module 2.5 onwards).
+  will check it in the modules that own them. Going online (Module 2.5) already requires it.
 
 ```bash
 npm run admin:backfill-driver-profiles -- --confirm-production
@@ -188,9 +188,9 @@ npm run admin:backfill-driver-profiles -- --confirm-production
 - **No documents are collected.** The app stores no identity documents, licence numbers or photos;
   verification is only a status. This avoids holding highly sensitive personal data until a
   document flow, storage, retention and a privacy review are designed (spec section 56).
-- **Not enforced yet.** A `PENDING` or `REJECTED` driver is not blocked from anything in this
-  module. Going online (Module 2.5) and journeys will require a `VERIFIED` driver and vehicle.
-  Until then, do not rely on the status for access decisions.
+- **Enforced for going online (Module 2.5).** A driver must be `VERIFIED`, with a `VERIFIED`
+  vehicle and seats set, to go online, and losing verification takes them offline. Nothing else is
+  gated on the status yet; journeys and matching will check it in the modules that own them.
 - **The script** verifies or rejects by the driver's email:
 
 ```bash
@@ -201,6 +201,31 @@ npm run admin:review -- vehicle <email> REJECTED "Reason shown to the driver" --
 It has the same safety rules as the other scripts: against the real project it needs
 `GOOGLE_APPLICATION_CREDENTIALS` and `--confirm-production`, and without the flag it refuses to
 run unless the Auth and Firestore emulators are configured.
+
+## Availability
+
+- **Only the server changes it.** `availabilityStatus` and `availabilityChangedAt` on `drivers/{uid}`
+  are written by the `setAvailability` function (and by the verification and vehicle functions when
+  they take a driver offline). The rules deny every client write, so a driver cannot go online by
+  writing the document.
+- **Who can call it:** a signed-in DRIVER with a verified email (from the token). Passengers, staff
+  and unverified drivers are refused. The target is always the caller's own uid; any other ID in the
+  request is ignored.
+- **Going online is checked on the server, in a transaction,** against the current documents:
+  ACTIVE account, `VERIFIED` driver profile, `VERIFIED` vehicle, seats set. A suspended account,
+  a pending or rejected driver or vehicle, no vehicle, or no seats is refused. The app's checklist
+  is a convenience; it is not what enforces this.
+- **Going offline is always allowed,** including for a driver who is suspended or no longer
+  verified.
+- **A driver who loses a requirement is taken offline in the same transaction** as the change that
+  caused it (staff rejection, vehicle detail change, seats raised) and the system writes a
+  `DRIVER_TAKEN_OFFLINE` audit entry. Repeating the same state changes nothing.
+- **Limitation: no expiry.** An `ONLINE` driver whose app has closed stays `ONLINE`. Automatic
+  expiry needs a scheduled function (Blaze plan) or a heartbeat and is left for the location
+  and real-time modules. Do not treat `ONLINE` as proof that a driver is reachable.
+- Suspending an account is not yet an action anyone can take, so a suspended driver is not taken
+  offline automatically; they are only refused when going online. The admin module will need to
+  take suspended drivers offline.
 
 ## Staff roles
 
