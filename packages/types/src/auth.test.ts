@@ -3,6 +3,7 @@ import {
   PASSWORD_MIN_LENGTH,
   validateLogin,
   validatePasswordResetRequest,
+  validateProfileUpdate,
   validateRegistration,
   type RegistrationFormValues,
 } from './auth';
@@ -112,5 +113,46 @@ describe('validatePasswordResetRequest', () => {
     const result = validatePasswordResetRequest({ email });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.email).toBe('Enter a valid email address.');
+  });
+});
+
+describe('validateProfileUpdate', () => {
+  it('accepts a name and phone, trimming both', () => {
+    expect(validateProfileUpdate({ name: '  Ada Lovelace ', phone: ' +44 7700 900123 ' })).toEqual({
+      ok: true,
+      data: { name: 'Ada Lovelace', phone: '+44 7700 900123' },
+    });
+  });
+
+  it('stores an empty phone as null so it can be cleared', () => {
+    expect(validateProfileUpdate({ name: 'Ada', phone: '   ' })).toEqual({
+      ok: true,
+      data: { name: 'Ada', phone: null },
+    });
+  });
+
+  it.each(['', '   '])('rejects the blank name %j', (name) => {
+    const result = validateProfileUpdate({ name, phone: '' });
+    expect(!result.ok && result.errors.name).toBe('Enter your full name.');
+  });
+
+  it('rejects an oversized name', () => {
+    const result = validateProfileUpdate({ name: 'x'.repeat(101), phone: '' });
+    expect(!result.ok && result.errors.name).toBeDefined();
+    expect(validateProfileUpdate({ name: 'x'.repeat(100), phone: '' }).ok).toBe(true);
+  });
+
+  it.each(['abc', '123', '077-abc-9001', '+44\t7700 900123', `${'1 '.repeat(20)}`])(
+    'rejects the phone %j',
+    (phone) => {
+      const result = validateProfileUpdate({ name: 'Ada', phone });
+      expect(!result.ok && result.errors.phone).toBeDefined();
+    },
+  );
+
+  it('reports both problems together', () => {
+    const result = validateProfileUpdate({ name: '', phone: 'abc' });
+    if (!result.ok) expect(Object.keys(result.errors).sort()).toEqual(['name', 'phone']);
+    else throw new Error('expected validation to fail');
   });
 });

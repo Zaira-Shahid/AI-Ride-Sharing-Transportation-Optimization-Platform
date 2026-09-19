@@ -17,10 +17,33 @@ service cloud.firestore {
       return isVerified() && role() in ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN'];
     }
 
-    // Profiles are created and changed only by server-side functions.
+    // A person may change only their name and phone, and updatedAt must carry the server's clock.
+    // Every other field (role, email, status, ...) is locked: adding, changing or removing any of
+    // them shows up in affectedKeys() and is denied. Keep the phone pattern in step with
+    // packages/types/src/auth.ts.
+    function isValidContactUpdate() {
+      let data = request.resource.data;
+      let changed = data.diff(resource.data).affectedKeys();
+      return changed.hasOnly(['name', 'phone', 'updatedAt'])
+          && changed.hasAll(['updatedAt'])
+          && data.updatedAt == request.time
+          && data.name is string
+          && data.name.size() >= 1
+          && data.name.size() <= 100
+          && data.name.matches('.*\\S.*')
+          && (data.get('phone', null) == null
+              || (data.phone is string && data.phone.matches('^[+0-9 ().-]{7,32}$')));
+    }
+
+    // Profiles are created by server-side code only. A person can then edit their own contact
+    // details directly, so no Cloud Function is needed for it.
     match /users/{userId} {
       allow read: if isVerified() && (request.auth.uid == userId || isStaff());
-      allow write: if false;
+      allow create, delete: if false;
+      allow update: if isVerified()
+                    && request.auth.uid == userId
+                    && resource.data.status == 'ACTIVE'
+                    && isValidContactUpdate();
     }
 
     // Every other collection stays closed until the module that owns it defines its rules.

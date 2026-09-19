@@ -6,7 +6,16 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import {
+  Timestamp,
+  deleteDoc,
+  deleteField,
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
 const root = resolve(__dirname, '../..');
@@ -27,14 +36,36 @@ afterAll(async () => {
   await env.cleanup();
 });
 
+function profile(role: string, name: string, overrides: Record<string, unknown> = {}) {
+  return {
+    role,
+    name,
+    email: `${name.toLowerCase().replace(/\s+/g, '.')}@example.test`,
+    phone: null,
+    photoUrl: null,
+    status: 'ACTIVE',
+    createdAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+    updatedAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+    ...overrides,
+  };
+}
+
 beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, 'users/passenger-1'), { role: 'PASSENGER', name: 'Passenger One' });
-    await setDoc(doc(db, 'users/driver-1'), { role: 'DRIVER', name: 'Driver One' });
+    await setDoc(doc(db, 'users/passenger-1'), profile('PASSENGER', 'Passenger One'));
+    await setDoc(
+      doc(db, 'users/driver-1'),
+      profile('DRIVER', 'Driver One', { phone: '+441234567' }),
+    );
+    await setDoc(doc(db, 'users/staff-1'), profile('ADMIN', 'Staff One'));
+    await setDoc(
+      doc(db, 'users/suspended-1'),
+      profile('PASSENGER', 'Suspended', { status: 'SUSPENDED' }),
+    );
     // A document whose stored role says ADMIN must never grant anything on its own.
-    await setDoc(doc(db, 'users/forger-1'), { role: 'ADMIN', name: 'Forger' });
+    await setDoc(doc(db, 'users/forger-1'), profile('ADMIN', 'Forger'));
     await setDoc(doc(db, 'auditLogs/log-1'), { action: 'ROLE_ASSIGNED' });
     await setDoc(doc(db, 'tripRequests/trip-1'), { passengerId: 'passenger-1' });
   });
@@ -96,17 +127,151 @@ describe('users: reading', () => {
   });
 });
 
-describe('users: writing', () => {
-  it.each(['PASSENGER', 'DRIVER', 'SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN'])(
-    'denies every client write, including from a %s',
+describe('users: a person editing their own contact details', () => {
+  const asPassenger = () =>
+    env.authenticatedContext('passenger-1', verified('PASSENGER')).firestore();
+  const ref = (db: ReturnType<typeof asPassenger>) => doc(db, 'users/passenger-1');
+  const stamp = () => serverTimestamp();
+
+  it.each(['PASSENGER', 'DRIVER', 'ADMIN'])(
+    'lets a verified %s change their own name and phone',
     async (role) => {
       const db = env.authenticatedContext('passenger-1', verified(role)).firestore();
-      await assertFails(updateDoc(doc(db, 'users/passenger-1'), { name: 'Changed' }));
-      await assertFails(updateDoc(doc(db, 'users/passenger-1'), { role: 'ADMIN' }));
-      await assertFails(setDoc(doc(db, 'users/new-user'), { role: 'ADMIN', name: 'Nope' }));
-      await assertFails(deleteDoc(doc(db, 'users/passenger-1')));
+      await assertSucceeds(
+        updateDoc(ref(db), { name: 'New Name', phone: '+44 7700 900123', updatedAt: stamp() }),
+      );
     },
   );
+
+  it('lets a person change only their name, or clear their phone', async () => {
+    const db = env.authenticatedContext('driver-1', verified('DRIVER')).firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'users/driver-1'), { name: 'Renamed', updatedAt: stamp() }),
+    );
+    await assertSucceeds(updateDoc(doc(db, 'users/driver-1'), { phone: null, updatedAt: stamp() }));
+  });
+
+  it('lets a full overwrite through when only allowed fields differ', async () => {
+    const db = asPassenger();
+    await assertSucceeds(
+      setDoc(
+        ref(db),
+        profile('PASSENGER', 'Passenger One', { name: 'Overwritten', updatedAt: stamp() }),
+      ),
+    );
+  });
+
+  it('requires updatedAt to be written', async () => {
+    await assertFails(updateDoc(ref(asPassenger()), { name: 'New Name' }));
+  });
+
+  it('rejects an updatedAt that is not the server time', async () => {
+    const db = asPassenger();
+    await assertFails(
+      updateDoc(ref(db), {
+        name: 'New Name',
+        updatedAt: Timestamp.fromDate(new Date('2030-01-01')),
+      }),
+    );
+    await assertFails(updateDoc(ref(db), { name: 'New Name', updatedAt: Timestamp.now() }));
+  });
+
+  it.each([
+    ['role', { role: 'ADMIN' }],
+    ['role to another self-service role', { role: 'DRIVER' }],
+    ['email', { email: 'attacker@example.test' }],
+    ['status', { status: 'SUSPENDED' }],
+    ['createdAt', { createdAt: Timestamp.now() }],
+    ['photoUrl', { photoUrl: 'https://example.test/x.png' }],
+    ['a new field', { isAdmin: true }],
+  ])('denies changing %s, even alongside allowed fields', async (_label, extra) => {
+    await assertFails(
+      updateDoc(ref(asPassenger()), { name: 'New Name', updatedAt: stamp(), ...extra }),
+    );
+    await assertFails(updateDoc(ref(asPassenger()), { ...extra, updatedAt: stamp() }));
+  });
+
+  it('denies removing a locked field', async () => {
+    await assertFails(updateDoc(ref(asPassenger()), { role: deleteField(), updatedAt: stamp() }));
+    await assertFails(
+      updateDoc(ref(asPassenger()), { status: deleteField(), name: 'X', updatedAt: stamp() }),
+    );
+  });
+
+  it('denies an overwrite that drops or changes locked fields', async () => {
+    const db = asPassenger();
+    await assertFails(setDoc(ref(db), { name: 'Only Name', updatedAt: stamp() }));
+    await assertFails(
+      setDoc(ref(db), { ...profile('ADMIN', 'Passenger One'), updatedAt: stamp() }),
+    );
+  });
+
+  it.each(['', '   ', '\n\t', 'x'.repeat(101)])('denies the name %j', async (name) => {
+    await assertFails(updateDoc(ref(asPassenger()), { name, updatedAt: stamp() }));
+  });
+
+  it('denies a name that is not a string', async () => {
+    await assertFails(updateDoc(ref(asPassenger()), { name: 12345, updatedAt: stamp() }));
+    await assertFails(updateDoc(ref(asPassenger()), { name: null, updatedAt: stamp() }));
+    await assertFails(updateDoc(ref(asPassenger()), { name: ['Ada'], updatedAt: stamp() }));
+    await assertFails(
+      updateDoc(ref(asPassenger()), { name: { first: 'Ada' }, updatedAt: stamp() }),
+    );
+  });
+
+  it.each(['abc', '123', '+44 <script>', 'x'.repeat(33), '1'.repeat(33), '077\t900123'])(
+    'denies the phone %j',
+    async (phone) => {
+      await assertFails(updateDoc(ref(asPassenger()), { phone, updatedAt: stamp() }));
+    },
+  );
+
+  it('denies a phone that is not a string or null', async () => {
+    await assertFails(updateDoc(ref(asPassenger()), { phone: 12345678, updatedAt: stamp() }));
+    await assertFails(updateDoc(ref(asPassenger()), { phone: ['+441234567'], updatedAt: stamp() }));
+  });
+
+  it.each(['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN'])(
+    'denies a %s editing someone else',
+    async (role) => {
+      const db = env.authenticatedContext('staff-1', verified(role)).firestore();
+      await assertFails(
+        updateDoc(doc(db, 'users/passenger-1'), { name: 'Hijacked', updatedAt: stamp() }),
+      );
+    },
+  );
+
+  it('denies editing another user, and using a forged ADMIN document to try', async () => {
+    const db = env.authenticatedContext('forger-1', verified('PASSENGER')).firestore();
+    await assertFails(
+      updateDoc(doc(db, 'users/passenger-1'), { name: 'Hijacked', updatedAt: stamp() }),
+    );
+  });
+
+  it('denies an unverified email and unauthenticated callers', async () => {
+    const unverified = env
+      .authenticatedContext('passenger-1', { email_verified: false, role: 'PASSENGER' })
+      .firestore();
+    await assertFails(updateDoc(ref(unverified), { name: 'New Name', updatedAt: stamp() }));
+    const anonymous = env.unauthenticatedContext().firestore();
+    await assertFails(updateDoc(ref(anonymous), { name: 'New Name', updatedAt: stamp() }));
+  });
+
+  it('denies a suspended account', async () => {
+    const db = env.authenticatedContext('suspended-1', verified('PASSENGER')).firestore();
+    await assertFails(
+      updateDoc(doc(db, 'users/suspended-1'), { name: 'New Name', updatedAt: stamp() }),
+    );
+  });
+
+  it('denies creating or deleting any profile, including your own', async () => {
+    const db = asPassenger();
+    await assertFails(setDoc(doc(db, 'users/brand-new'), profile('ADMIN', 'Nope')));
+    await assertFails(deleteDoc(ref(db)));
+    const staff = env.authenticatedContext('staff-1', verified('SUPER_ADMIN')).firestore();
+    await assertFails(deleteDoc(doc(staff, 'users/passenger-1')));
+    await assertFails(setDoc(doc(staff, 'users/brand-new'), profile('ADMIN', 'Nope')));
+  });
 });
 
 describe('other collections stay closed', () => {

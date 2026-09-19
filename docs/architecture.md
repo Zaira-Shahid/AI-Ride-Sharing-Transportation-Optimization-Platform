@@ -21,7 +21,7 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 1.5)
+## What exists now (through Module 1.6)
 
 | Area            | Location                                  | State                                                                                     |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -32,7 +32,7 @@ controls routing or safety constraints.
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.      |
 | Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                    |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.     |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, registration and sign-in flows, `AuthProvider`.        |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                |
 | Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client. |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                       |
 
@@ -90,8 +90,19 @@ rather than stacking a second one. Custom email templates and a branded reset pa
 Signing out is done from the Profile tab (`ProfileScreen`, which also shows who is signed in). It
 asks for confirmation with an in-app `ConfirmDialog` rather than `Alert`, because `Alert` does
 nothing on web. Confirming ends the session, the status becomes `signedOut` and the protected
-routes swap back to the sign-in screens. Cancelling changes nothing. The Profile screen is the home
-for account details and will grow in Module 1.6.
+routes swap back to the sign-in screens. Cancelling changes nothing.
+
+The Profile screen is also where a person edits their name and phone number. `useProfile`
+(`packages/firebase/src/react.tsx`) follows `users/{uid}` live through `subscribeToProfile`, so a
+saved change shows up without reloading. `saveProfile` (`packages/firebase/src/profile.ts`)
+validates with the shared `validateProfileUpdate` and writes name, phone and `updatedAt` straight
+to the person's own document; the Firestore rules allow exactly that write, so no Cloud Function is
+involved. An empty phone clears it (stored as `null`). Email is shown but cannot be changed. The
+Firebase Auth display name is updated afterwards on a best-effort basis; Firestore stays the source
+of truth. A write made while offline never fails by itself, so `saveProfile` gives up after 15
+seconds with a "check your connection" message and the person can retry. Driver accounts without a
+phone see a hint that one is needed before accepting rides; it is not enforced until driver
+onboarding (Phase 2).
 
 Sessions persist across restarts. `createMobileFirebaseClient` (`packages/mobile-auth`) stores the
 session in AsyncStorage on phones and uses the browser default on web. Each app keeps its
@@ -113,8 +124,11 @@ while driving. Each is a one-line change in the app's `src/theme.ts`.
 - Region: Firestore and Cloud Functions both use `europe-west1` (Belgium). The constant lives in
   `packages/config/src/firebase.ts`; `functions/src/index.ts` sets the same value, and a repository
   test keeps them aligned. A Firestore location cannot be changed after creation.
-- `firestore.rules` allows only verified users to read their own profile (staff may read any) and
-  denies all client writes. Roles are custom claims set server-side; see `docs/security.md`.
+- `firestore.rules` allows only verified users to read their own profile (staff may read any). A
+  person may update only their own name and phone; every other write is denied. Roles are custom
+  claims set server-side; see `docs/security.md`.
+- The client uses long-polling auto-detection for Firestore, which helps on React Native networks
+  where streaming is unavailable.
 - Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Local function URLs include
   the region: `http://127.0.0.1:5001/<project>/europe-west1/healthCheck`.
 - One Firebase web app ("Ride Sharing App") serves the admin, passenger and driver apps. Its

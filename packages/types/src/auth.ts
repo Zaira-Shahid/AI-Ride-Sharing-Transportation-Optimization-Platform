@@ -42,11 +42,31 @@ export interface LoginFormValues {
 export type LoginValidation =
   { ok: true; data: LoginFormValues } | { ok: false; errors: Partial<Record<LoginField, string>> };
 
-const PHONE_ALLOWED = /^[+\d\s().-]+$/;
+// Keep in step with the users/{uid} rule in firestore.rules, which allows the same characters
+// (digits, plus, space, parentheses, dot, hyphen) and at most 32 characters.
+const PHONE_ALLOWED = /^[+\d ().-]+$/;
+const PHONE_MAX_LENGTH = 32;
 
 function isPlausiblePhone(value: string) {
   const digits = value.replace(/\D/g, '');
-  return PHONE_ALLOWED.test(value) && digits.length >= 7 && digits.length <= 15;
+  return (
+    PHONE_ALLOWED.test(value) &&
+    value.length <= PHONE_MAX_LENGTH &&
+    digits.length >= 7 &&
+    digits.length <= 15
+  );
+}
+
+function nameError(name: string): string | undefined {
+  if (name.length === 0) return 'Enter your full name.';
+  if (name.length > 100) return 'Your name must be 100 characters or fewer.';
+  return undefined;
+}
+
+function phoneError(phone: string): string | undefined {
+  return phone.length > 0 && !isPlausiblePhone(phone)
+    ? 'Enter a valid phone number, or leave it empty.'
+    : undefined;
 }
 
 const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
@@ -59,16 +79,15 @@ export function validateRegistration(values: RegistrationFormValues): Registrati
   const errors: Partial<Record<RegistrationField, string>> = {};
 
   const name = values.name.trim();
-  if (name.length === 0) errors.name = 'Enter your full name.';
-  else if (name.length > 100) errors.name = 'Your name must be 100 characters or fewer.';
+  const nameProblem = nameError(name);
+  if (nameProblem) errors.name = nameProblem;
 
   const email = emailSchema.safeParse(values.email);
   if (!email.success) errors.email = 'Enter a valid email address.';
 
   const phone = values.phone.trim();
-  if (phone.length > 0 && !isPlausiblePhone(phone)) {
-    errors.phone = 'Enter a valid phone number, or leave it empty.';
-  }
+  const phoneProblem = phoneError(phone);
+  if (phoneProblem) errors.phone = phoneProblem;
 
   if (values.password.length < PASSWORD_MIN_LENGTH) {
     errors.password = `Use at least ${PASSWORD_MIN_LENGTH} characters.`;
@@ -115,4 +134,34 @@ export function validatePasswordResetRequest(values: { email: string }): Passwor
   const email = emailSchema.safeParse(values.email);
   if (!email.success) return { ok: false, errors: { email: 'Enter a valid email address.' } };
   return { ok: true, data: { email: email.data } };
+}
+
+export interface ProfileUpdateValues {
+  name: string;
+  phone: string;
+}
+
+export type ProfileField = keyof ProfileUpdateValues;
+
+export type ProfileValidation =
+  | { ok: true; data: { name: string; phone: string | null } }
+  | { ok: false; errors: Partial<Record<ProfileField, string>> };
+
+/**
+ * Validates an edit of the profile details a person may change: name and phone. An empty phone
+ * clears it (stored as null). Email is not editable here.
+ */
+export function validateProfileUpdate(values: ProfileUpdateValues): ProfileValidation {
+  const errors: Partial<Record<ProfileField, string>> = {};
+
+  const name = values.name.trim();
+  const nameProblem = nameError(name);
+  if (nameProblem) errors.name = nameProblem;
+
+  const phone = values.phone.trim();
+  const phoneProblem = phoneError(phone);
+  if (phoneProblem) errors.phone = phoneProblem;
+
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, data: { name, phone: phone.length > 0 ? phone : null } };
 }
