@@ -3,6 +3,7 @@ import { createContext, useContext, type ReactNode, type RefObject } from 'react
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -22,7 +23,16 @@ export function useAuthTheme(): ThemeColors {
   return theme;
 }
 
-export function AuthFrame({ theme, children }: { theme: ThemeColors; children: ReactNode }) {
+export function AuthFrame({
+  theme,
+  children,
+  insets: applyInsets = true,
+}: {
+  theme: ThemeColors;
+  children: ReactNode;
+  /** Set to false inside a screen that already has a header and tab bar. */
+  insets?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   return (
     <ThemeContext.Provider value={theme}>
@@ -33,7 +43,9 @@ export function AuthFrame({ theme, children }: { theme: ThemeColors; children: R
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingTop: insets.top + spacing[8], paddingBottom: insets.bottom + spacing[8] },
+            applyInsets
+              ? { paddingTop: insets.top + spacing[8], paddingBottom: insets.bottom + spacing[8] }
+              : { paddingVertical: spacing[6] },
           ]}
           keyboardShouldPersistTaps="handled"
         >
@@ -183,6 +195,53 @@ export function TextButton({ label, onPress, disabled = false }: ButtonProps) {
   );
 }
 
+interface ConfirmDialogProps {
+  visible: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+/** A confirmation prompt that behaves the same on iOS, Android and web (Alert does not on web). */
+export function ConfirmDialog({
+  visible,
+  title,
+  message,
+  confirmLabel,
+  cancelLabel = 'Cancel',
+  busy = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  const theme = useAuthTheme();
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.overlay}>
+        <View
+          role="alertdialog"
+          aria-modal
+          accessibilityViewIsModal
+          style={[styles.dialog, { backgroundColor: theme.surface, borderColor: theme.border }]}
+        >
+          <Text
+            accessibilityRole="header"
+            style={[styles.dialogTitle, { color: theme.textPrimary }]}
+          >
+            {title}
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{message}</Text>
+          <PrimaryButton label={confirmLabel} onPress={onConfirm} loading={busy} />
+          <SecondaryButton label={cancelLabel} onPress={onCancel} disabled={busy} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export function Notice({ tone, children }: { tone: 'error' | 'info'; children: ReactNode }) {
   const theme = useAuthTheme();
   const color = tone === 'error' ? theme.danger : theme.accent;
@@ -222,6 +281,22 @@ const styles = StyleSheet.create({
   buttonLabel: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
   textButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   textButtonLabel: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing[6],
+    backgroundColor: 'rgba(11, 18, 32, 0.6)',
+  },
+  dialog: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing[6],
+    gap: spacing[4],
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+  },
+  dialogTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.bold },
   notice: { borderWidth: 1, borderRadius: radius.md, padding: spacing[4] },
   noticeText: { fontSize: fontSize.sm },
 });

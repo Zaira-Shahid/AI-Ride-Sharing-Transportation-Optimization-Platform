@@ -21,7 +21,7 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 1.3)
+## What exists now (through Module 1.4)
 
 | Area            | Location                                  | State                                                                                     |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ controls routing or safety constraints.
 | Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                    |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.     |
 | Firebase client | `packages/firebase`                       | Config validation, client factory, registration and sign-in flows, `AuthProvider`.        |
-| Mobile auth     | `packages/mobile-auth`                    | Shared Welcome, Login, Register, Verify Email screens, form components, mobile client.    |
+| Mobile auth     | `packages/mobile-auth`                    | Shared Welcome, Login, Register, Verify Email, Profile screens, form components, client.  |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                       |
 
 Nothing here is mocked product logic. No fake data is displayed.
@@ -79,6 +79,12 @@ the other app, signs it out again and shows a clear message ("This is a driver a
 sign in with the RideMesh Driver app."). Accounts with no role yet, or an unverified email, are let
 through so the session gate can guide them. The first screen of the `(auth)` group is pinned with
 `unstable_settings` so it does not depend on route ordering.
+
+Signing out is done from the Profile tab (`ProfileScreen`, which also shows who is signed in). It
+asks for confirmation with an in-app `ConfirmDialog` rather than `Alert`, because `Alert` does
+nothing on web. Confirming ends the session, the status becomes `signedOut` and the protected
+routes swap back to the sign-in screens. Cancelling changes nothing. The Profile screen is the home
+for account details and will grow in Module 1.6.
 
 Sessions persist across restarts. `createMobileFirebaseClient` (`packages/mobile-auth`) stores the
 session in AsyncStorage on phones and uses the browser default on web. Each app keeps its
