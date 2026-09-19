@@ -96,6 +96,7 @@ async function createProfileDoc(
 
 interface DriverDocFields {
   verificationStatus?: string;
+  verificationReason?: string | null;
   totalTrips?: number;
   rating?: number | null;
 }
@@ -111,6 +112,11 @@ export async function writeDriverDoc(uid: string, fields: DriverDocFields = {}) 
       fields: {
         userId: { stringValue: uid },
         verificationStatus: { stringValue: fields.verificationStatus ?? 'PENDING' },
+        verificationReason:
+          fields.verificationReason == null
+            ? { nullValue: null }
+            : { stringValue: fields.verificationReason },
+        verificationReviewedAt: { nullValue: null },
         availabilityStatus: { stringValue: 'OFFLINE' },
         rating: rating === null ? { nullValue: null } : { doubleValue: rating },
         totalTrips: { integerValue: String(fields.totalTrips ?? 0) },
@@ -184,4 +190,87 @@ export async function chooseNewPassword(oobCode: string, newPassword: string) {
     },
   );
   expect(response.ok).toBe(true);
+}
+
+let vehicleCounter = 0;
+
+interface VehicleDocFields {
+  type?: string;
+  make?: string;
+  model?: string;
+  plateNumber?: string;
+  seatCapacity?: number | null;
+  verificationStatus?: string;
+  verificationReason?: string | null;
+}
+
+/** Writes vehicles/{uid} the way the server does (replacing it), bypassing rules with the owner token. */
+export async function writeVehicleDoc(uid: string, fields: VehicleDocFields = {}) {
+  const now = new Date().toISOString();
+  // Plate numbers are unique, so seeded vehicles get their own unless a test says otherwise.
+  const plateNumber = fields.plateNumber ?? `SD${Date.now() % 1_000_000}${vehicleCounter++}`;
+  const response = await fetch(`${firestoreDocs}/vehicles/${uid}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({
+      fields: {
+        driverId: { stringValue: uid },
+        type: { stringValue: fields.type ?? 'CAR' },
+        make: { stringValue: fields.make ?? 'Toyota' },
+        model: { stringValue: fields.model ?? 'Corolla' },
+        plateNumber: { stringValue: plateNumber },
+        plateKey: { stringValue: plateNumber.replace(/[\s-]/g, '') },
+        seatCapacity:
+          fields.seatCapacity == null
+            ? { nullValue: null }
+            : { integerValue: String(fields.seatCapacity) },
+        availableSeats: { nullValue: null },
+        verificationStatus: { stringValue: fields.verificationStatus ?? 'PENDING' },
+        verificationReason:
+          fields.verificationReason == null
+            ? { nullValue: null }
+            : { stringValue: fields.verificationReason },
+        verificationReviewedAt: { nullValue: null },
+        createdAt: { timestampValue: now },
+        updatedAt: { timestampValue: now },
+      },
+    }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** What is stored in vehicles/{uid}, or undefined when there is none. */
+export async function readVehicleDoc(uid: string) {
+  const response = await fetch(`${firestoreDocs}/vehicles/${uid}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  if (response.status === 404) return undefined;
+  const { fields } = (await response.json()) as {
+    fields: Record<string, { stringValue?: string; integerValue?: string }>;
+  };
+  return {
+    type: fields.type?.stringValue,
+    make: fields.make?.stringValue,
+    model: fields.model?.stringValue,
+    plateNumber: fields.plateNumber?.stringValue,
+    seatCapacity: fields.seatCapacity?.integerValue
+      ? Number(fields.seatCapacity.integerValue)
+      : null,
+    verificationStatus: fields.verificationStatus?.stringValue,
+    verificationReason: fields.verificationReason?.stringValue ?? null,
+  };
+}
+
+/** verificationStatus and verificationReason stored in drivers/{uid}. */
+export async function readDriverVerification(uid: string) {
+  const response = await fetch(`${firestoreDocs}/drivers/${uid}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  const { fields } = (await response.json()) as {
+    fields: Record<string, { stringValue?: string }>;
+  };
+  return {
+    verificationStatus: fields.verificationStatus?.stringValue,
+    verificationReason: fields.verificationReason?.stringValue ?? null,
+  };
 }

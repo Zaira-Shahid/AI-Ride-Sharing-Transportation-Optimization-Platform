@@ -10,9 +10,10 @@ import {
   type ReactNode,
 } from 'react';
 import type { FirebaseClient } from './client';
-import { subscribeToDriverProfile, type DriverProfileData } from './driver';
-import { subscribeToProfile, type ProfileData } from './profile';
+import { subscribeToDriverProfile, type DriverProfileSnapshot } from './driver';
+import { subscribeToProfile, type ProfileSnapshot } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
+import { subscribeToVehicle, type VehicleSnapshot } from './vehicle';
 
 type Client = Pick<FirebaseClient, 'auth' | 'functions' | 'firestore'>;
 
@@ -112,58 +113,54 @@ export function useAuth(): AuthContextValue {
   return context;
 }
 
-export type ProfileState =
-  | { status: 'loading' }
-  | { status: 'ready'; profile: ProfileData }
-  | { status: 'missing' }
-  | { status: 'error' };
+type LiveState<Snapshot> = { status: 'loading' } | Snapshot | { status: 'error' };
 
-/** The signed-in person's users/{uid} document, kept up to date. */
-export function useProfile(): ProfileState & { retry: () => void } {
+/** Follows one document of the signed-in person, keeping it up to date, with a retry. */
+function useLiveDocument<Snapshot>(
+  subscribe: (
+    client: Client,
+    uid: string,
+    onChange: (snapshot: Snapshot) => void,
+    onError: (error: unknown) => void,
+  ) => () => void,
+): LiveState<Snapshot> & { retry: () => void } {
   const { client, user } = useAuth();
   const uid = user?.uid;
-  const [state, setState] = useState<ProfileState>({ status: 'loading' });
+  const [state, setState] = useState<LiveState<Snapshot>>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setState({ status: 'loading' });
     if (!uid) return undefined;
-    return subscribeToProfile(
+    return subscribe(
       client,
       uid,
       (snapshot) => setState(snapshot),
       () => setState({ status: 'error' }),
     );
-  }, [client, uid, attempt]);
+  }, [client, uid, attempt, subscribe]);
 
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
   return { ...state, retry };
 }
 
-export type DriverProfileState =
-  | { status: 'loading' }
-  | { status: 'ready'; driver: DriverProfileData }
-  | { status: 'missing' }
-  | { status: 'error' };
+export type ProfileState = LiveState<ProfileSnapshot>;
+
+/** The signed-in person's users/{uid} document, kept up to date. */
+export function useProfile() {
+  return useLiveDocument(subscribeToProfile);
+}
+
+export type DriverProfileState = LiveState<DriverProfileSnapshot>;
 
 /** The signed-in driver's drivers/{uid} document, kept up to date. Use it in driver screens only. */
-export function useDriverProfile(): DriverProfileState & { retry: () => void } {
-  const { client, user } = useAuth();
-  const uid = user?.uid;
-  const [state, setState] = useState<DriverProfileState>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
+export function useDriverProfile() {
+  return useLiveDocument(subscribeToDriverProfile);
+}
 
-  useEffect(() => {
-    setState({ status: 'loading' });
-    if (!uid) return undefined;
-    return subscribeToDriverProfile(
-      client,
-      uid,
-      (snapshot) => setState(snapshot),
-      () => setState({ status: 'error' }),
-    );
-  }, [client, uid, attempt]);
+export type VehicleState = LiveState<VehicleSnapshot>;
 
-  const retry = useCallback(() => setAttempt((count) => count + 1), []);
-  return { ...state, retry };
+/** The signed-in driver's vehicles/{uid} document, kept up to date. Use it in driver screens only. */
+export function useVehicle() {
+  return useLiveDocument(subscribeToVehicle);
 }

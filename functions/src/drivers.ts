@@ -9,6 +9,8 @@ import {
 // packages). tests/roles-parity.test.ts fails if the two diverge.
 export const NEW_DRIVER_PROFILE_DEFAULTS = {
   verificationStatus: 'PENDING',
+  verificationReason: null,
+  verificationReviewedAt: null,
   availabilityStatus: 'OFFLINE',
   rating: null,
   totalTrips: 0,

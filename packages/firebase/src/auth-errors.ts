@@ -10,6 +10,7 @@ export type AuthErrorKind =
   | 'too-many-requests'
   | 'permission'
   | 'role-conflict'
+  | 'plate-in-use'
   | 'server'
   | 'unknown';
 
@@ -66,6 +67,10 @@ const failures: Record<AuthErrorKind, Omit<AuthFailure, 'kind'>> = {
     message: 'This email address is already registered as a different type of account.',
     retryable: false,
   },
+  'plate-in-use': {
+    message: 'This plate number is already registered to another vehicle.',
+    retryable: false,
+  },
   server: { message: 'Something went wrong on our side. Please try again later.', retryable: true },
   unknown: { message: 'Something went wrong. Please try again.', retryable: true },
 };
@@ -88,6 +93,7 @@ const kindByCode: Record<string, AuthErrorKind> = {
   'functions/unavailable': 'network',
   'functions/deadline-exceeded': 'network',
   'functions/failed-precondition': 'role-conflict',
+  'functions/already-exists': 'plate-in-use',
   'functions/invalid-argument': 'validation',
   'functions/permission-denied': 'permission',
   'functions/unauthenticated': 'permission',

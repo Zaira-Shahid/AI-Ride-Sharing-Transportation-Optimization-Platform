@@ -1,8 +1,8 @@
 # Roles, access and security
 
-Status: through Module 2.1 (driver profile). Module 1.1 defined the role system and Firestore
-rules; registration, login, logout, password reset, profile editing and the driver profile are
-built on top of it.
+Status: through Module 2.4 (driver verification). Module 1.1 defined the role system and Firestore
+rules; registration, login, logout, password reset, profile editing, the driver profile and the
+vehicle are built on top of it.
 
 ## Roles
 
@@ -113,14 +113,14 @@ when the person verifies.
   (any of the four staff roles). A passenger cannot read one, even one keyed by their own uid. The
   `role` field stored inside a document is never used.
 - **Write:** nobody from a client, including the driver, so a driver cannot verify themselves, edit
-  their rating or trip count, or go online. Staff have read access only for now; how staff change
-  verification is decided in Module 2.4. Later Phase 2 modules open only the specific fields each
-  one owns.
-- A new driver starts `PENDING` and `OFFLINE`, with rating `null` and 0 trips; detour settings stay
-  `null` until the driver sets them.
+  their rating or trip count, or go online. Staff decide verification through a function (see
+  Verification below), not by writing the document. Later Phase 2 modules open only the specific
+  fields each one owns.
+- A new driver starts `PENDING` and `OFFLINE`, with rating `null`, 0 trips and no verification
+  reason; detour settings stay `null` until the driver sets them.
 - Creation writes a `DRIVER_PROFILE_CREATED` audit entry.
 - Nothing about a driver's verification is enforced elsewhere yet. Access to journeys and matching
-  will check it in the modules that own them.
+  will check it in the modules that own them (Module 2.5 onwards).
 
 ```bash
 npm run admin:backfill-driver-profiles -- --confirm-production
@@ -132,6 +132,75 @@ npm run admin:backfill-driver-profiles -- --confirm-production
 - Same safety rules as the staff-role script: against the real project it needs
   `GOOGLE_APPLICATION_CREDENTIALS` and the explicit `--confirm-production` flag; without the flag it
   refuses to run unless the Firestore emulator is configured.
+
+## Vehicle
+
+- `vehicles/{uid}` (one per driver) is created and changed only by the `saveVehicle` function,
+  never by a client. The function checks, from the signed token and not from any document:
+  the `DRIVER` role claim and a verified email. It also requires an ACTIVE account and an existing
+  driver profile, so a suspended driver cannot change their vehicle.
+- **Read:** the driver themselves (verified email and the `DRIVER` claim) or verified staff. A
+  passenger cannot read a vehicle. Showing vehicle details to a matched passenger is a later module.
+- **Write:** nobody from a client. Extra fields in a request (`verificationStatus`, `seatCapacity`,
+  `driverId`) are ignored, so a driver cannot verify their own vehicle or set seats through it.
+- **Unique plate numbers**, compared without case, spaces or hyphens, enforced in a transaction.
+  The error tells the person the plate is already registered but not whose it is.
+- A change to type, make, model or plate sends the vehicle back to `PENDING`; a save that changes
+  nothing writes nothing.
+- Every create and change writes an audit entry (`VEHICLE_CREATED`, `VEHICLE_UPDATED`) with the
+  previous and new details. The audit log is never readable by clients.
+- **Seat capacity** is changed only by the `setVehicleCapacity` function, with the same caller
+  checks as `saveVehicle` (verified email, `DRIVER` claim, ACTIVE account, existing vehicle). It
+  accepts a whole number from 1 to 6 and ignores every other field in the request. Claiming more
+  seats than were reviewed, or setting seats for the first time, sends the vehicle back to
+  `PENDING`; claiming fewer never changes the review state (a `REJECTED` vehicle stays rejected).
+  It also keeps `availableSeats` from exceeding the capacity. Each change writes a
+  `VEHICLE_CAPACITY_CHANGED` audit entry with the previous and new values. Direct client writes to
+  `seatCapacity` are denied by the rules.
+- The number of seats is the driver's own claim until staff verify the vehicle. Nothing
+  compares it to the make and model yet.
+- No proof of ownership, registration document or plate lookup exists yet; verification is
+  Module 2.4, and it is a status decided by staff, not an automatic check. A plate is only checked
+  for shape and uniqueness.
+
+## Verification
+
+- **Only staff decide.** A driver profile or vehicle becomes `VERIFIED` or `REJECTED` only through
+  the `reviewDriver` and `reviewVehicle` functions, or the `admin:review` script. The functions
+  check the signed token, never a document: the role claim must be `ADMIN` or `SUPER_ADMIN` and
+  the email verified. `SUPPORT`, `OPERATIONS`, drivers, passengers and unverified accounts are
+  refused, and so is a driver reviewing their own profile. A role written into a document, for
+  example `users/{uid}.role`, grants nothing.
+- **Clients cannot write** `verificationStatus`, `verificationReason` or `verificationReviewedAt`
+  on `drivers` or `vehicles`; the rules deny every client write to both collections.
+- **A rejection needs a reason** (1 to 500 characters after trimming), which the driver can read on
+  their own record. Reasons are written by staff, so they should never contain another person's
+  personal details. An approval stores no reason.
+- **Asking again** (`requestReview`) is for drivers only and moves nothing except a `REJECTED`
+  record of their own back to `PENDING`. On a pending or verified record it changes nothing, so it
+  cannot be used to reach `VERIFIED`, and the request cannot name someone else's record: the target
+  is always the caller's uid. It needs an ACTIVE account.
+- **Every decision is audited** with the previous and new status and reason: `*_VERIFICATION_REVIEWED`
+  (actor: the staff uid, or `script:review-driver`) and `*_REVIEW_REQUESTED` (actor: the driver).
+  Audit logs are never readable by clients.
+- **The `driverId` in a review** must look like a Firebase uid (letters, digits, `-`, `_`), so a
+  crafted value cannot point at another document path.
+- **No documents are collected.** The app stores no identity documents, licence numbers or photos;
+  verification is only a status. This avoids holding highly sensitive personal data until a
+  document flow, storage, retention and a privacy review are designed (spec section 56).
+- **Not enforced yet.** A `PENDING` or `REJECTED` driver is not blocked from anything in this
+  module. Going online (Module 2.5) and journeys will require a `VERIFIED` driver and vehicle.
+  Until then, do not rely on the status for access decisions.
+- **The script** verifies or rejects by the driver's email:
+
+```bash
+npm run admin:review -- driver <email> VERIFIED --confirm-production
+npm run admin:review -- vehicle <email> REJECTED "Reason shown to the driver" --confirm-production
+```
+
+It has the same safety rules as the other scripts: against the real project it needs
+`GOOGLE_APPLICATION_CREDENTIALS` and `--confirm-production`, and without the flag it refuses to
+run unless the Auth and Firestore emulators are configured.
 
 ## Staff roles
 
@@ -149,11 +218,12 @@ npm run admin:set-staff-role -- <email> <SUPPORT|OPERATIONS|ADMIN|SUPER_ADMIN> -
 
 ## Firestore rules (`firestore.rules`)
 
-| Collection      | Read                                                     | Write                                         |
-| --------------- | -------------------------------------------------------- | --------------------------------------------- |
-| `users/{uid}`   | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
-| `drivers/{uid}` | That driver, or any driver profile for verified staff    | Nobody                                        |
-| everything else | Nobody                                                   | Nobody                                        |
+| Collection       | Read                                                     | Write                                         |
+| ---------------- | -------------------------------------------------------- | --------------------------------------------- |
+| `users/{uid}`    | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
+| `drivers/{uid}`  | That driver, or any driver profile for verified staff    | Nobody                                        |
+| `vehicles/{uid}` | That driver, or any vehicle for verified staff           | Nobody (the saveVehicle function only)        |
+| everything else  | Nobody                                                   | Nobody                                        |
 
 Creating and deleting profiles, and every other write, happens through Cloud Functions or scripts
 using the Admin SDK, which bypass rules.

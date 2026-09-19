@@ -21,20 +21,20 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.1)
+## What exists now (through Module 2.4)
 
-| Area            | Location                                  | State                                                                                        |
-| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.    |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.                 |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                  |
-| Cloud Functions | `functions`                               | `healthCheck` and `completeRegistration` (role assignment, driver profile). Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.         |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.            |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.        |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                   |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.    |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                          |
+| Area            | Location                                  | State                                                                                                  |
+| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.              |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.                           |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                            |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review and `requestReview` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                   |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                      |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                  |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                             |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.              |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                    |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -135,6 +135,80 @@ The fields follow spec section 10.
 - The verification values (`PENDING`, `VERIFIED`, `REJECTED`) and availability values (`OFFLINE`,
   `ONLINE`) are a starting set that Modules 2.4 and 2.5 may extend.
 
+## Vehicle (Phase 2)
+
+`vehicles/{uid}` holds a driver's vehicle: `driverId`, `type`, `make`, `model`, `plateNumber`,
+`seatCapacity`, `availableSeats` and `verificationStatus` (spec section 10), plus a `plateKey` used
+for the uniqueness check. A driver has **one** vehicle for now, so its document ID is the driver's
+uid, the same convention as `drivers/{uid}`.
+
+- **Saving:** the driver app calls the `saveVehicle` function (`functions/src/vehicles.ts`); a
+  client can never write `vehicles` directly. The function requires a verified email and the
+  `DRIVER` role claim, an ACTIVE account and an existing driver profile. It validates the input,
+  then in one transaction checks the plate and creates or updates the document and writes a
+  `VEHICLE_CREATED` or `VEHICLE_UPDATED` audit entry. Saving identical details changes nothing.
+- **Types:** `CAR`, `VAN`, `MINIBUS`. The list lives in `packages/types/src/vehicle.ts` and can grow.
+- **Plate numbers are unique.** `plateNumber` keeps what the driver typed, tidied (upper case,
+  single spaces); `plateKey` is the same without spaces and hyphens, so `ab-12 cd`, `AB12CD` and
+  `AB 12-CD` are one plate. The check runs inside the transaction (Firestore transactions lock the
+  queried range), so two drivers saving the same plate at once cannot both succeed. Rules cannot
+  run this kind of query, which is why saving goes through a function. Only letters, numbers,
+  spaces and hyphens are accepted (2 to 12 characters without separators); no country format is
+  assumed. Non-Latin plates are not supported yet.
+- **Seats are not set by `saveVehicle`.** `seatCapacity` and `availableSeats` start as `null`, and
+  editing the vehicle details keeps whatever they hold. Capacity is set by its own function (below);
+  `availableSeats` is Module 2.7's.
+- **Capacity (Module 2.3).** `seatCapacity` is the number of seats **for passengers**; the driver's
+  own seat is not counted, so a "capacity 4" vehicle carries up to 4 passengers. It must be a whole
+  number from 1 to 6, the same for every vehicle type (`SEAT_CAPACITY_MIN` and `SEAT_CAPACITY_MAX`
+  in `packages/types/src/vehicle.ts`). The driver sets it with a "Passenger seats" control on the
+  vehicle card (radio buttons 1 to 6, so nothing has to be typed), which calls `setVehicleCapacity`
+  (`functions/src/vehicles.ts`). Raising the number, or setting it for the first time, sends the
+  vehicle back to `PENDING`; lowering it never does, and setting the same number changes nothing.
+  If `availableSeats` would exceed the new capacity it is lowered to match, so seats on offer can
+  never be more than the vehicle holds. Each change writes a `VEHICLE_CAPACITY_CHANGED` audit
+  entry. A vehicle added before this module shows "Not set yet" until the driver picks a number.
+- **Verification:** a new vehicle is `PENDING`. If a driver changes any identifying detail the
+  vehicle goes back to `PENDING`, because the review was of the earlier details. How staff decide
+  is described under Verification below.
+- **App:** the driver's Profile tab shows a "Your vehicle" card with an Add or Edit form
+  (`VehicleSection`, `useVehicle`). The passenger app never reads `vehicles`.
+- `functions` cannot import `@ridemesh/types`, so the vehicle types, defaults, schema and plate
+  rules are duplicated in `functions/src/vehicles.ts`; `tests/roles-parity.test.ts` fails if they
+  diverge.
+
+## Verification (Phase 2)
+
+A driver profile and a vehicle each carry their own verification (`verificationStatus`, with
+`verificationReason` and `verificationReviewedAt`). They are decided separately: a verified driver
+can have a vehicle that is still pending, and the reverse. Statuses are `PENDING` (the start),
+`VERIFIED` and `REJECTED`.
+
+- **Who decides:** verified `ADMIN` and `SUPER_ADMIN` staff, through the `reviewDriver` and
+  `reviewVehicle` functions (`functions/src/verification.ts`). The admin dashboard that will call
+  them is Phase 11; until then `npm run admin:review` (service account) makes the same decision by
+  the driver's email. Nothing in the apps lets a person verify anyone, themselves included.
+- **What a decision carries:** `VERIFIED`, or `REJECTED` with a reason of 1 to 500 characters that
+  the driver sees. Staff can change their mind either way (reject a verified driver, verify a
+  rejected one). Repeating the same decision changes nothing. Each decision writes an audit entry
+  (`DRIVER_VERIFICATION_REVIEWED` or `VEHICLE_VERIFICATION_REVIEWED`) with the staff uid as actor.
+- **Asking again:** a rejected driver or vehicle shows the reason and a "Request driver review" or
+  "Request vehicle review" button. It calls `requestReview`, which moves only a `REJECTED` record
+  back to `PENDING` and clears the reason (kept in the audit trail as `DRIVER_REVIEW_REQUESTED` or
+  `VEHICLE_REVIEW_REQUESTED`). On a pending or verified record it does nothing. Changing the vehicle
+  details, or raising its seats, also starts a new review and clears the old decision.
+- **What is collected:** nothing beyond the status. No identity documents, licence numbers or
+  photos are collected or stored in the app; the identity check itself happens outside it. Adding
+  documents would need Firebase Storage, retention rules and a privacy review, and is left for a
+  later module.
+- **Not enforced yet:** verification does not yet stop anything. Going online (Module 2.5) and
+  creating journeys will require a `VERIFIED` driver and vehicle with seats set; those modules own
+  that check.
+- **App:** the "Driver details" and "Your vehicle" cards show the status through the shared
+  `ReviewStatus` component. The passenger app shows none of it.
+- The reviewer roles, decisions, reason limit and schemas are duplicated in
+  `functions/src/verification.ts`; `tests/roles-parity.test.ts` keeps them aligned.
+
 ## Design tokens
 
 `packages/ui/src/tokens.ts` is the source of truth. `tokens.css` mirrors the palette and radii for
@@ -152,7 +226,8 @@ while driving. Each is a one-line change in the app's `src/theme.ts`.
   test keeps them aligned. A Firestore location cannot be changed after creation.
 - `firestore.rules` allows only verified users to read their own profile (staff may read any). A
   person may update only their own name and phone; every other write is denied. A driver may read
-  their own `drivers/{uid}` document and nothing may be written to it from a client. Roles are
+  their own `drivers/{uid}` and `vehicles/{uid}` documents; nothing may be written to either from a
+  client (vehicles are saved by a function). Roles are
   custom claims set server-side; see `docs/security.md`.
 - The client uses long-polling auto-detection for Firestore, which helps on React Native networks
   where streaming is unavailable.

@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NEW_VEHICLE_DEFAULTS,
+  VEHICLE_TYPES,
+  isValidPlate,
+  normalizePlate,
+  REVIEWER_ROLES,
+  REVIEW_DECISIONS,
+  REVIEW_TARGETS,
+  requestReviewInputSchema,
+  reviewInputSchema,
+  validateSeatCapacity,
+  validateVehicle,
+  SEAT_CAPACITY_MAX,
+  SEAT_CAPACITY_MIN,
   DRIVER_AVAILABILITY_STATUSES,
   DRIVER_JOURNEY_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
@@ -123,6 +136,8 @@ describe('driver profile (spec section 10)', () => {
   it('starts a new driver unverified and offline, with no detour settings invented', () => {
     expect(NEW_DRIVER_PROFILE_DEFAULTS).toEqual({
       verificationStatus: 'PENDING',
+      verificationReason: null,
+      verificationReviewedAt: null,
       availabilityStatus: 'OFFLINE',
       rating: null,
       totalTrips: 0,
@@ -130,5 +145,118 @@ describe('driver profile (spec section 10)', () => {
       maxDetourDistance: null,
       automaticMatchingEnabled: null,
     });
+  });
+});
+
+describe('vehicle (spec section 10)', () => {
+  const valid = { type: 'CAR', make: 'Toyota', model: 'Corolla', plateNumber: 'abc-123' } as const;
+
+  it('offers car, van and minibus', () => {
+    expect(VEHICLE_TYPES).toEqual(['CAR', 'VAN', 'MINIBUS']);
+  });
+
+  it('starts without seats and unverified', () => {
+    expect(NEW_VEHICLE_DEFAULTS).toEqual({
+      seatCapacity: null,
+      availableSeats: null,
+      verificationStatus: 'PENDING',
+      verificationReason: null,
+      verificationReviewedAt: null,
+    });
+  });
+
+  it('tidies a plate and builds a key without spaces and hyphens', () => {
+    expect(normalizePlate('  ab  12-cd ')).toEqual({ plateNumber: 'AB 12-CD', plateKey: 'AB12CD' });
+    expect(normalizePlate('AB12CD').plateKey).toBe(normalizePlate('ab 12 cd').plateKey);
+  });
+
+  it.each([
+    ['ABC-123', true],
+    ['AB 12', true],
+    ['AB', true],
+    ['A', false],
+    ['- -', false],
+    ['AB#12', false],
+    ['ABCDEFGHIJKLM', false],
+    ['é12', false],
+    ['', false],
+  ])('checks the plate %j: %s', (plate, ok) => {
+    expect(isValidPlate(normalizePlate(plate))).toBe(ok);
+  });
+
+  it('accepts a valid vehicle and returns trimmed, tidied values', () => {
+    const result = validateVehicle({ ...valid, make: ' Toyota ', model: ' Corolla ' });
+    expect(result).toEqual({
+      ok: true,
+      data: { type: 'CAR', make: 'Toyota', model: 'Corolla', plateNumber: 'ABC-123' },
+    });
+  });
+
+  it('reports each problem on its own field', () => {
+    const result = validateVehicle({ type: '', make: ' ', model: '', plateNumber: 'A' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(Object.keys(result.errors).sort()).toEqual(['make', 'model', 'plateNumber', 'type']);
+    }
+  });
+
+  it('rejects an oversized make or model', () => {
+    const result = validateVehicle({ ...valid, make: 'x'.repeat(51), model: 'y'.repeat(51) });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('seat capacity', () => {
+  it('counts passenger seats only, from 1 to 6', () => {
+    expect([SEAT_CAPACITY_MIN, SEAT_CAPACITY_MAX]).toEqual([1, 6]);
+  });
+
+  it.each([1, 2, 4, 6])('accepts %s seats', (seats) => {
+    expect(validateSeatCapacity(seats)).toEqual({ ok: true, data: { seatCapacity: seats } });
+  });
+
+  it.each([0, 7, -1, 2.5, Number.NaN, null])('rejects %s', (seats) => {
+    const result = validateSeatCapacity(seats);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('Choose between 1 and 6 passenger seats.');
+  });
+});
+
+describe('verification reviews', () => {
+  it('lets only ADMIN and SUPER_ADMIN review', () => {
+    expect(REVIEWER_ROLES).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    expect(REVIEW_DECISIONS).toEqual(['VERIFIED', 'REJECTED']);
+    expect(REVIEW_TARGETS).toEqual(['DRIVER', 'VEHICLE']);
+  });
+
+  it('accepts a verification, with or without a reason, and trims the reason', () => {
+    expect(reviewInputSchema.safeParse({ driverId: 'abc', decision: 'VERIFIED' }).success).toBe(
+      true,
+    );
+    const rejected = reviewInputSchema.parse({
+      driverId: ' abc ',
+      decision: 'REJECTED',
+      reason: '  No.  ',
+    });
+    expect(rejected).toEqual({ driverId: 'abc', decision: 'REJECTED', reason: 'No.' });
+  });
+
+  it.each([undefined, null, '', '   ', 'x'.repeat(501)])(
+    'refuses a rejection with reason %j',
+    (reason) => {
+      expect(
+        reviewInputSchema.safeParse({ driverId: 'abc', decision: 'REJECTED', reason }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(['users/abc', '..', 'a b', '', 'a'.repeat(129)])('refuses the id %j', (driverId) => {
+    expect(reviewInputSchema.safeParse({ driverId, decision: 'VERIFIED' }).success).toBe(false);
+  });
+
+  it('only lets a driver ask for a driver or vehicle review', () => {
+    expect(requestReviewInputSchema.safeParse({ target: 'DRIVER' }).success).toBe(true);
+    expect(requestReviewInputSchema.safeParse({ target: 'VEHICLE' }).success).toBe(true);
+    expect(requestReviewInputSchema.safeParse({ target: 'PASSENGER' }).success).toBe(false);
   });
 });
