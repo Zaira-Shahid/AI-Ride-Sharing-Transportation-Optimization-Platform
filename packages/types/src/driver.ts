@@ -29,6 +29,8 @@ export interface DriverProfile {
   maxDetourMinutes: number | null;
   maxDetourDistance: number | null;
   automaticMatchingEnabled: boolean | null;
+  /** The driver's open journey in driverJourneys, if any. Only server code sets it. */
+  currentJourneyId: string | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -46,4 +48,5 @@ export const NEW_DRIVER_PROFILE_DEFAULTS = {
   maxDetourMinutes: null,
   maxDetourDistance: null,
   automaticMatchingEnabled: null,
+  currentJourneyId: null,
 } as const satisfies Omit<DriverProfile, 'userId' | 'createdAt' | 'updatedAt'>;

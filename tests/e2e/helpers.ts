@@ -96,6 +96,7 @@ async function createProfileDoc(
 
 interface DriverDocFields {
   availabilityStatus?: string;
+  currentJourneyId?: string | null;
   verificationStatus?: string;
   verificationReason?: string | null;
   totalTrips?: number;
@@ -124,6 +125,10 @@ export async function writeDriverDoc(uid: string, fields: DriverDocFields = {}) 
         maxDetourMinutes: { nullValue: null },
         maxDetourDistance: { nullValue: null },
         automaticMatchingEnabled: { nullValue: null },
+        currentJourneyId:
+          fields.currentJourneyId == null
+            ? { nullValue: null }
+            : { stringValue: fields.currentJourneyId },
         createdAt: { timestampValue: now },
         updatedAt: { timestampValue: now },
       },
@@ -319,4 +324,215 @@ export async function reviewAsAdmin(
     },
   );
   expect(response.ok).toBe(true);
+}
+
+export interface Place {
+  id: string;
+  /** The line shown as a suggestion. */
+  text: string;
+  main: string;
+  secondary: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+export const PLACES = {
+  office: {
+    id: 'place-office',
+    text: 'Canary Wharf, London, UK',
+    main: 'Canary Wharf',
+    secondary: 'London, UK',
+    address: '1 Canada Square, London E14 5AB, UK',
+    latitude: 51.5049,
+    longitude: -0.0195,
+  },
+  station: {
+    id: 'place-station',
+    text: 'Temple Meads Station, Bristol, UK',
+    main: 'Temple Meads Station',
+    secondary: 'Bristol, UK',
+    address: 'Temple Meads, Bristol BS1 6QS, UK',
+    latitude: 51.4494,
+    longitude: -2.5813,
+  },
+} satisfies Record<string, Place>;
+
+const journeyIdOf = (uid: string) => `journey-${uid}`;
+export { journeyIdOf as journeyId };
+
+/** Writes driverJourneys/journey-{uid} with a destination, the way the server does. */
+export async function writeJourneyDoc(uid: string, place: Place = PLACES.office) {
+  const now = new Date().toISOString();
+  const response = await fetch(`${firestoreDocs}/driverJourneys/${journeyIdOf(uid)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({
+      fields: {
+        driverId: { stringValue: uid },
+        vehicleId: { stringValue: uid },
+        origin: { nullValue: null },
+        destination: {
+          mapValue: {
+            fields: {
+              latitude: { doubleValue: place.latitude },
+              longitude: { doubleValue: place.longitude },
+              formattedAddress: { stringValue: place.address },
+              placeId: { stringValue: place.id },
+            },
+          },
+        },
+        departureTime: { nullValue: null },
+        availableSeats: { nullValue: null },
+        maxDetourMinutes: { nullValue: null },
+        maxDetourDistance: { nullValue: null },
+        status: { stringValue: 'DRAFT' },
+        currentLocation: { nullValue: null },
+        currentRoute: { nullValue: null },
+        createdAt: { timestampValue: now },
+        updatedAt: { timestampValue: now },
+      },
+    }),
+  });
+  expect(response.ok).toBe(true);
+  return journeyIdOf(uid);
+}
+
+interface FirestoreValue {
+  stringValue?: string;
+  doubleValue?: number;
+  mapValue?: { fields: Record<string, FirestoreValue> };
+}
+
+/** The driver's stored journey, found through drivers/{uid}.currentJourneyId, or undefined. */
+export async function readDriverJourney(uid: string) {
+  const headers = { authorization: 'Bearer owner' };
+  const driverResponse = await fetch(`${firestoreDocs}/drivers/${uid}`, { headers });
+  const driver = (await driverResponse.json()) as { fields?: Record<string, FirestoreValue> };
+  const journeyId = driver.fields?.currentJourneyId?.stringValue;
+  if (!journeyId) return undefined;
+
+  const journeyResponse = await fetch(`${firestoreDocs}/driverJourneys/${journeyId}`, { headers });
+  if (journeyResponse.status === 404) return undefined;
+  const { fields } = (await journeyResponse.json()) as { fields: Record<string, FirestoreValue> };
+  const place = fields.destination?.mapValue?.fields;
+  return {
+    id: journeyId,
+    driverId: fields.driverId?.stringValue,
+    status: fields.status?.stringValue,
+    address: place?.formattedAddress?.stringValue,
+    latitude: place?.latitude?.doubleValue,
+    longitude: place?.longitude?.doubleValue,
+    placeId: place?.placeId?.stringValue,
+  };
+}
+
+export interface PlacesCall {
+  kind: 'autocomplete' | 'details';
+  apiKey: string | undefined;
+  fieldMask: string | undefined;
+  sessionToken: string | undefined;
+  input?: string;
+  placeId?: string;
+}
+
+export interface PlacesMock {
+  calls: PlacesCall[];
+  /** Make the next Places requests fail with this HTTP status; undefined answers normally again. */
+  failWith: (status: number | undefined) => void;
+}
+
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+};
+
+/**
+ * Stands in for Google's Places API (New) in the browser, so no test reaches Google. It answers the
+ * autocomplete and details requests the way Google documents them, from the PLACES above, and
+ * records what was asked (key, field mask, session token) so tests can check the requests.
+ */
+export async function mockPlaces(page: Page): Promise<PlacesMock> {
+  const calls: PlacesCall[] = [];
+  let failure: number | undefined;
+
+  await page.route('https://places.googleapis.com/**', async (route) => {
+    const request = route.request();
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: CORS });
+      return;
+    }
+    if (failure !== undefined) {
+      await route.fulfill({
+        status: failure,
+        headers: { ...CORS, 'content-type': 'application/json' },
+        body: JSON.stringify({ error: { message: 'mocked failure' } }),
+      });
+      return;
+    }
+
+    const headers = request.headers();
+    const url = new URL(request.url());
+    const json = (body: unknown) =>
+      route.fulfill({
+        status: 200,
+        headers: { ...CORS, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    if (url.pathname === '/v1/places:autocomplete') {
+      const body = request.postDataJSON() as { input: string; sessionToken: string };
+      calls.push({
+        kind: 'autocomplete',
+        apiKey: headers['x-goog-api-key'],
+        fieldMask: headers['x-goog-fieldmask'],
+        sessionToken: body.sessionToken,
+        input: body.input,
+      });
+      const needle = body.input.toLowerCase();
+      const matches = Object.values(PLACES).filter((place) =>
+        place.text.toLowerCase().includes(needle),
+      );
+      await json({
+        suggestions: matches.map((place) => ({
+          placePrediction: {
+            placeId: place.id,
+            text: { text: place.text },
+            structuredFormat: {
+              mainText: { text: place.main },
+              secondaryText: { text: place.secondary },
+            },
+          },
+        })),
+      });
+      return;
+    }
+
+    const placeId = decodeURIComponent(url.pathname.replace('/v1/places/', ''));
+    calls.push({
+      kind: 'details',
+      apiKey: headers['x-goog-api-key'],
+      fieldMask: headers['x-goog-fieldmask'],
+      sessionToken: url.searchParams.get('sessionToken') ?? undefined,
+      placeId,
+    });
+    const place = Object.values(PLACES).find((candidate) => candidate.id === placeId);
+    if (!place) {
+      await route.fulfill({ status: 404, headers: CORS, body: '{}' });
+      return;
+    }
+    await json({
+      id: place.id,
+      formattedAddress: place.address,
+      location: { latitude: place.latitude, longitude: place.longitude },
+    });
+  });
+
+  return {
+    calls,
+    failWith: (status) => {
+      failure = status;
+    },
+  };
 }

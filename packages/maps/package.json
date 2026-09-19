@@ -1,0 +1,18 @@
+{
+  "name": "@ridemesh/maps",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Google Maps Platform clients for RideMesh apps (Places today; routing and geocoding later)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ridemesh/config": "*",
+    "@ridemesh/types": "*"
+  }
+}

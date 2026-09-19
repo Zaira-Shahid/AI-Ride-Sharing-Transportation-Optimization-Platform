@@ -63,6 +63,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A driver's journey. The document ID is generated, so ownership comes from driverId. Only
+    // server functions create or change it (Module 2.6 onwards); the driver can read their own.
+    match /driverJourneys/{journeyId} {
+      allow read: if isVerified()
+                  && ((request.auth.uid == resource.data.driverId && role() == 'DRIVER')
+                      || isStaff());
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;

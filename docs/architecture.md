@@ -21,20 +21,21 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.5)
+## What exists now (through Module 2.6)
 
-| Area            | Location                                  | State                                                                                                                     |
-| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                 |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                  |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                               |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                      |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                         |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                     |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                 |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                       |
+| Area            | Location                                  | State                                                                                                                                           |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                                       |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                        |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                     |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                            |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                               |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                           |
+| Maps client     | `packages/maps`                           | Google Places (New) search for destinations, using plain `fetch`. Routing and geocoding follow in Phase 4.                                      |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                      |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                       |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                             |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -239,6 +240,50 @@ the client cannot write it.
   matching must not treat an old `availabilityChangedAt` as proof the driver is still there.
 - **Online does not mean matched.** Nothing uses `ONLINE` yet. Destination (2.6), seats on offer
   (2.7) and detour (2.8) will add their requirements to the same list.
+
+## Journey and destination (Phase 2)
+
+`driverJourneys/{journeyId}` is the driver's trip plan (spec section 10). A driver has at most one
+open journey, found through `drivers/{uid}.currentJourneyId`, so the document ID can be generated
+and finished journeys can pile up later without any index. Module 2.6 creates it as a `DRAFT` that
+holds the destination; the seats on offer (2.7) and the detour limits (2.8) go into the same
+journey, and its later states (`AVAILABLE`, `ACTIVE`, ...) come with the modules that own them.
+
+- **Declaring a destination:** the driver app calls `declareDestination`
+  (`functions/src/journeys.ts`). It needs a verified DRIVER, an ACTIVE account and a vehicle, and
+  validates the place (latitude -90 to 90, longitude -180 to 180, an address of 1 to 300
+  characters, an optional place ID). The first call creates the journey and points the driver at
+  it; later calls replace the destination while the journey is still a `DRAFT`, and do nothing if
+  it is the same place. A destination is replaced, never cleared. `vehicleId` is the driver's uid,
+  the same as their vehicle. `origin` (the driver's position) and `departureTime` stay `null`: the
+  origin comes from GPS in Phase 4, and "departing" means "when the driver goes online".
+- **Where the place comes from:** Google Places (New), used from the app through the
+  `@ridemesh/maps` package (`packages/maps/src/places.ts`). It sends an autocomplete request as the
+  person types (after two characters, 300 ms after they stop, and cancelling requests that were
+  overtaken), then one details request for the place they pick, asking only for
+  `id,formattedAddress,location`. Both share one session token. The key goes in a request header
+  and is never part of a URL or a message. Failures are turned into plain sentences; an
+  unreadable answer from Google is rejected rather than trusted. Nothing but plain `fetch` is used.
+- **The key:** `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` in the driver app's local `.env` (git-ignored,
+  see `docs/development.md`). Without it the Destination card says place search is not set up; it
+  never pretends. Expo inlines it into the app, so it is a public key that must be restricted in
+  Google Cloud.
+- **Home tab:** the driver's Home also has a "Destination" card: the current destination and
+  "Change destination", or a search box when none is set (and a note to add a vehicle first when
+  there is none). Picking a suggestion saves it straight away. The list of requirements to go
+  online now ends with "Destination set" (`destinationDeclared`), so going online needs a
+  declared destination, and it can be changed while online. Google requires its attribution next
+  to suggestions shown without a map; a "Powered by Google" line is shown, and the official logo
+  is still to be added before launch.
+- **Reading:** `useJourney` follows the journey document live. The Home screen shows its spinner
+  only for the first load, so saving the first destination (which creates a new journey to load)
+  does not blank the screen.
+- `functions` cannot import `@ridemesh/types`, so the destination schema and the new-journey
+  defaults are duplicated in `functions/src/journeys.ts`; `tests/roles-parity.test.ts` keeps them
+  aligned.
+- **Not verified against Google itself.** The requests follow Google's documented Places API
+  (New) format, and the tests answer them with a stand-in, but no real key has been used yet.
+  Check place search once with a real key before relying on it.
 
 ## Design tokens
 
