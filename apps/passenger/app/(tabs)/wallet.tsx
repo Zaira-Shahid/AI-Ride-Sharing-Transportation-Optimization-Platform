@@ -1,4 +1,4 @@
-import { ScreenShell } from '../src/components/ScreenShell';
+import { ScreenShell } from '../../src/components/ScreenShell';
 
 export default function WalletScreen() {
   return (
