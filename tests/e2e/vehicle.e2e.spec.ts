@@ -72,6 +72,7 @@ test.describe('driver app: vehicle', () => {
         make: 'Ford',
         model: 'Transit',
         plateNumber: 'AB 12 CD',
+        seatCapacity: null,
         verificationStatus: 'PENDING',
       });
 
@@ -113,7 +114,11 @@ test.describe('driver app: vehicle', () => {
 
   test('edits a vehicle, warning that a verified one is reviewed again', async ({ page }) => {
     const { email, uid } = await newDriver('veh-edit');
-    await writeVehicleDoc(uid, { model: 'Corolla', verificationStatus: 'VERIFIED' });
+    await writeVehicleDoc(uid, {
+      model: 'Corolla',
+      plateNumber: 'EDIT 100',
+      verificationStatus: 'VERIFIED',
+    });
     await signInAndOpenProfile(page, driver, email);
 
     await page.getByRole('button', { name: 'Edit vehicle' }).click();
@@ -122,7 +127,7 @@ test.describe('driver app: vehicle', () => {
     ).toBeVisible();
     await expect(make(page)).toHaveValue('Toyota');
     await expect(model(page)).toHaveValue('Corolla');
-    await expect(plate(page)).toHaveValue('SEED 100');
+    await expect(plate(page)).toHaveValue('EDIT 100');
     await expect(page.getByRole('radio', { name: 'Car' })).toBeChecked();
 
     await model(page).fill('Yaris');

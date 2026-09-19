@@ -4,7 +4,10 @@ import {
   VEHICLE_TYPES,
   isValidPlate,
   normalizePlate,
+  validateSeatCapacity,
   validateVehicle,
+  SEAT_CAPACITY_MAX,
+  SEAT_CAPACITY_MIN,
   DRIVER_AVAILABILITY_STATUSES,
   DRIVER_JOURNEY_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
@@ -191,5 +194,21 @@ describe('vehicle (spec section 10)', () => {
   it('rejects an oversized make or model', () => {
     const result = validateVehicle({ ...valid, make: 'x'.repeat(51), model: 'y'.repeat(51) });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('seat capacity', () => {
+  it('counts passenger seats only, from 1 to 6', () => {
+    expect([SEAT_CAPACITY_MIN, SEAT_CAPACITY_MAX]).toEqual([1, 6]);
+  });
+
+  it.each([1, 2, 4, 6])('accepts %s seats', (seats) => {
+    expect(validateSeatCapacity(seats)).toEqual({ ok: true, data: { seatCapacity: seats } });
+  });
+
+  it.each([0, 7, -1, 2.5, Number.NaN, null])('rejects %s', (seats) => {
+    const result = validateSeatCapacity(seats);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('Choose between 1 and 6 passenger seats.');
   });
 });

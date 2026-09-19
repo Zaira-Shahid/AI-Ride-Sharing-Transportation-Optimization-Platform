@@ -21,20 +21,20 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.2)
+## What exists now (through Module 2.3)
 
-| Area            | Location                                  | State                                                                                         |
-| --------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.     |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.                  |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                   |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration` (role, driver profile), `saveVehicle`. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.          |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.             |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.         |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                    |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.     |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                           |
+| Area            | Location                                  | State                                                                                        |
+| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.    |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.                 |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                  |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, `saveVehicle`, `setVehicleCapacity`. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.         |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.            |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.        |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                   |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.    |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                          |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -155,8 +155,19 @@ uid, the same convention as `drivers/{uid}`.
   run this kind of query, which is why saving goes through a function. Only letters, numbers,
   spaces and hyphens are accepted (2 to 12 characters without separators); no country format is
   assumed. Non-Latin plates are not supported yet.
-- **Seats are not set here.** `seatCapacity` (Module 2.3) and `availableSeats` (Module 2.7) start
-  as `null` and each owns its own change. Editing the vehicle keeps whatever they hold.
+- **Seats are not set by `saveVehicle`.** `seatCapacity` and `availableSeats` start as `null`, and
+  editing the vehicle details keeps whatever they hold. Capacity is set by its own function (below);
+  `availableSeats` is Module 2.7's.
+- **Capacity (Module 2.3).** `seatCapacity` is the number of seats **for passengers**; the driver's
+  own seat is not counted, so a "capacity 4" vehicle carries up to 4 passengers. It must be a whole
+  number from 1 to 6, the same for every vehicle type (`SEAT_CAPACITY_MIN` and `SEAT_CAPACITY_MAX`
+  in `packages/types/src/vehicle.ts`). The driver sets it with a "Passenger seats" control on the
+  vehicle card (radio buttons 1 to 6, so nothing has to be typed), which calls `setVehicleCapacity`
+  (`functions/src/vehicles.ts`). Raising the number, or setting it for the first time, sends the
+  vehicle back to `PENDING`; lowering it never does, and setting the same number changes nothing.
+  If `availableSeats` would exceed the new capacity it is lowered to match, so seats on offer can
+  never be more than the vehicle holds. Each change writes a `VEHICLE_CAPACITY_CHANGED` audit
+  entry. A vehicle added before this module shows "Not set yet" until the driver picks a number.
 - **Verification:** a new vehicle is `PENDING`. If a driver changes any identifying detail the
   vehicle goes back to `PENDING`, because the review was of the earlier details. Who can verify a
   vehicle is defined in Module 2.4.

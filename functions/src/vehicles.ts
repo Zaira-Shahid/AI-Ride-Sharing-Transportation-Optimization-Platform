@@ -11,6 +11,14 @@ export const NEW_VEHICLE_DEFAULTS = {
   verificationStatus: 'PENDING',
 } as const;
 
+// Seats for passengers, not counting the driver. Mirrors @ridemesh/types.
+export const SEAT_CAPACITY_MIN = 1;
+export const SEAT_CAPACITY_MAX = 6;
+
+export const setVehicleCapacityInputSchema = z.object({
+  seatCapacity: z.number().int().min(SEAT_CAPACITY_MIN).max(SEAT_CAPACITY_MAX),
+});
+
 export const saveVehicleInputSchema = z.object({
   type: z.enum(VEHICLE_TYPES),
   make: z.string().trim().min(1).max(50),
@@ -47,6 +55,12 @@ export interface VehicleCaller {
 
 export type SaveVehicleResult = { status: 'created' | 'updated' | 'unchanged' };
 
+function requireVerifiedDriver(caller: VehicleCaller): void {
+  if (caller.role !== 'DRIVER' || !caller.emailVerified) {
+    throw new HttpsError('permission-denied', 'Only verified drivers can change a vehicle.');
+  }
+}
+
 const IDENTITY_FIELDS = ['type', 'make', 'model', 'plateNumber', 'plateKey'] as const;
 
 /**
@@ -62,9 +76,7 @@ export async function saveVehicle(
   caller: VehicleCaller,
   rawInput: unknown,
 ): Promise<SaveVehicleResult> {
-  if (caller.role !== 'DRIVER' || !caller.emailVerified) {
-    throw new HttpsError('permission-denied', 'Only verified drivers can save a vehicle.');
-  }
+  requireVerifiedDriver(caller);
 
   const parsed = saveVehicleInputSchema.safeParse(rawInput);
   const plate = parsed.success ? normalizePlate(parsed.data.plateNumber) : undefined;
@@ -135,6 +147,72 @@ export async function saveVehicle(
       previousState: { ...previous, verificationStatus: vehicle.get('verificationStatus') },
       newState: { ...details, verificationStatus: NEW_VEHICLE_DEFAULTS.verificationStatus },
       reason: 'Driver changed their vehicle details',
+    });
+    return { status: 'updated' };
+  });
+}
+
+export type SetVehicleCapacityResult = { status: 'updated' | 'unchanged' };
+
+/**
+ * Sets how many passenger seats the calling driver's vehicle has (1 to 6, the driver's seat not
+ * counted). Raising the number, or setting it for the first time, sends the vehicle back to
+ * PENDING, because the review did not cover those seats; lowering it never does. If seats on offer
+ * (availableSeats, Module 2.7) would exceed the new capacity they are lowered to match, so they
+ * can never be more than the vehicle holds.
+ */
+export async function setVehicleCapacity(
+  deps: { firestore: Firestore },
+  caller: VehicleCaller,
+  rawInput: unknown,
+): Promise<SetVehicleCapacityResult> {
+  requireVerifiedDriver(caller);
+
+  const parsed = setVehicleCapacityInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new HttpsError('invalid-argument', 'The number of seats is not valid.');
+  }
+  const { seatCapacity } = parsed.data;
+
+  const { firestore } = deps;
+  const vehicleRef = firestore.collection('vehicles').doc(caller.uid);
+  const userRef = firestore.collection('users').doc(caller.uid);
+
+  return firestore.runTransaction(async (tx): Promise<SetVehicleCapacityResult> => {
+    const [user, vehicle] = await Promise.all([tx.get(userRef), tx.get(vehicleRef)]);
+    if (!user.exists || user.get('status') !== 'ACTIVE' || !vehicle.exists) {
+      throw new HttpsError('failed-precondition', 'This account cannot change seats right now.');
+    }
+
+    const previous: unknown = vehicle.get('seatCapacity');
+    if (previous === seatCapacity) return { status: 'unchanged' };
+
+    const raised = typeof previous !== 'number' || seatCapacity > previous;
+    const previousAvailable: unknown = vehicle.get('availableSeats');
+    const availableSeats =
+      typeof previousAvailable === 'number' ? Math.min(previousAvailable, seatCapacity) : null;
+    const verificationStatus = raised
+      ? NEW_VEHICLE_DEFAULTS.verificationStatus
+      : vehicle.get('verificationStatus');
+
+    tx.update(vehicleRef, {
+      seatCapacity,
+      availableSeats,
+      verificationStatus,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.create(firestore.collection('auditLogs').doc(), {
+      timestamp: FieldValue.serverTimestamp(),
+      actor: caller.uid,
+      action: 'VEHICLE_CAPACITY_CHANGED',
+      entity: `vehicles/${caller.uid}`,
+      previousState: {
+        seatCapacity: previous ?? null,
+        availableSeats: previousAvailable ?? null,
+        verificationStatus: vehicle.get('verificationStatus'),
+      },
+      newState: { seatCapacity, availableSeats, verificationStatus },
+      reason: 'Driver changed the passenger seats of their vehicle',
     });
     return { status: 'updated' };
   });

@@ -117,3 +117,29 @@ export function validateVehicle(values: VehicleFormValues): VehicleValidation {
   if (Object.keys(errors).length > 0 || !type.success) return { ok: false, errors };
   return { ok: true, data: { type: type.data, make, model, plateNumber: plate.plateNumber } };
 }
+
+// seatCapacity is the number of seats for passengers; the driver's own seat is not counted.
+export const SEAT_CAPACITY_MIN = 1;
+export const SEAT_CAPACITY_MAX = 6;
+
+export const setVehicleCapacityInputSchema = z.object({
+  seatCapacity: z.number().int().min(SEAT_CAPACITY_MIN).max(SEAT_CAPACITY_MAX),
+});
+export type SetVehicleCapacityInput = z.infer<typeof setVehicleCapacityInputSchema>;
+
+export interface SetVehicleCapacityResult {
+  status: 'updated' | 'unchanged';
+}
+
+export type SeatCapacityValidation =
+  { ok: true; data: SetVehicleCapacityInput } | { ok: false; error: string };
+
+/** Validates a chosen seat count the same way the server does. */
+export function validateSeatCapacity(value: number | null): SeatCapacityValidation {
+  const parsed = setVehicleCapacityInputSchema.safeParse({ seatCapacity: value });
+  if (parsed.success) return { ok: true, data: parsed.data };
+  return {
+    ok: false,
+    error: `Choose between ${SEAT_CAPACITY_MIN} and ${SEAT_CAPACITY_MAX} passenger seats.`,
+  };
+}

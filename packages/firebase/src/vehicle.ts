@@ -1,9 +1,12 @@
 import {
   VEHICLE_VERIFICATION_STATUSES,
   VEHICLE_TYPES,
+  validateSeatCapacity,
   validateVehicle,
   type SaveVehicleInput,
   type SaveVehicleResult,
+  type SetVehicleCapacityInput,
+  type SetVehicleCapacityResult,
   type VehicleFormValues,
   type VehicleType,
   type VehicleVerificationStatus,
@@ -18,6 +21,8 @@ export interface VehicleData {
   make: string;
   model: string;
   plateNumber: string;
+  /** Seats for passengers, not counting the driver. Null until the driver sets it. */
+  seatCapacity: number | null;
   verificationStatus: VehicleVerificationStatus;
 }
 
@@ -49,6 +54,7 @@ export function subscribeToVehicle(
           make: String(data.make ?? ''),
           model: String(data.model ?? ''),
           plateNumber: String(data.plateNumber ?? ''),
+          seatCapacity: typeof data.seatCapacity === 'number' ? data.seatCapacity : null,
           // An unrecognised value is treated as the safest state rather than shown as verified.
           verificationStatus: isOneOf(VEHICLE_VERIFICATION_STATUSES, data.verificationStatus)
             ? data.verificationStatus
@@ -84,6 +90,31 @@ export async function saveVehicle(
       throw new AuthFlowError(
         'permission',
         'Your account cannot save a vehicle right now. Please contact support.',
+      );
+    }
+    throw error;
+  }
+}
+
+/** Sets how many passenger seats the signed-in driver's vehicle has (the driver's seat not counted). */
+export async function setVehicleCapacity(
+  client: Pick<FirebaseClient, 'functions'>,
+  seatCapacity: number | null,
+): Promise<SetVehicleCapacityResult['status']> {
+  const validation = validateSeatCapacity(seatCapacity);
+  if (!validation.ok) throw new AuthFlowError('validation', validation.error);
+
+  try {
+    const result = await httpsCallable<SetVehicleCapacityInput, SetVehicleCapacityResult>(
+      client.functions,
+      'setVehicleCapacity',
+    )(validation.data);
+    return result.data.status;
+  } catch (error) {
+    if (getErrorCode(error) === 'functions/failed-precondition') {
+      throw new AuthFlowError(
+        'permission',
+        'Your account cannot change seats right now. Please contact support.',
       );
     }
     throw error;

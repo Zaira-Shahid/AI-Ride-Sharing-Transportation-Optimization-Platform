@@ -1,6 +1,6 @@
 # Roles, access and security
 
-Status: through Module 2.2 (vehicle profile). Module 1.1 defined the role system and Firestore
+Status: through Module 2.3 (vehicle capacity). Module 1.1 defined the role system and Firestore
 rules; registration, login, logout, password reset, profile editing, the driver profile and the
 vehicle are built on top of it.
 
@@ -149,6 +149,16 @@ npm run admin:backfill-driver-profiles -- --confirm-production
   nothing writes nothing.
 - Every create and change writes an audit entry (`VEHICLE_CREATED`, `VEHICLE_UPDATED`) with the
   previous and new details. The audit log is never readable by clients.
+- **Seat capacity** is changed only by the `setVehicleCapacity` function, with the same caller
+  checks as `saveVehicle` (verified email, `DRIVER` claim, ACTIVE account, existing vehicle). It
+  accepts a whole number from 1 to 6 and ignores every other field in the request. Claiming more
+  seats than were reviewed, or setting seats for the first time, sends the vehicle back to
+  `PENDING`; claiming fewer never changes the review state (a `REJECTED` vehicle stays rejected).
+  It also keeps `availableSeats` from exceeding the capacity. Each change writes a
+  `VEHICLE_CAPACITY_CHANGED` audit entry with the previous and new values. Direct client writes to
+  `seatCapacity` are denied by the rules.
+- The number of seats is the driver's own claim until verification (Module 2.4) checks it. Nothing
+  compares it to the make and model yet.
 - No proof of ownership, registration document or plate lookup exists yet; verification is
   Module 2.4. Until then a plate is only checked for shape and uniqueness.
 
