@@ -148,6 +148,25 @@ export function PrimaryButton({ label, onPress, loading = false, disabled = fals
   );
 }
 
+export function SecondaryButton({ label, onPress, disabled = false }: ButtonProps) {
+  const theme = useAuthTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.button,
+        { borderWidth: 1, borderColor: theme.textPrimary, opacity: disabled ? 0.5 : 1 },
+      ]}
+    >
+      <Text style={[styles.buttonLabel, { color: theme.textPrimary }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function TextButton({ label, onPress, disabled = false }: ButtonProps) {
   const theme = useAuthTheme();
   return (
