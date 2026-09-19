@@ -51,7 +51,7 @@ describe('Firebase configuration structure', () => {
     );
   });
 
-  it('denies all client Firestore access until role-based rules exist', () => {
+  it('keeps collections without their own rules closed to every client', () => {
     const rules = read('firestore.rules');
     expect(rules).toContain('allow read, write: if false;');
     expect(rules).not.toMatch(/allow [a-z, ]+: if true/);

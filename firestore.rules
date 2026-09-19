@@ -2,7 +2,28 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Deny all client access until role-based rules are implemented with authentication.
+
+    function isVerified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // Roles come from a custom claim that only server-side code can set. A `role` field inside a
+    // document is never used for authorization.
+    function role() {
+      return request.auth.token.get('role', '');
+    }
+
+    function isStaff() {
+      return isVerified() && role() in ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN'];
+    }
+
+    // Profiles are created and changed only by server-side functions.
+    match /users/{userId} {
+      allow read: if isVerified() && (request.auth.uid == userId || isStaff());
+      allow write: if false;
+    }
+
+    // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;
     }

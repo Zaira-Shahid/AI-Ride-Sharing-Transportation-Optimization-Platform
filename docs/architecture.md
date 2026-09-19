@@ -21,16 +21,16 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (Module 0.1)
+## What exists now (through Module 1.1)
 
 | Area            | Location                                  | State                                                                                        |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Passenger app   | `apps/passenger`                          | Expo Router shell with Home, Trips, Wallet, Profile tabs (spec section 49). Empty states.    |
 | Driver app      | `apps/driver`                             | Expo Router shell with Home, Current Journey, Earnings, History, Profile tabs. Empty states. |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                  |
-| Cloud Functions | `functions`                               | A single `healthCheck` HTTPS function so the build and emulator can be exercised.            |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, Firestore rules deny all client access.                |
-| Shared types    | `packages/types`                          | Roles, state enumerations, `Location`, all with Zod schemas.                                 |
+| Cloud Functions | `functions`                               | `healthCheck` and the `completeRegistration` callable (role assignment). Emulator-tested.    |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.         |
+| Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                       |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.        |
 | Firebase client | `packages/firebase`                       | Validates the Firebase web config and initialises the shared Firebase app.                   |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                          |
@@ -65,9 +65,8 @@ while driving. Each is a one-line change in the app's `src/theme.ts`.
 - Region: Firestore and Cloud Functions both use `europe-west1` (Belgium). The constant lives in
   `packages/config/src/firebase.ts`; `functions/src/index.ts` sets the same value, and a repository
   test keeps them aligned. A Firestore location cannot be changed after creation.
-- `firestore.rules` denies all client reads and writes. Role-based rules arrive with authentication
-  (Phase 1). Roles will be verified server-side through custom claims; a client-side role field is
-  never trusted.
+- `firestore.rules` allows only verified users to read their own profile (staff may read any) and
+  denies all client writes. Roles are custom claims set server-side; see `docs/security.md`.
 - Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Local function URLs include
   the region: `http://127.0.0.1:5001/<project>/europe-west1/healthCheck`.
 - One Firebase web app ("Ride Sharing App") serves the admin, passenger and driver apps. Its

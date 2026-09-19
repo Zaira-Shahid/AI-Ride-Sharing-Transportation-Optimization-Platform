@@ -11,8 +11,8 @@ the single source of truth for scope, sequencing and the definition of done.
 
 ## Status
 
-Phase 0, Module 0.1 (repository and architecture foundation). No product features are implemented
-yet. The apps are navigation shells with empty states.
+Phase 1, Module 1.1 (role system and Firestore rules). Phase 0 is complete. Authentication
+screens and product features are not built yet; the apps are navigation shells with empty states.
 
 ## Repository layout
 
@@ -60,3 +60,4 @@ in local, git-ignored files and are never committed.
 
 - [Architecture](docs/architecture.md)
 - [Development guide, Git workflow and conventions](docs/development.md)
+- [Roles, access and security](docs/security.md)
