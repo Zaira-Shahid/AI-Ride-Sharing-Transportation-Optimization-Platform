@@ -1,7 +1,6 @@
-import { ScreenShell } from '../../src/components/ScreenShell';
+import { ProfileScreen } from '@ridemesh/mobile-auth';
+import { theme } from '../../src/theme';
 
-export default function ProfileScreen() {
-  return (
-    <ScreenShell title="Profile" description="Your account and vehicle details will appear here." />
-  );
+export default function Profile() {
+  return <ProfileScreen app="driver" theme={theme} />;
 }
