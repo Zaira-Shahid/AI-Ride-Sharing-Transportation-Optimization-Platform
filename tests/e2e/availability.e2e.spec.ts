@@ -3,12 +3,14 @@ import {
   PASSWORD,
   apps,
   createAccount,
+  journeyId,
   openLogin,
   readDriverAvailability,
   reviewAsAdmin,
   submitLogin,
   uniqueEmail,
   writeDriverDoc,
+  writeJourneyDoc,
   writeVehicleDoc,
 } from './helpers';
 
@@ -22,6 +24,8 @@ async function signIn(page: Page, app: (typeof apps)[number], email: string) {
 interface Setup {
   driver?: Parameters<typeof writeDriverDoc>[1];
   vehicle?: Parameters<typeof writeVehicleDoc>[1] | null;
+  /** Whether the driver has a destination. Defaults to true. */
+  destination?: boolean;
 }
 
 /** A driver account with a profile, and the driver and vehicle records a test asks for. */
@@ -31,7 +35,12 @@ async function newDriver(prefix: string, setup: Setup = {}) {
     name: 'Dan Driver',
     phone: '+44 7700 900123',
   });
-  await writeDriverDoc(uid, setup.driver);
+  const withDestination = setup.destination !== false;
+  if (withDestination) await writeJourneyDoc(uid);
+  await writeDriverDoc(uid, {
+    ...setup.driver,
+    currentJourneyId: withDestination ? journeyId(uid) : null,
+  });
   if (setup.vehicle !== null) await writeVehicleDoc(uid, setup.vehicle);
   return { email, uid };
 }
@@ -73,7 +82,7 @@ test.describe('driver app: going online', () => {
   test('cannot go online yet: the button is off and the list says what is left', async ({
     page,
   }) => {
-    const { email, uid } = await newDriver('avl-new', { vehicle: null });
+    const { email, uid } = await newDriver('avl-new', { vehicle: null, destination: false });
     await signIn(page, driver, email);
 
     await expect(page.getByText(OFFLINE)).toBeVisible();
@@ -87,6 +96,7 @@ test.describe('driver app: going online', () => {
     await expect(
       checklist(page).getByText('Set your passenger seats in the Profile tab.'),
     ).toBeVisible();
+    await expect(checklist(page).getByText('Set your destination below.')).toBeVisible();
     expect(await readDriverAvailability(uid)).toBe('OFFLINE');
   });
 
@@ -97,8 +107,9 @@ test.describe('driver app: going online', () => {
     await signIn(page, driver, email);
     await expect(goOnline(page)).toBeDisabled();
 
-    await writeDriverDoc(uid, { verificationStatus: 'VERIFIED' });
+    await writeDriverDoc(uid, { verificationStatus: 'VERIFIED', currentJourneyId: journeyId(uid) });
     await expect(checklist(page).getByText('Driver profile verified')).toBeVisible();
+    await expect(checklist(page).getByText('Destination set')).toBeVisible();
     await expect(goOnline(page)).toBeDisabled();
 
     await writeVehicleDoc(uid, { verificationStatus: 'PENDING' });

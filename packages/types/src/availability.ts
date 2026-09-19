@@ -18,6 +18,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'vehicleAdded',
   'vehicleVerified',
   'seatsSet',
+  'destinationDeclared',
 ] as const;
 export type GoOnlineRequirement = (typeof GO_ONLINE_REQUIREMENTS)[number];
 
@@ -28,6 +29,8 @@ export interface GoOnlineFacts {
   /** Null when the driver has not added a vehicle. */
   vehicleStatus: VehicleVerificationStatus | null;
   seatCapacity: number | null;
+  /** The driver's open journey has a destination. */
+  destinationDeclared: boolean;
 }
 
 export interface GoOnlineCheck {
@@ -36,8 +39,8 @@ export interface GoOnlineCheck {
 }
 
 /**
- * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle and
- * its passenger seats set. Mirrored in functions/src/availability.ts, which is what enforces it;
+ * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle, its
+ * passenger seats set and a destination declared. Mirrored in functions/src/availability.ts, which is what enforces it;
  * tests/roles-parity.test.ts fails if the two diverge. This copy drives the Home checklist.
  */
 export function evaluateGoOnline(facts: GoOnlineFacts): {
@@ -50,6 +53,7 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
     vehicleAdded: facts.vehicleStatus !== null,
     vehicleVerified: facts.vehicleStatus === 'VERIFIED',
     seatsSet: facts.vehicleStatus !== null && typeof facts.seatCapacity === 'number',
+    destinationDeclared: facts.destinationDeclared,
   };
   const checks = GO_ONLINE_REQUIREMENTS.map((requirement) => ({
     requirement,

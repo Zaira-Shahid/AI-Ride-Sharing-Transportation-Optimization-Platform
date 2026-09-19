@@ -18,6 +18,7 @@ export const NEW_DRIVER_PROFILE_DEFAULTS = {
   maxDetourMinutes: null,
   maxDetourDistance: null,
   automaticMatchingEnabled: null,
+  currentJourneyId: null,
 } as const;
 
 /**

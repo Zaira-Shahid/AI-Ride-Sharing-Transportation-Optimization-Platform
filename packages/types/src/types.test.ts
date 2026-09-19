@@ -4,6 +4,9 @@ import {
   VEHICLE_TYPES,
   isValidPlate,
   normalizePlate,
+  NEW_JOURNEY_DEFAULTS,
+  declareDestinationInputSchema,
+  destinationSchema,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
   setAvailabilityInputSchema,
@@ -148,6 +151,7 @@ describe('driver profile (spec section 10)', () => {
       maxDetourMinutes: null,
       maxDetourDistance: null,
       automaticMatchingEnabled: null,
+      currentJourneyId: null,
     });
   });
 });
@@ -271,6 +275,7 @@ describe('going online', () => {
     driverStatus: 'VERIFIED',
     vehicleStatus: 'VERIFIED',
     seatCapacity: 4,
+    destinationDeclared: true,
   } as const;
 
   it('lists the requirements in the order the driver sees them', () => {
@@ -280,6 +285,7 @@ describe('going online', () => {
       'vehicleAdded',
       'vehicleVerified',
       'seatsSet',
+      'destinationDeclared',
     ]);
   });
 
@@ -297,6 +303,7 @@ describe('going online', () => {
     ['a pending vehicle', { vehicleStatus: 'PENDING' }, 'vehicleVerified'],
     ['a rejected vehicle', { vehicleStatus: 'REJECTED' }, 'vehicleVerified'],
     ['no seats set', { seatCapacity: null }, 'seatsSet'],
+    ['no destination', { destinationDeclared: false }, 'destinationDeclared'],
   ] as const)('does not let a driver with %s go online', (_label, change, requirement) => {
     const result = evaluateGoOnline({ ...ready, ...change });
     expect(result.eligible).toBe(false);
@@ -313,5 +320,66 @@ describe('going online', () => {
     expect(setAvailabilityInputSchema.safeParse({ status: 'ONLINE' }).success).toBe(true);
     expect(setAvailabilityInputSchema.safeParse({ status: 'OFFLINE' }).success).toBe(true);
     expect(setAvailabilityInputSchema.safeParse({ status: 'BUSY' }).success).toBe(false);
+  });
+});
+
+describe('journeys and destinations', () => {
+  const office = {
+    latitude: 51.5049,
+    longitude: -0.0195,
+    formattedAddress: '1 Canada Square, London E14 5AB, UK',
+    placeId: 'place-1',
+  };
+
+  it('starts a new journey as a draft with nothing but a destination', () => {
+    expect(NEW_JOURNEY_DEFAULTS).toEqual({
+      origin: null,
+      departureTime: null,
+      availableSeats: null,
+      maxDetourMinutes: null,
+      maxDetourDistance: null,
+      status: 'DRAFT',
+      currentLocation: null,
+      currentRoute: null,
+    });
+  });
+
+  it('accepts a place with or without a place ID, and trims the address', () => {
+    expect(destinationSchema.safeParse(office).success).toBe(true);
+    expect(destinationSchema.safeParse({ ...office, placeId: undefined }).success).toBe(true);
+    expect(destinationSchema.safeParse({ ...office, placeId: null }).success).toBe(true);
+    const trimmed = destinationSchema.parse({ ...office, formattedAddress: '  Office  ' });
+    expect(trimmed.formattedAddress).toBe('Office');
+  });
+
+  it.each([
+    ['a latitude above 90', { latitude: 90.1 }],
+    ['a latitude below -90', { latitude: -90.1 }],
+    ['a longitude above 180', { longitude: 180.1 }],
+    ['a longitude below -180', { longitude: -180.1 }],
+    ['a latitude that is not a number', { latitude: Number.NaN }],
+    ['coordinates as text', { latitude: '51.5' }],
+    ['a blank address', { formattedAddress: '   ' }],
+    ['an oversized address', { formattedAddress: 'x'.repeat(301) }],
+    ['an empty place ID', { placeId: '' }],
+    ['an oversized place ID', { placeId: 'x'.repeat(301) }],
+  ])('refuses %s', (_label, change) => {
+    expect(destinationSchema.safeParse({ ...office, ...change }).success).toBe(false);
+  });
+
+  it('accepts the edges of the coordinate range', () => {
+    for (const [latitude, longitude] of [
+      [90, 180],
+      [-90, -180],
+      [0, 0],
+    ]) {
+      expect(destinationSchema.safeParse({ ...office, latitude, longitude }).success).toBe(true);
+    }
+  });
+
+  it('wraps the destination in the declare request', () => {
+    expect(declareDestinationInputSchema.safeParse({ destination: office }).success).toBe(true);
+    expect(declareDestinationInputSchema.safeParse({}).success).toBe(false);
+    expect(declareDestinationInputSchema.safeParse(office).success).toBe(false);
   });
 });

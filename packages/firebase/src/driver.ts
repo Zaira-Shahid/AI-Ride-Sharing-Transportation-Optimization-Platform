@@ -13,6 +13,8 @@ export interface DriverProfileData {
   verificationReason: string | null;
   /** Never trusted from the client; only the setAvailability function changes it. */
   availabilityStatus: DriverAvailabilityStatus;
+  /** The driver's open journey, if any. */
+  currentJourneyId: string | null;
   rating: number | null;
   totalTrips: number;
 }
@@ -54,6 +56,10 @@ export function subscribeToDriverProfile(
           )
             ? (data.availabilityStatus as DriverAvailabilityStatus)
             : 'OFFLINE',
+          currentJourneyId:
+            typeof data.currentJourneyId === 'string' && data.currentJourneyId
+              ? data.currentJourneyId
+              : null,
           rating: typeof data.rating === 'number' ? data.rating : null,
           totalTrips: typeof data.totalTrips === 'number' ? data.totalTrips : 0,
         },
