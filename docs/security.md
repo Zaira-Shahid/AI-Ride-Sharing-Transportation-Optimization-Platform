@@ -1,8 +1,8 @@
 # Roles, access and security
 
-Status: through Module 2.1 (driver profile). Module 1.1 defined the role system and Firestore
-rules; registration, login, logout, password reset, profile editing and the driver profile are
-built on top of it.
+Status: through Module 2.2 (vehicle profile). Module 1.1 defined the role system and Firestore
+rules; registration, login, logout, password reset, profile editing, the driver profile and the
+vehicle are built on top of it.
 
 ## Roles
 
@@ -133,6 +133,25 @@ npm run admin:backfill-driver-profiles -- --confirm-production
   `GOOGLE_APPLICATION_CREDENTIALS` and the explicit `--confirm-production` flag; without the flag it
   refuses to run unless the Firestore emulator is configured.
 
+## Vehicle
+
+- `vehicles/{uid}` (one per driver) is created and changed only by the `saveVehicle` function,
+  never by a client. The function checks, from the signed token and not from any document:
+  the `DRIVER` role claim and a verified email. It also requires an ACTIVE account and an existing
+  driver profile, so a suspended driver cannot change their vehicle.
+- **Read:** the driver themselves (verified email and the `DRIVER` claim) or verified staff. A
+  passenger cannot read a vehicle. Showing vehicle details to a matched passenger is a later module.
+- **Write:** nobody from a client. Extra fields in a request (`verificationStatus`, `seatCapacity`,
+  `driverId`) are ignored, so a driver cannot verify their own vehicle or set seats through it.
+- **Unique plate numbers**, compared without case, spaces or hyphens, enforced in a transaction.
+  The error tells the person the plate is already registered but not whose it is.
+- A change to type, make, model or plate sends the vehicle back to `PENDING`; a save that changes
+  nothing writes nothing.
+- Every create and change writes an audit entry (`VEHICLE_CREATED`, `VEHICLE_UPDATED`) with the
+  previous and new details. The audit log is never readable by clients.
+- No proof of ownership, registration document or plate lookup exists yet; verification is
+  Module 2.4. Until then a plate is only checked for shape and uniqueness.
+
 ## Staff roles
 
 ```bash
@@ -149,11 +168,12 @@ npm run admin:set-staff-role -- <email> <SUPPORT|OPERATIONS|ADMIN|SUPER_ADMIN> -
 
 ## Firestore rules (`firestore.rules`)
 
-| Collection      | Read                                                     | Write                                         |
-| --------------- | -------------------------------------------------------- | --------------------------------------------- |
-| `users/{uid}`   | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
-| `drivers/{uid}` | That driver, or any driver profile for verified staff    | Nobody                                        |
-| everything else | Nobody                                                   | Nobody                                        |
+| Collection       | Read                                                     | Write                                         |
+| ---------------- | -------------------------------------------------------- | --------------------------------------------- |
+| `users/{uid}`    | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
+| `drivers/{uid}`  | That driver, or any driver profile for verified staff    | Nobody                                        |
+| `vehicles/{uid}` | That driver, or any vehicle for verified staff           | Nobody (the saveVehicle function only)        |
+| everything else  | Nobody                                                   | Nobody                                        |
 
 Creating and deleting profiles, and every other write, happens through Cloud Functions or scripts
 using the Admin SDK, which bypass rules.

@@ -5,9 +5,22 @@ import {
 } from '../functions/src/roles';
 import { NEW_DRIVER_PROFILE_DEFAULTS as functionsDriverDefaults } from '../functions/src/drivers';
 import {
+  NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
+  VEHICLE_TYPES as functionsVehicleTypes,
+  isValidPlate as functionsIsValidPlate,
+  normalizePlate as functionsNormalizePlate,
+  saveVehicleInputSchema as functionsVehicleSchema,
+} from '../functions/src/vehicles';
+import {
   DRIVER_AVAILABILITY_STATUSES,
   DRIVER_VERIFICATION_STATUSES,
   NEW_DRIVER_PROFILE_DEFAULTS,
+  NEW_VEHICLE_DEFAULTS,
+  VEHICLE_TYPES,
+  VEHICLE_VERIFICATION_STATUSES,
+  isValidPlate,
+  normalizePlate,
+  saveVehicleInputSchema as sharedVehicleSchema,
   SELF_SERVICE_ROLES,
   STAFF_ROLES,
   USER_ROLES,
@@ -51,5 +64,46 @@ describe('functions and shared types stay aligned', () => {
   it('starts a new driver profile in states the shared types allow', () => {
     expect(DRIVER_VERIFICATION_STATUSES).toContain(functionsDriverDefaults.verificationStatus);
     expect(DRIVER_AVAILABILITY_STATUSES).toContain(functionsDriverDefaults.availabilityStatus);
+  });
+
+  it('uses the same vehicle types, defaults and starting status', () => {
+    expect([...functionsVehicleTypes]).toEqual([...VEHICLE_TYPES]);
+    expect(functionsVehicleDefaults).toEqual(NEW_VEHICLE_DEFAULTS);
+    expect(VEHICLE_VERIFICATION_STATUSES).toContain(functionsVehicleDefaults.verificationStatus);
+  });
+
+  it('validates vehicle input and plates identically', () => {
+    const inputs: unknown[] = [
+      { type: 'CAR', make: 'Toyota', model: 'Corolla', plateNumber: 'ABC-123' },
+      { type: 'BUS', make: 'Toyota', model: 'Corolla', plateNumber: 'ABC-123' },
+      { type: 'VAN', make: '  ', model: 'Transit', plateNumber: 'AB 12' },
+      { type: 'MINIBUS', make: 'x'.repeat(51), model: 'Y', plateNumber: 'AB 12' },
+      { type: 'CAR', make: 'A', model: 'B', plateNumber: 'x'.repeat(21) },
+      { type: 'CAR', make: 'A', model: 'B' },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsVehicleSchema.safeParse(input).success).toBe(
+        sharedVehicleSchema.safeParse(input).success,
+      );
+    }
+
+    const plates = [
+      'ABC-123',
+      ' ab  12 cd ',
+      'A',
+      'AB#1',
+      '- -',
+      'ABCDEFGHIJKLM',
+      'ab-12',
+      '',
+      'é12',
+    ];
+    for (const plate of plates) {
+      expect(functionsNormalizePlate(plate)).toEqual(normalizePlate(plate));
+      expect(functionsIsValidPlate(functionsNormalizePlate(plate))).toBe(
+        isValidPlate(normalizePlate(plate)),
+      );
+    }
   });
 });

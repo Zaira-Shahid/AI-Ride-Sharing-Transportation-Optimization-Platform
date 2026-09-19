@@ -55,6 +55,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A driver has one vehicle, keyed by their uid. Only the saveVehicle function creates or changes
+    // it (it must enforce a unique plate number, which rules cannot). The driver can read their own.
+    match /vehicles/{vehicleId} {
+      allow read: if isVerified()
+                  && ((request.auth.uid == vehicleId && role() == 'DRIVER') || isStaff());
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;
