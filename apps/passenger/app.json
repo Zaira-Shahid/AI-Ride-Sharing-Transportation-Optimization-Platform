@@ -6,6 +6,8 @@
     "version": "0.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "ios": { "bundleIdentifier": "com.ridemesh.passenger" },
+    "android": { "package": "com.ridemesh.passenger" },
     "plugins": ["expo-router"]
   }
 }

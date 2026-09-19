@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "firebase": "^12.19.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

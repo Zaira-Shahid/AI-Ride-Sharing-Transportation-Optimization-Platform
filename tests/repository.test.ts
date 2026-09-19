@@ -1,6 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { APP_DISPLAY_NAMES, NPM_SCOPE } from '@ridemesh/config';
+import {
+  APP_DISPLAY_NAMES,
+  BUNDLE_IDENTIFIERS,
+  FIREBASE_REGION,
+  NPM_SCOPE,
+} from '@ridemesh/config';
 import { describe, expect, it } from 'vitest';
 
 const root = resolve(__dirname, '..');
@@ -39,6 +44,13 @@ describe('Firebase configuration structure', () => {
     expect(rc.projects.default).toBe('ai-ride-sharing-system-a6743');
   });
 
+  it('runs Cloud Functions in the configured region', () => {
+    expect(FIREBASE_REGION).toBe('europe-west1');
+    expect(read('functions/src/index.ts')).toContain(
+      `setGlobalOptions({ region: '${FIREBASE_REGION}' })`,
+    );
+  });
+
   it('denies all client Firestore access until role-based rules exist', () => {
     const rules = read('firestore.rules');
     expect(rules).toContain('allow read, write: if false;');
@@ -65,9 +77,18 @@ describe('product branding', () => {
     expect(driver.expo.name).toBe(APP_DISPLAY_NAMES.driver);
   });
 
+  it('uses the configured bundle identifiers in the mobile app manifests', () => {
+    type Manifest = { expo: { ios: { bundleIdentifier: string }; android: { package: string } } };
+    for (const app of ['passenger', 'driver'] as const) {
+      const { expo } = readJson(`apps/${app}/app.json`) as Manifest;
+      expect(expo.ios.bundleIdentifier).toBe(BUNDLE_IDENTIFIERS[app]);
+      expect(expo.android.package).toBe(BUNDLE_IDENTIFIERS[app]);
+    }
+  });
+
   it('exposes no coding-agent branding in product source', () => {
     const forbidden = /claude|anthropic|copilot|cursor ai|chatgpt/i;
-    const skip = new Set(['node_modules', '.next', '.expo', 'lib', 'coverage']);
+    const skip = new Set(['node_modules', '.next', '.expo', 'coverage']);
     const productDirs = ['apps', 'packages', 'functions/src'];
 
     const walk = (dir: string): string[] =>

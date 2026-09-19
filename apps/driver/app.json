@@ -6,6 +6,8 @@
     "version": "0.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "ios": { "bundleIdentifier": "com.ridemesh.driver" },
+    "android": { "package": "com.ridemesh.driver" },
     "plugins": ["expo-router"]
   }
 }
