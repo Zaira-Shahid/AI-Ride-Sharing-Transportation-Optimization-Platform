@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "RideMesh",
+    "slug": "ridemesh-passenger",
+    "scheme": "ridemesh-passenger",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"]
+  }
+}

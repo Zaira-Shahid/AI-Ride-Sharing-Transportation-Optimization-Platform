@@ -1,0 +1,14 @@
+@theme {
+  --color-midnight-navy: #0b1220;
+  --color-deep-slate: #172033;
+  --color-clean-white: #f8fafc;
+  --color-electric-cyan: #22d3ee;
+  --color-emerald: #10b981;
+  --color-amber: #f59e0b;
+  --color-danger-red: #ef4444;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+}

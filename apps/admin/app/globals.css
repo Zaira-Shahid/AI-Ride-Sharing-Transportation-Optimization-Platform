@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+@import '@ridemesh/ui/tokens.css';
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-midnight-navy);
+    color: var(--color-clean-white);
+    font-family:
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      sans-serif;
+  }
+}
