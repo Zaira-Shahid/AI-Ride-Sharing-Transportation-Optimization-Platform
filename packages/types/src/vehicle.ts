@@ -30,6 +30,10 @@ export interface VehicleProfile {
   seatCapacity: number | null;
   availableSeats: number | null;
   verificationStatus: VehicleVerificationStatus;
+  /** Why staff rejected the vehicle. Null unless the status is REJECTED. */
+  verificationReason: string | null;
+  /** When staff last decided. Null until then, and again once the vehicle goes back to PENDING. */
+  verificationReviewedAt: FirestoreTimestamp | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -40,6 +44,8 @@ export const NEW_VEHICLE_DEFAULTS = {
   seatCapacity: null,
   availableSeats: null,
   verificationStatus: 'PENDING',
+  verificationReason: null,
+  verificationReviewedAt: null,
 } as const;
 
 export interface NormalizedPlate {

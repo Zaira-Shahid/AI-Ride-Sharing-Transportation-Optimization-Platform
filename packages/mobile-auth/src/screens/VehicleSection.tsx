@@ -14,7 +14,6 @@ import {
   type VehicleField,
   type VehicleFormValues,
   type VehicleType,
-  type VehicleVerificationStatus,
 } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
@@ -27,17 +26,12 @@ import {
   TextField,
   useAuthTheme,
 } from '../components';
+import { DetailRow, ReviewStatus } from './ReviewStatus';
 
 const TYPE_LABELS: Record<VehicleType, string> = {
   CAR: 'Car',
   VAN: 'Van',
   MINIBUS: 'Minibus',
-};
-
-const VERIFICATION_LABELS: Record<VehicleVerificationStatus, string> = {
-  PENDING: 'Pending review',
-  VERIFIED: 'Verified',
-  REJECTED: 'Not approved',
 };
 
 type FieldErrors = Partial<Record<VehicleField, string>>;
@@ -289,16 +283,6 @@ function VehicleForm({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
-  const theme = useAuthTheme();
-  return (
-    <View style={styles.row}>
-      <Text style={[styles.caption, { color: theme.textSecondary }]}>{label}</Text>
-      <Text style={[styles.value, { color: theme.textPrimary }]}>{value}</Text>
-    </View>
-  );
-}
-
 /** The driver's vehicle: shown, added or edited. Rendered in the driver app only. */
 export function VehicleSection() {
   const theme = useAuthTheme();
@@ -354,7 +338,11 @@ export function VehicleSection() {
           <DetailRow label="Type" value={TYPE_LABELS[current.type]} />
           <DetailRow label="Vehicle" value={`${current.make} ${current.model}`} />
           <DetailRow label="Plate number" value={current.plateNumber} />
-          <DetailRow label="Verification" value={VERIFICATION_LABELS[current.verificationStatus]} />
+          <ReviewStatus
+            target="VEHICLE"
+            status={current.verificationStatus}
+            reason={current.verificationReason}
+          />
           <SeatsControl vehicle={current} />
           <SecondaryButton label="Edit vehicle" onPress={startEditing} />
         </>
@@ -375,8 +363,6 @@ const styles = StyleSheet.create({
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   caption: { fontSize: fontSize.sm },
   message: { fontSize: fontSize.sm },
-  row: { gap: spacing[1] },
-  value: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
   field: { gap: spacing[1] },
   seats: { gap: spacing[3] },
   label: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },

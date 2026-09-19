@@ -4,6 +4,11 @@ import {
   VEHICLE_TYPES,
   isValidPlate,
   normalizePlate,
+  REVIEWER_ROLES,
+  REVIEW_DECISIONS,
+  REVIEW_TARGETS,
+  requestReviewInputSchema,
+  reviewInputSchema,
   validateSeatCapacity,
   validateVehicle,
   SEAT_CAPACITY_MAX,
@@ -131,6 +136,8 @@ describe('driver profile (spec section 10)', () => {
   it('starts a new driver unverified and offline, with no detour settings invented', () => {
     expect(NEW_DRIVER_PROFILE_DEFAULTS).toEqual({
       verificationStatus: 'PENDING',
+      verificationReason: null,
+      verificationReviewedAt: null,
       availabilityStatus: 'OFFLINE',
       rating: null,
       totalTrips: 0,
@@ -153,6 +160,8 @@ describe('vehicle (spec section 10)', () => {
       seatCapacity: null,
       availableSeats: null,
       verificationStatus: 'PENDING',
+      verificationReason: null,
+      verificationReviewedAt: null,
     });
   });
 
@@ -210,5 +219,44 @@ describe('seat capacity', () => {
     const result = validateSeatCapacity(seats);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBe('Choose between 1 and 6 passenger seats.');
+  });
+});
+
+describe('verification reviews', () => {
+  it('lets only ADMIN and SUPER_ADMIN review', () => {
+    expect(REVIEWER_ROLES).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    expect(REVIEW_DECISIONS).toEqual(['VERIFIED', 'REJECTED']);
+    expect(REVIEW_TARGETS).toEqual(['DRIVER', 'VEHICLE']);
+  });
+
+  it('accepts a verification, with or without a reason, and trims the reason', () => {
+    expect(reviewInputSchema.safeParse({ driverId: 'abc', decision: 'VERIFIED' }).success).toBe(
+      true,
+    );
+    const rejected = reviewInputSchema.parse({
+      driverId: ' abc ',
+      decision: 'REJECTED',
+      reason: '  No.  ',
+    });
+    expect(rejected).toEqual({ driverId: 'abc', decision: 'REJECTED', reason: 'No.' });
+  });
+
+  it.each([undefined, null, '', '   ', 'x'.repeat(501)])(
+    'refuses a rejection with reason %j',
+    (reason) => {
+      expect(
+        reviewInputSchema.safeParse({ driverId: 'abc', decision: 'REJECTED', reason }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(['users/abc', '..', 'a b', '', 'a'.repeat(129)])('refuses the id %j', (driverId) => {
+    expect(reviewInputSchema.safeParse({ driverId, decision: 'VERIFIED' }).success).toBe(false);
+  });
+
+  it('only lets a driver ask for a driver or vehicle review', () => {
+    expect(requestReviewInputSchema.safeParse({ target: 'DRIVER' }).success).toBe(true);
+    expect(requestReviewInputSchema.safeParse({ target: 'VEHICLE' }).success).toBe(true);
+    expect(requestReviewInputSchema.safeParse({ target: 'PASSENGER' }).success).toBe(false);
   });
 });

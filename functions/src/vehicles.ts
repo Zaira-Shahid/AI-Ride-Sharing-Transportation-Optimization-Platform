@@ -9,6 +9,8 @@ export const NEW_VEHICLE_DEFAULTS = {
   seatCapacity: null,
   availableSeats: null,
   verificationStatus: 'PENDING',
+  verificationReason: null,
+  verificationReviewedAt: null,
 } as const;
 
 // Seats for passengers, not counting the driver. Mirrors @ridemesh/types.
@@ -55,7 +57,7 @@ export interface VehicleCaller {
 
 export type SaveVehicleResult = { status: 'created' | 'updated' | 'unchanged' };
 
-function requireVerifiedDriver(caller: VehicleCaller): void {
+export function requireVerifiedDriver(caller: VehicleCaller): void {
   if (caller.role !== 'DRIVER' || !caller.emailVerified) {
     throw new HttpsError('permission-denied', 'Only verified drivers can change a vehicle.');
   }
@@ -137,6 +139,8 @@ export async function saveVehicle(
     tx.update(vehicleRef, {
       ...details,
       verificationStatus: NEW_VEHICLE_DEFAULTS.verificationStatus,
+      verificationReason: null,
+      verificationReviewedAt: null,
       updatedAt: FieldValue.serverTimestamp(),
     });
     tx.create(firestore.collection('auditLogs').doc(), {
@@ -199,6 +203,8 @@ export async function setVehicleCapacity(
       seatCapacity,
       availableSeats,
       verificationStatus,
+      // A new review starts from scratch, so the old decision no longer applies.
+      ...(raised ? { verificationReason: null, verificationReviewedAt: null } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
     tx.create(firestore.collection('auditLogs').doc(), {

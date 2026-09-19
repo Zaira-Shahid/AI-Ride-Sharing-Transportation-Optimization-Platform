@@ -74,6 +74,7 @@ test.describe('driver app: vehicle', () => {
         plateNumber: 'AB 12 CD',
         seatCapacity: null,
         verificationStatus: 'PENDING',
+        verificationReason: null,
       });
 
     await page.reload();

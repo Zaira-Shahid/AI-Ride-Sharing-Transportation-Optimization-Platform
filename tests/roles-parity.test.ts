@@ -5,6 +5,14 @@ import {
 } from '../functions/src/roles';
 import { NEW_DRIVER_PROFILE_DEFAULTS as functionsDriverDefaults } from '../functions/src/drivers';
 import {
+  REVIEWER_ROLES as functionsReviewerRoles,
+  REVIEW_DECISIONS as functionsDecisions,
+  REVIEW_REASON_MAX_LENGTH as functionsReasonMax,
+  REVIEW_TARGETS as functionsTargets,
+  requestReviewInputSchema as functionsRequestSchema,
+  reviewInputSchema as functionsReviewSchema,
+} from '../functions/src/verification';
+import {
   NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
   VEHICLE_TYPES as functionsVehicleTypes,
   isValidPlate as functionsIsValidPlate,
@@ -22,8 +30,14 @@ import {
   VEHICLE_TYPES,
   VEHICLE_VERIFICATION_STATUSES,
   isValidPlate,
+  REVIEWER_ROLES,
+  REVIEW_DECISIONS,
+  REVIEW_REASON_MAX_LENGTH,
+  REVIEW_TARGETS,
   SEAT_CAPACITY_MAX,
   SEAT_CAPACITY_MIN,
+  requestReviewInputSchema as sharedRequestSchema,
+  reviewInputSchema as sharedReviewSchema,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
   setVehicleCapacityInputSchema as sharedCapacitySchema,
@@ -129,6 +143,47 @@ describe('functions and shared types stay aligned', () => {
     for (const input of inputs) {
       expect(functionsCapacitySchema.safeParse(input).success).toBe(
         sharedCapacitySchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('uses the same reviewers, decisions and targets', () => {
+    expect([...functionsReviewerRoles]).toEqual([...REVIEWER_ROLES]);
+    expect([...functionsDecisions]).toEqual([...REVIEW_DECISIONS]);
+    expect([...functionsTargets]).toEqual([...REVIEW_TARGETS]);
+    expect(functionsReasonMax).toBe(REVIEW_REASON_MAX_LENGTH);
+    // Only staff roles can review, and only the top two.
+    for (const role of REVIEWER_ROLES) expect(STAFF_ROLES).toContain(role);
+  });
+
+  it('validates reviews and review requests identically', () => {
+    const reviews: unknown[] = [
+      { driverId: 'abc123', decision: 'VERIFIED' },
+      { driverId: 'abc123', decision: 'VERIFIED', reason: null },
+      { driverId: 'abc123', decision: 'VERIFIED', reason: 'ok' },
+      { driverId: 'abc123', decision: 'REJECTED', reason: 'No.' },
+      { driverId: 'abc123', decision: 'REJECTED' },
+      { driverId: 'abc123', decision: 'REJECTED', reason: null },
+      { driverId: 'abc123', decision: 'REJECTED', reason: '   ' },
+      { driverId: 'abc123', decision: 'REJECTED', reason: 'x'.repeat(500) },
+      { driverId: 'abc123', decision: 'REJECTED', reason: 'x'.repeat(501) },
+      { driverId: 'abc123', decision: 'PENDING' },
+      { driverId: 'users/abc', decision: 'VERIFIED' },
+      { driverId: '..', decision: 'VERIFIED' },
+      { driverId: '', decision: 'VERIFIED' },
+      { driverId: 'a'.repeat(129), decision: 'VERIFIED' },
+      { decision: 'VERIFIED' },
+      {},
+    ];
+    for (const input of reviews) {
+      expect(functionsReviewSchema.safeParse(input).success).toBe(
+        sharedReviewSchema.safeParse(input).success,
+      );
+    }
+    const requests: unknown[] = [{ target: 'DRIVER' }, { target: 'VEHICLE' }, { target: 'x' }, {}];
+    for (const input of requests) {
+      expect(functionsRequestSchema.safeParse(input).success).toBe(
+        sharedRequestSchema.safeParse(input).success,
       );
     }
   });

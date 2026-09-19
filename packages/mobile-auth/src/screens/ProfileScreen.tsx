@@ -8,7 +8,6 @@ import {
 import { useAuth, useDriverProfile, useProfile } from '@ridemesh/firebase/react';
 import {
   validateProfileUpdate,
-  type DriverVerificationStatus,
   type ProfileField,
   type ProfileUpdateValues,
 } from '@ridemesh/types';
@@ -25,15 +24,10 @@ import {
   TextField,
   useAuthTheme,
 } from '../components';
+import { DetailRow, ReviewStatus } from './ReviewStatus';
 import { VehicleSection } from './VehicleSection';
 
 const DRIVER_PHONE_HINT = "You'll need to add a phone number before accepting rides.";
-
-const VERIFICATION_LABELS: Record<DriverVerificationStatus, string> = {
-  PENDING: 'Pending review',
-  VERIFIED: 'Verified',
-  REJECTED: 'Not approved',
-};
 
 type FieldErrors = Partial<Record<ProfileField, string>>;
 
@@ -60,16 +54,6 @@ function AccountCard({ profile }: { profile?: ProfileData }) {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
-  const theme = useAuthTheme();
-  return (
-    <View style={styles.row}>
-      <Text style={[styles.caption, { color: theme.textSecondary }]}>{label}</Text>
-      <Text style={[styles.value, { color: theme.textPrimary }]}>{value}</Text>
-    </View>
-  );
-}
-
 function DriverDetails({ driver }: { driver: DriverProfileData }) {
   const theme = useAuthTheme();
   return (
@@ -78,7 +62,11 @@ function DriverDetails({ driver }: { driver: DriverProfileData }) {
       accessibilityLabel="Driver details"
     >
       <Text style={[styles.heading, { color: theme.textPrimary }]}>Driver details</Text>
-      <DetailRow label="Verification" value={VERIFICATION_LABELS[driver.verificationStatus]} />
+      <ReviewStatus
+        target="DRIVER"
+        status={driver.verificationStatus}
+        reason={driver.verificationReason}
+      />
       <DetailRow label="Completed trips" value={String(driver.totalTrips)} />
       <DetailRow
         label="Rating"
@@ -253,6 +241,4 @@ const styles = StyleSheet.create({
   caption: { fontSize: fontSize.sm },
   name: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold },
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
-  row: { gap: spacing[1] },
-  value: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
 });

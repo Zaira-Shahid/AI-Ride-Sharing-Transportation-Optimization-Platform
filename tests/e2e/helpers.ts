@@ -96,6 +96,7 @@ async function createProfileDoc(
 
 interface DriverDocFields {
   verificationStatus?: string;
+  verificationReason?: string | null;
   totalTrips?: number;
   rating?: number | null;
 }
@@ -111,6 +112,11 @@ export async function writeDriverDoc(uid: string, fields: DriverDocFields = {}) 
       fields: {
         userId: { stringValue: uid },
         verificationStatus: { stringValue: fields.verificationStatus ?? 'PENDING' },
+        verificationReason:
+          fields.verificationReason == null
+            ? { nullValue: null }
+            : { stringValue: fields.verificationReason },
+        verificationReviewedAt: { nullValue: null },
         availabilityStatus: { stringValue: 'OFFLINE' },
         rating: rating === null ? { nullValue: null } : { doubleValue: rating },
         totalTrips: { integerValue: String(fields.totalTrips ?? 0) },
@@ -195,6 +201,7 @@ interface VehicleDocFields {
   plateNumber?: string;
   seatCapacity?: number | null;
   verificationStatus?: string;
+  verificationReason?: string | null;
 }
 
 /** Writes vehicles/{uid} the way the server does (replacing it), bypassing rules with the owner token. */
@@ -219,6 +226,11 @@ export async function writeVehicleDoc(uid: string, fields: VehicleDocFields = {}
             : { integerValue: String(fields.seatCapacity) },
         availableSeats: { nullValue: null },
         verificationStatus: { stringValue: fields.verificationStatus ?? 'PENDING' },
+        verificationReason:
+          fields.verificationReason == null
+            ? { nullValue: null }
+            : { stringValue: fields.verificationReason },
+        verificationReviewedAt: { nullValue: null },
         createdAt: { timestampValue: now },
         updatedAt: { timestampValue: now },
       },
@@ -245,5 +257,20 @@ export async function readVehicleDoc(uid: string) {
       ? Number(fields.seatCapacity.integerValue)
       : null,
     verificationStatus: fields.verificationStatus?.stringValue,
+    verificationReason: fields.verificationReason?.stringValue ?? null,
+  };
+}
+
+/** verificationStatus and verificationReason stored in drivers/{uid}. */
+export async function readDriverVerification(uid: string) {
+  const response = await fetch(`${firestoreDocs}/drivers/${uid}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  const { fields } = (await response.json()) as {
+    fields: Record<string, { stringValue?: string }>;
+  };
+  return {
+    verificationStatus: fields.verificationStatus?.stringValue,
+    verificationReason: fields.verificationReason?.stringValue ?? null,
   };
 }
