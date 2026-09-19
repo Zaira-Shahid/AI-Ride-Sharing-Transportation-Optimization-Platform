@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PASSWORD_MIN_LENGTH,
   validateLogin,
+  validatePasswordResetRequest,
   validateRegistration,
   type RegistrationFormValues,
 } from './auth';
@@ -96,5 +97,20 @@ describe('validateLogin', () => {
     const result = validateLogin({ email: 'nope', password: '' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(Object.keys(result.errors).sort()).toEqual(['email', 'password']);
+  });
+});
+
+describe('validatePasswordResetRequest', () => {
+  it('accepts a valid email and normalises it', () => {
+    expect(validatePasswordResetRequest({ email: '  ADA@Example.com ' })).toEqual({
+      ok: true,
+      data: { email: 'ada@example.com' },
+    });
+  });
+
+  it.each(['', '   ', 'nope', 'a@', '@b.com'])('rejects %j', (email) => {
+    const result = validatePasswordResetRequest({ email });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.email).toBe('Enter a valid email address.');
   });
 });

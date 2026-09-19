@@ -12,7 +12,8 @@ export function LoginScreen({
   app,
   theme,
   onCreateAccount,
-}: AuthScreenProps & { onCreateAccount: () => void }) {
+  onForgotPassword,
+}: AuthScreenProps & { onCreateAccount: () => void; onForgotPassword: () => void }) {
   const { client, runAuthFlow } = useAuth();
   const [values, setValues] = useState<LoginFormValues>({ email: '', password: '' });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -86,6 +87,7 @@ export function LoginScreen({
         onPress={() => void submit()}
         loading={submitting}
       />
+      <TextButton label="Forgot password?" onPress={onForgotPassword} disabled={submitting} />
       <TextButton
         label={`New to ${appName(app)}? Create account`}
         onPress={onCreateAccount}

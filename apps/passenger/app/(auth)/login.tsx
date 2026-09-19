@@ -9,6 +9,7 @@ export default function Login() {
       app="passenger"
       theme={theme}
       onCreateAccount={() => router.replace('/register')}
+      onForgotPassword={() => router.push('/forgot-password')}
     />
   );
 }

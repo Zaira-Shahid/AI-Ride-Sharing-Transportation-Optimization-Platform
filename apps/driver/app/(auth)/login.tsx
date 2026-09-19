@@ -5,6 +5,11 @@ import { theme } from '../../src/theme';
 export default function Login() {
   const router = useRouter();
   return (
-    <LoginScreen app="driver" theme={theme} onCreateAccount={() => router.replace('/register')} />
+    <LoginScreen
+      app="driver"
+      theme={theme}
+      onCreateAccount={() => router.replace('/register')}
+      onForgotPassword={() => router.push('/forgot-password')}
+    />
   );
 }

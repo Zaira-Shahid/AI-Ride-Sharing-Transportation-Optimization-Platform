@@ -73,3 +73,27 @@ export async function submitLogin(page: Page, email: string, password: string) {
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
+
+/** The most recent password reset code the Auth emulator issued for an address, if any. */
+export async function resetCodeFor(email: string) {
+  const response = await fetch(`${authEmulator}/emulator/v1/projects/${projectId}/oobCodes`);
+  const { oobCodes } = (await response.json()) as {
+    oobCodes: { email: string; oobCode: string; requestType: string }[];
+  };
+  return oobCodes
+    .filter((entry) => entry.email === email && entry.requestType === 'PASSWORD_RESET')
+    .at(-1)?.oobCode;
+}
+
+/** What Firebase's hosted page does when a person picks a new password. */
+export async function chooseNewPassword(oobCode: string, newPassword: string) {
+  const response = await fetch(
+    `${authEmulator}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ oobCode, newPassword }),
+    },
+  );
+  expect(response.ok).toBe(true);
+}

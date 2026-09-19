@@ -38,6 +38,17 @@ Email verification is required before any data can be read: the rules check the
 `email_verified` token claim. Registration itself works before verification so the role is ready
 when the person verifies.
 
+## Password reset
+
+- The reset request gives the same answer whether or not an account exists for the address, and no
+  email is sent for an unknown address, so it cannot be used to discover registered emails.
+- The link, and the page where the new password is chosen, are Firebase's own. Sending again is
+  rate-limited on the screen (60 seconds) and by Firebase.
+- **Gap (same cause as the registration password rule):** Firebase's hosted reset page enforces
+  Firebase's minimum of 6 characters, not the app's 8. Closing it needs Auth password policy
+  (Identity Platform, Blaze plan).
+- The reset request does not change the requester's current session.
+
 ## Passwords and registration
 
 - Passwords must be at least 8 characters (maximum 128) and are never trimmed. This is enforced by
@@ -116,6 +127,8 @@ Collections other than `users` stay closed until the module that owns each one d
 - Password minimum length is enforced by the apps, not by Firebase Auth itself (see above). This
   is a known gap to close when the project moves to the Blaze plan and Auth password policy can be
   enabled.
+- Password resets use Firebase's default email and hosted page, which enforce the 6-character
+  minimum rather than 8 (see Password reset).
 - Session tokens are kept in AsyncStorage on phones, which is not encrypted storage.
 - Native session persistence is verified by the Android bundle containing the React Native storage
   implementation and by web tests; it has not been exercised on a physical device or simulator.
