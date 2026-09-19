@@ -11,8 +11,9 @@ the single source of truth for scope, sequencing and the definition of done.
 
 ## Status
 
-Phase 1, Module 1.1 (role system and Firestore rules). Phase 0 is complete. Authentication
-screens and product features are not built yet; the apps are navigation shells with empty states.
+Phase 1, Module 1.2 (registration). Phase 0 and the role system are complete. Passengers and
+drivers can register and verify their email; sign-in, password reset and product features are not
+built yet, and the signed-in screens are still empty states.
 
 ## Repository layout
 
@@ -28,7 +29,8 @@ packages/
   config/      Shared tsconfig base and brand constants
   types/       Shared domain types and Zod schemas
   ui/          Design tokens
-  firebase/    Firebase client configuration validation
+  firebase/    Firebase client, auth flows and validated configuration
+  mobile-auth/ Shared authentication screens for the two mobile apps
 docs/          Architecture and development documentation
 tests/         Repository-level tests
 scripts/       Repository scripts

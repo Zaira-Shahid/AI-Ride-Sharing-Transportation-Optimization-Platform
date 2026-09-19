@@ -9,7 +9,12 @@ export const firebaseWebConfigSchema = z.object({
   storageBucket: required,
   messagingSenderId: required,
   appId: required,
-  measurementId: z.string().trim().min(1).optional(),
+  // Left empty in .env.example, so an empty value means "not set".
+  measurementId: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
 });
 export type FirebaseWebConfig = z.infer<typeof firebaseWebConfigSchema>;
 

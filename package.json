@@ -27,11 +27,13 @@
     "build:functions": "npm run build --workspace @ridemesh/functions",
     "emulators": "npm run build:functions && firebase emulators:start",
     "test:integration": "npm run build:functions && firebase emulators:exec --only auth,functions,firestore --project demo-ridemesh \"vitest run --config vitest.integration.config.mts\"",
-    "admin:set-staff-role": "npm run build:functions && node scripts/set-staff-role.mjs"
+    "admin:set-staff-role": "npm run build:functions && node scripts/set-staff-role.mjs",
+    "test:e2e": "npm run build:functions && playwright test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
     "@firebase/rules-unit-testing": "^5.0.2",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.0.0",
     "@types/react": "~19.2.2",
     "eslint": "^10.11.0",

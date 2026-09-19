@@ -38,6 +38,22 @@ Email verification is required before any data can be read: the rules check the
 `email_verified` token claim. Registration itself works before verification so the role is ready
 when the person verifies.
 
+## Passwords and registration
+
+- Passwords must be at least 8 characters (maximum 128) and are never trimmed. This is enforced by
+  the shared validation used by both apps and by `registerAccount`.
+- **Limitation:** Firebase Authentication itself only enforces its own minimum of 6 characters. A
+  caller who bypasses the app and uses Firebase's public sign-up API directly could still create an
+  account with a 6 or 7 character password. Enforcing the policy on the server needs Firebase's
+  Auth password policy (part of Identity Platform), which requires the Blaze plan. Revisit when the
+  project is upgraded.
+- Phone number is optional for both roles for now; it becomes required for drivers in the driver
+  onboarding module.
+- An email that already exists is only "resumed" when the correct password is supplied, so
+  registration cannot be used to take over or change someone else's account, and the server refuses
+  to change a role that is already assigned.
+- Error messages shown to people never contain raw Firebase or technical text.
+
 ## Staff roles
 
 ```bash
@@ -77,6 +93,7 @@ Collections other than `users` stay closed until the module that owns each one d
 ## Known limitations (planned later)
 
 - No App Check or rate limiting on `completeRegistration` yet (Phase 14 hardening).
+- Password minimum length is enforced by the apps, not by Firebase Auth itself (see above).
 - `status` (`ACTIVE`, `SUSPENDED`) is stored but not enforced by rules or functions until the admin
   module.
 - Staff roles all have the same read-only access for now; per-role permissions are defined in the

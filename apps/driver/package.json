@@ -8,12 +8,14 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "export:check": "expo export --platform android --output-dir .expo/export-check",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "web": "expo start --web"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@ridemesh/config": "*",
     "@ridemesh/firebase": "*",
+    "@ridemesh/mobile-auth": "*",
     "@ridemesh/ui": "*",
     "expo": "~57.0.24",
     "expo-constants": "~57.0.19",
@@ -24,5 +26,9 @@
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0"
+  },
+  "devDependencies": {
+    "react-dom": "19.2.3",
+    "react-native-web": "^0.21.2"
   }
 }

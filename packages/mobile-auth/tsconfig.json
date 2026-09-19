@@ -4,6 +4,5 @@
     "lib": ["ES2023", "DOM"],
     "jsx": "react-native"
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", ".expo"]
+  "include": ["src"]
 }

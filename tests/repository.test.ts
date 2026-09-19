@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import {
   APP_DISPLAY_NAMES,
   BUNDLE_IDENTIFIERS,
+  EMULATOR_PORTS,
   FIREBASE_REGION,
   NPM_SCOPE,
 } from '@ridemesh/config';
@@ -20,6 +21,7 @@ const workspaceDirs = [
   'packages/types',
   'packages/ui',
   'packages/firebase',
+  'packages/mobile-auth',
   'functions',
 ];
 
@@ -49,6 +51,15 @@ describe('Firebase configuration structure', () => {
     expect(read('functions/src/index.ts')).toContain(
       `setGlobalOptions({ region: '${FIREBASE_REGION}' })`,
     );
+  });
+
+  it('uses the emulator ports declared in firebase.json', () => {
+    const { emulators } = readJson('firebase.json') as {
+      emulators: Record<string, { port: number }>;
+    };
+    expect(EMULATOR_PORTS.auth).toBe(emulators.auth?.port);
+    expect(EMULATOR_PORTS.functions).toBe(emulators.functions?.port);
+    expect(EMULATOR_PORTS.firestore).toBe(emulators.firestore?.port);
   });
 
   it('keeps collections without their own rules closed to every client', () => {

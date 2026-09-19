@@ -18,6 +18,18 @@ describe('parseFirebaseWebConfig', () => {
     expect(config.measurementId).toBeUndefined();
   });
 
+  it('treats an empty optional measurementId as not set', () => {
+    expect(
+      parseFirebaseWebConfig({ ...complete, measurementId: '' }).measurementId,
+    ).toBeUndefined();
+    expect(
+      parseFirebaseWebConfig({ ...complete, measurementId: '  ' }).measurementId,
+    ).toBeUndefined();
+    expect(parseFirebaseWebConfig({ ...complete, measurementId: 'G-ABC' }).measurementId).toBe(
+      'G-ABC',
+    );
+  });
+
   it('throws a FirebaseConfigError listing every missing key', () => {
     try {
       parseFirebaseWebConfig({ ...complete, apiKey: undefined, appId: '   ' });
