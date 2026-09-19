@@ -68,6 +68,9 @@ when the person verifies.
   apps without naming the role.
 - Sessions persist: AsyncStorage on phones, the browser's storage on web. AsyncStorage is not
   encrypted storage; moving the token to the platform keychain is a hardening item for Phase 14.
+- Signing out (Profile tab, with confirmation) ends the session on that device and removes the
+  stored session. Nothing else is stored locally. It does not revoke the person's sessions on other
+  devices; those stay valid until they expire or staff revoke them.
 - After a role is changed by the staff script the person's sessions are revoked and they must sign
   in again.
 
