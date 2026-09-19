@@ -5,6 +5,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { buildHealthResponse } from './health.js';
 import { registerUser } from './registration.js';
+import { saveVehicle as saveDriverVehicle } from './vehicles.js';
 
 initializeApp();
 setGlobalOptions({ region: 'europe-west1' });
@@ -20,6 +21,21 @@ export const completeRegistration = onCall(async (request) => {
   return registerUser(
     { auth: getAuth(), firestore: getFirestore() },
     request.auth.uid,
+    request.data,
+  );
+});
+
+export const saveVehicle = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in to continue.');
+  }
+  return saveDriverVehicle(
+    { firestore: getFirestore() },
+    {
+      uid: request.auth.uid,
+      role: request.auth.token.role,
+      emailVerified: request.auth.token.email_verified === true,
+    },
     request.data,
   );
 });

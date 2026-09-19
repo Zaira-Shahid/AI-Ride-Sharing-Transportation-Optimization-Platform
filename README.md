@@ -11,11 +11,12 @@ the single source of truth for scope, sequencing and the definition of done.
 
 ## Status
 
-Phase 2, Module 2.1 (driver profile). Phase 0 and Phase 1 (roles, registration, login, logout,
+Phase 2, Module 2.2 (vehicle profile). Phase 0 and Phase 1 (roles, registration, login, logout,
 password reset and profile editing) are complete. Passengers and drivers can register, verify their email, sign in, stay signed
 in, reset a forgotten password, edit their name and phone number, and sign out from the Profile
 tab. Drivers also get a driver profile that shows their verification status, completed trips and
-rating (read-only for now). Vehicles, availability and journeys are not built yet, and the other
+rating (read-only for now), and add their vehicle (type, make, model and a unique plate number).
+Seat capacity, availability and journeys are not built yet, and the other
 signed-in screens are still empty states.
 
 ## Repository layout

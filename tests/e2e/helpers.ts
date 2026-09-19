@@ -185,3 +185,55 @@ export async function chooseNewPassword(oobCode: string, newPassword: string) {
   );
   expect(response.ok).toBe(true);
 }
+
+interface VehicleDocFields {
+  type?: string;
+  make?: string;
+  model?: string;
+  plateNumber?: string;
+  verificationStatus?: string;
+}
+
+/** Writes vehicles/{uid} the way the server does (replacing it), bypassing rules with the owner token. */
+export async function writeVehicleDoc(uid: string, fields: VehicleDocFields = {}) {
+  const now = new Date().toISOString();
+  const plateNumber = fields.plateNumber ?? 'SEED 100';
+  const response = await fetch(`${firestoreDocs}/vehicles/${uid}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({
+      fields: {
+        driverId: { stringValue: uid },
+        type: { stringValue: fields.type ?? 'CAR' },
+        make: { stringValue: fields.make ?? 'Toyota' },
+        model: { stringValue: fields.model ?? 'Corolla' },
+        plateNumber: { stringValue: plateNumber },
+        plateKey: { stringValue: plateNumber.replace(/[\s-]/g, '') },
+        seatCapacity: { nullValue: null },
+        availableSeats: { nullValue: null },
+        verificationStatus: { stringValue: fields.verificationStatus ?? 'PENDING' },
+        createdAt: { timestampValue: now },
+        updatedAt: { timestampValue: now },
+      },
+    }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** What is stored in vehicles/{uid}, or undefined when there is none. */
+export async function readVehicleDoc(uid: string) {
+  const response = await fetch(`${firestoreDocs}/vehicles/${uid}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  if (response.status === 404) return undefined;
+  const { fields } = (await response.json()) as {
+    fields: Record<string, { stringValue?: string }>;
+  };
+  return {
+    type: fields.type?.stringValue,
+    make: fields.make?.stringValue,
+    model: fields.model?.stringValue,
+    plateNumber: fields.plateNumber?.stringValue,
+    verificationStatus: fields.verificationStatus?.stringValue,
+  };
+}

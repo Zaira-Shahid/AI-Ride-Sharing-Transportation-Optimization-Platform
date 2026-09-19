@@ -25,6 +25,7 @@ import {
   TextField,
   useAuthTheme,
 } from '../components';
+import { VehicleSection } from './VehicleSection';
 
 const DRIVER_PHONE_HINT = "You'll need to add a phone number before accepting rides.";
 
@@ -221,6 +222,7 @@ export function ProfileScreen({ app, theme }: AuthScreenProps) {
         <ActivityIndicator accessibilityLabel="Loading your details" color={theme.accent} />
       ) : null}
       {profile.status === 'ready' && app === 'driver' ? <DriverSection /> : null}
+      {profile.status === 'ready' && app === 'driver' ? <VehicleSection /> : null}
       {profile.status === 'ready' ? <DetailsForm app={app} profile={profile.profile} /> : null}
       {profile.status === 'missing' || profile.status === 'error' ? (
         <>
