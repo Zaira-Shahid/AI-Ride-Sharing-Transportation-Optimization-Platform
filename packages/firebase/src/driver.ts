@@ -4,6 +4,8 @@ import type { FirebaseClient } from './client';
 
 export interface DriverProfileData {
   verificationStatus: DriverVerificationStatus;
+  /** Why staff rejected the driver, when they did. */
+  verificationReason: string | null;
   rating: number | null;
   totalTrips: number;
 }
@@ -37,6 +39,8 @@ export function subscribeToDriverProfile(
           verificationStatus: isVerificationStatus(data.verificationStatus)
             ? data.verificationStatus
             : 'PENDING',
+          verificationReason:
+            typeof data.verificationReason === 'string' ? data.verificationReason : null,
           rating: typeof data.rating === 'number' ? data.rating : null,
           totalTrips: typeof data.totalTrips === 'number' ? data.totalTrips : 0,
         },

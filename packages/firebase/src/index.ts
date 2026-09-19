@@ -8,4 +8,5 @@ export * from './profile';
 export * from './register';
 export * from './session';
 export * from './sign-in';
+export * from './verification';
 export * from './vehicle';

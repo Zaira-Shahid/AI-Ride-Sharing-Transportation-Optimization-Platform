@@ -283,6 +283,7 @@ describe('reading the vehicle as the driver (real auth tokens)', () => {
             plateNumber: 'ABC-123',
             seatCapacity: null,
             verificationStatus: 'PENDING',
+            verificationReason: null,
           },
         });
 

@@ -29,6 +29,7 @@
     "test:integration": "npm run build:functions && firebase emulators:exec --only auth,functions,firestore --project demo-ridemesh \"vitest run --config vitest.integration.config.mts\"",
     "admin:set-staff-role": "npm run build:functions && node scripts/set-staff-role.mjs",
     "admin:backfill-driver-profiles": "npm run build:functions && node scripts/backfill-driver-profiles.mjs",
+    "admin:review": "npm run build:functions && node scripts/review-driver.mjs",
     "test:e2e": "npm run build:functions && playwright test"
   },
   "devDependencies": {

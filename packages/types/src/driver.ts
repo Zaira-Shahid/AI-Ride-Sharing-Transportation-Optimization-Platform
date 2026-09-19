@@ -17,6 +17,10 @@ export type DriverAvailabilityStatus = z.infer<typeof driverAvailabilityStatusSc
 export interface DriverProfile {
   userId: string;
   verificationStatus: DriverVerificationStatus;
+  /** Why staff rejected the driver. Null unless the status is REJECTED. */
+  verificationReason: string | null;
+  /** When staff last decided. Null until then, and again after a new review is requested. */
+  verificationReviewedAt: FirestoreTimestamp | null;
   availabilityStatus: DriverAvailabilityStatus;
   rating: number | null;
   totalTrips: number;
@@ -31,6 +35,8 @@ export interface DriverProfile {
 // in functions/src/drivers.ts; tests/roles-parity.test.ts fails if the two diverge.
 export const NEW_DRIVER_PROFILE_DEFAULTS = {
   verificationStatus: 'PENDING',
+  verificationReason: null,
+  verificationReviewedAt: null,
   availabilityStatus: 'OFFLINE',
   rating: null,
   totalTrips: 0,

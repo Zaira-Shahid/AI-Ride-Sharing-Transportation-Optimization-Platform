@@ -8,24 +8,25 @@
 
 ## Commands
 
-| Command                                                | Purpose                                                |
-| ------------------------------------------------------ | ------------------------------------------------------ |
-| `npm run verify`                                       | Format check, lint, type check and tests               |
-| `npm run lint` / `npm run lint:fix`                    | ESLint                                                 |
-| `npm run format` / `npm run format:check`              | Prettier                                               |
-| `npm run typecheck`                                    | `tsc --noEmit` in every workspace and at root          |
-| `npm test`                                             | Vitest                                                 |
-| `npm run dev:admin`                                    | Admin dashboard on port 3000                           |
-| `npm run dev:passenger` / `dev:driver`                 | Expo dev servers                                       |
-| `npm run build:functions`                              | Compile Cloud Functions to `functions/lib`             |
-| `npm run emulators`                                    | Build functions and start Firebase emulators           |
-| `npm run verify:firebase`                              | Live check against the real Firebase project           |
-| `npm run test:integration`                             | Emulator tests: rules, functions, admin script         |
-| `npm run test:e2e`                                     | Playwright: real app UI against the emulators          |
-| `npm run web --workspace @ridemesh/passenger`          | Run an app in the browser for development (driver too) |
-| `npm run admin:set-staff-role -- <email> <ROLE>`       | Assign a staff role (see docs/security.md)             |
-| `npm run admin:backfill-driver-profiles`               | Create missing driver profiles (see docs/security.md)  |
-| `npm run export:check --workspace @ridemesh/passenger` | Verify the Android bundle compiles (also driver)       |
+| Command                                                | Purpose                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------- |
+| `npm run verify`                                       | Format check, lint, type check and tests                |
+| `npm run lint` / `npm run lint:fix`                    | ESLint                                                  |
+| `npm run format` / `npm run format:check`              | Prettier                                                |
+| `npm run typecheck`                                    | `tsc --noEmit` in every workspace and at root           |
+| `npm test`                                             | Vitest                                                  |
+| `npm run dev:admin`                                    | Admin dashboard on port 3000                            |
+| `npm run dev:passenger` / `dev:driver`                 | Expo dev servers                                        |
+| `npm run build:functions`                              | Compile Cloud Functions to `functions/lib`              |
+| `npm run emulators`                                    | Build functions and start Firebase emulators            |
+| `npm run verify:firebase`                              | Live check against the real Firebase project            |
+| `npm run test:integration`                             | Emulator tests: rules, functions, admin script          |
+| `npm run test:e2e`                                     | Playwright: real app UI against the emulators           |
+| `npm run web --workspace @ridemesh/passenger`          | Run an app in the browser for development (driver too)  |
+| `npm run admin:set-staff-role -- <email> <ROLE>`       | Assign a staff role (see docs/security.md)              |
+| `npm run admin:backfill-driver-profiles`               | Create missing driver profiles (see docs/security.md)   |
+| `npm run admin:review -- ...`                          | Verify or reject a driver or vehicle (docs/security.md) |
+| `npm run export:check --workspace @ridemesh/passenger` | Verify the Android bundle compiles (also driver)        |
 
 ## Environment configuration
 

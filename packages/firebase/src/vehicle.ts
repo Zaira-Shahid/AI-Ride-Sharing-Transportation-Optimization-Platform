@@ -24,6 +24,8 @@ export interface VehicleData {
   /** Seats for passengers, not counting the driver. Null until the driver sets it. */
   seatCapacity: number | null;
   verificationStatus: VehicleVerificationStatus;
+  /** Why staff rejected the vehicle, when they did. */
+  verificationReason: string | null;
 }
 
 export type VehicleSnapshot = { status: 'ready'; vehicle: VehicleData } | { status: 'missing' };
@@ -59,6 +61,8 @@ export function subscribeToVehicle(
           verificationStatus: isOneOf(VEHICLE_VERIFICATION_STATUSES, data.verificationStatus)
             ? data.verificationStatus
             : 'PENDING',
+          verificationReason:
+            typeof data.verificationReason === 'string' ? data.verificationReason : null,
         },
       });
     },
