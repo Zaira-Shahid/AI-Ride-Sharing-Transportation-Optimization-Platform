@@ -71,6 +71,10 @@ const failures: Record<AuthErrorKind, Omit<AuthFailure, 'kind'>> = {
 };
 
 const kindByCode: Record<string, AuthErrorKind> = {
+  // Firestore errors carry no prefix.
+  'permission-denied': 'permission',
+  unavailable: 'network',
+  'deadline-exceeded': 'network',
   'auth/email-already-in-use': 'email-in-use',
   'auth/invalid-email': 'invalid-email',
   'auth/invalid-credential': 'invalid-credential',

@@ -3,6 +3,7 @@ export * from './auth-errors';
 export * from './client';
 export * from './config';
 export * from './password-reset';
+export * from './profile';
 export * from './register';
 export * from './session';
 export * from './sign-in';

@@ -7,6 +7,12 @@ import {
   type Auth,
   type Persistence,
 } from 'firebase/auth';
+import {
+  connectFirestoreEmulator,
+  getFirestore,
+  initializeFirestore,
+  type Firestore,
+} from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, type Functions } from 'firebase/functions';
 import { initializeFirebaseApp } from './app';
 import { getErrorCode } from './auth-errors';
@@ -16,6 +22,7 @@ export interface FirebaseClient {
   app: FirebaseApp;
   auth: Auth;
   functions: Functions;
+  firestore: Firestore;
 }
 
 export interface FirebaseClientOptions {
@@ -38,6 +45,17 @@ function createAuth(app: FirebaseApp, persistence: Persistence | undefined): Aut
   }
 }
 
+function createFirestore(app: FirebaseApp): Firestore {
+  try {
+    // Falls back to long polling where the default streaming transport is unavailable, which
+    // happens on some React Native networks.
+    return initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  } catch {
+    // Already initialised for this app (for example after a fast refresh).
+    return getFirestore(app);
+  }
+}
+
 export function createFirebaseClient(
   config: FirebaseWebConfig,
   options: FirebaseClientOptions = {},
@@ -48,14 +66,16 @@ export function createFirebaseClient(
 
   const auth = createAuth(app, options.persistence);
   const functions = getFunctions(app, FIREBASE_REGION);
+  const firestore = createFirestore(app);
 
   const host = options.emulatorHost?.trim();
   if (host) {
     connectAuthEmulator(auth, `http://${host}:${EMULATOR_PORTS.auth}`, { disableWarnings: true });
     connectFunctionsEmulator(functions, host, EMULATOR_PORTS.functions);
+    connectFirestoreEmulator(firestore, host, EMULATOR_PORTS.firestore);
   }
 
-  const client = { app, auth, functions };
+  const client = { app, auth, functions, firestore };
   clients.set(app.name, client);
   return client;
 }
