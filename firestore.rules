@@ -46,6 +46,15 @@ service cloud.firestore {
                     && isValidContactUpdate();
     }
 
+    // Driver profiles are keyed by the driver's uid. They are created by server-side code when a
+    // driver registers. The driver can read their own; nothing is writable from a client yet. Each
+    // later Phase 2 module opens only the specific fields it owns.
+    match /drivers/{driverId} {
+      allow read: if isVerified()
+                  && ((request.auth.uid == driverId && role() == 'DRIVER') || isStaff());
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;

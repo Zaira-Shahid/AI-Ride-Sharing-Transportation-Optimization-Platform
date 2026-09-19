@@ -60,7 +60,10 @@ export async function createAccount(
     },
   );
   expect(update.ok).toBe(true);
-  if (profile) await createProfileDoc(localId, { role, email, ...profile });
+  if (profile) {
+    await createProfileDoc(localId, { role, email, ...profile });
+    if (role === 'DRIVER') await writeDriverDoc(localId);
+  }
   return localId;
 }
 
@@ -87,6 +90,46 @@ async function createProfileDoc(
         updatedAt: { timestampValue: now },
       },
     }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+interface DriverDocFields {
+  verificationStatus?: string;
+  totalTrips?: number;
+  rating?: number | null;
+}
+
+/** Writes drivers/{uid} the way the server does (replacing it), bypassing rules with the owner token. */
+export async function writeDriverDoc(uid: string, fields: DriverDocFields = {}) {
+  const now = new Date().toISOString();
+  const rating = fields.rating ?? null;
+  const response = await fetch(`${firestoreDocs}/drivers/${uid}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({
+      fields: {
+        userId: { stringValue: uid },
+        verificationStatus: { stringValue: fields.verificationStatus ?? 'PENDING' },
+        availabilityStatus: { stringValue: 'OFFLINE' },
+        rating: rating === null ? { nullValue: null } : { doubleValue: rating },
+        totalTrips: { integerValue: String(fields.totalTrips ?? 0) },
+        maxDetourMinutes: { nullValue: null },
+        maxDetourDistance: { nullValue: null },
+        automaticMatchingEnabled: { nullValue: null },
+        createdAt: { timestampValue: now },
+        updatedAt: { timestampValue: now },
+      },
+    }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** Removes drivers/{uid}, as if the account had registered before driver profiles existed. */
+export async function deleteDriverDoc(uid: string) {
+  const response = await fetch(`${firestoreDocs}/drivers/${uid}`, {
+    method: 'DELETE',
+    headers: { authorization: 'Bearer owner' },
   });
   expect(response.ok).toBe(true);
 }

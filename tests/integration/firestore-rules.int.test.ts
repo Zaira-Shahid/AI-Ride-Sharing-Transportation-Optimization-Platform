@@ -16,7 +16,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 const root = resolve(__dirname, '../..');
 let env: RulesTestEnvironment;
@@ -50,6 +50,22 @@ function profile(role: string, name: string, overrides: Record<string, unknown> 
   };
 }
 
+function driverProfile(userId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    userId,
+    verificationStatus: 'PENDING',
+    availabilityStatus: 'OFFLINE',
+    rating: null,
+    totalTrips: 0,
+    maxDetourMinutes: null,
+    maxDetourDistance: null,
+    automaticMatchingEnabled: null,
+    createdAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+    updatedAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+    ...overrides,
+  };
+}
+
 beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (context) => {
@@ -59,6 +75,8 @@ beforeEach(async () => {
       doc(db, 'users/driver-1'),
       profile('DRIVER', 'Driver One', { phone: '+441234567' }),
     );
+    await setDoc(doc(db, 'drivers/driver-1'), driverProfile('driver-1'));
+    await setDoc(doc(db, 'drivers/driver-2'), driverProfile('driver-2'));
     await setDoc(doc(db, 'users/staff-1'), profile('ADMIN', 'Staff One'));
     await setDoc(
       doc(db, 'users/suspended-1'),
@@ -285,4 +303,65 @@ describe('other collections stay closed', () => {
       }
     },
   );
+});
+
+describe('drivers', () => {
+  const asDriver = (uid = 'driver-1', claims = verified('DRIVER')) =>
+    env.authenticatedContext(uid, claims).firestore();
+  const asPassenger = () =>
+    env.authenticatedContext('passenger-1', verified('PASSENGER')).firestore();
+
+  it('lets a verified driver read their own driver profile', async () => {
+    const snapshot = await assertSucceeds(getDoc(doc(asDriver(), 'drivers/driver-1')));
+    expect(snapshot.get('verificationStatus')).toBe('PENDING');
+  });
+
+  it('keeps drivers apart', async () => {
+    await assertFails(getDoc(doc(asDriver(), 'drivers/driver-2')));
+  });
+
+  it('does not let a passenger read a driver profile, even one keyed by their own uid', async () => {
+    await assertFails(getDoc(doc(asPassenger(), 'drivers/driver-1')));
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'drivers/passenger-1'), driverProfile('passenger-1'));
+    });
+    await assertFails(getDoc(doc(asPassenger(), 'drivers/passenger-1')));
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = asDriver('driver-1', { email_verified: false, role: 'DRIVER' });
+    await assertFails(getDoc(doc(unverified, 'drivers/driver-1')));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'drivers/driver-1')));
+  });
+
+  it('lets verified staff read any driver profile, and nobody else', async () => {
+    for (const role of ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      const db = env.authenticatedContext('staff-1', verified(role)).firestore();
+      await assertSucceeds(getDoc(doc(db, 'drivers/driver-1')));
+    }
+  });
+
+  it('does not trust a role stored in a document', async () => {
+    const forger = env.authenticatedContext('forger-1', verified('PASSENGER')).firestore();
+    await assertFails(getDoc(doc(forger, 'drivers/driver-1')));
+  });
+
+  it('denies every client write, so a driver cannot verify or change themselves', async () => {
+    const db = asDriver();
+    const path = 'drivers/driver-1';
+    await assertFails(updateDoc(doc(db, path), { verificationStatus: 'VERIFIED' }));
+    await assertFails(updateDoc(doc(db, path), { totalTrips: 100, rating: 5 }));
+    await assertFails(updateDoc(doc(db, path), { availabilityStatus: 'ONLINE' }));
+    await assertFails(updateDoc(doc(db, path), { updatedAt: serverTimestamp() }));
+    await assertFails(
+      setDoc(doc(db, path), driverProfile('driver-1', { verificationStatus: 'VERIFIED' })),
+    );
+    await assertFails(deleteDoc(doc(db, path)));
+
+    const other = asDriver('driver-3');
+    await assertFails(setDoc(doc(other, 'drivers/driver-3'), driverProfile('driver-3')));
+    const staff = env.authenticatedContext('staff-1', verified('SUPER_ADMIN')).firestore();
+    await assertFails(updateDoc(doc(staff, path), { verificationStatus: 'VERIFIED' }));
+    await assertFails(deleteDoc(doc(staff, path)));
+  });
 });

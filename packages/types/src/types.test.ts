@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DRIVER_AVAILABILITY_STATUSES,
   DRIVER_JOURNEY_STATUSES,
+  DRIVER_VERIFICATION_STATUSES,
+  NEW_DRIVER_PROFILE_DEFAULTS,
+  driverAvailabilityStatusSchema,
+  driverVerificationStatusSchema,
   FLEXIBILITY_LEVELS,
   PAYMENT_STATUSES,
   STOP_TYPES,
@@ -102,5 +107,28 @@ describe('locationSchema', () => {
   it('rejects an empty place id and a missing address', () => {
     expect(locationSchema.safeParse({ ...valid, placeId: '' }).success).toBe(false);
     expect(locationSchema.safeParse({ ...valid, formattedAddress: '' }).success).toBe(false);
+  });
+});
+
+describe('driver profile (spec section 10)', () => {
+  it('defines the verification and availability states', () => {
+    expect(DRIVER_VERIFICATION_STATUSES).toEqual(['PENDING', 'VERIFIED', 'REJECTED']);
+    expect(DRIVER_AVAILABILITY_STATUSES).toEqual(['OFFLINE', 'ONLINE']);
+    expect(driverVerificationStatusSchema.safeParse('VERIFIED').success).toBe(true);
+    expect(driverVerificationStatusSchema.safeParse('APPROVED').success).toBe(false);
+    expect(driverAvailabilityStatusSchema.safeParse('ONLINE').success).toBe(true);
+    expect(driverAvailabilityStatusSchema.safeParse('BUSY').success).toBe(false);
+  });
+
+  it('starts a new driver unverified and offline, with no detour settings invented', () => {
+    expect(NEW_DRIVER_PROFILE_DEFAULTS).toEqual({
+      verificationStatus: 'PENDING',
+      availabilityStatus: 'OFFLINE',
+      rating: null,
+      totalTrips: 0,
+      maxDetourMinutes: null,
+      maxDetourDistance: null,
+      automaticMatchingEnabled: null,
+    });
   });
 });

@@ -21,20 +21,20 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 1.6)
+## What exists now (through Module 2.1)
 
-| Area            | Location                                  | State                                                                                     |
-| --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile. |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.              |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.               |
-| Cloud Functions | `functions`                               | `healthCheck` and the `completeRegistration` callable (role assignment). Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.      |
-| Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                    |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.     |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client. |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                       |
+| Area            | Location                                  | State                                                                                        |
+| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.    |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.                 |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                  |
+| Cloud Functions | `functions`                               | `healthCheck` and `completeRegistration` (role assignment, driver profile). Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.         |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.            |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.        |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                   |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.    |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                          |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -109,6 +109,32 @@ session in AsyncStorage on phones and uses the browser default on web. Each app 
 environment reader in `src/firebase-config.ts` (plain TypeScript, safe to import from Node tests)
 and creates its client in `src/firebase.ts` (React Native).
 
+## Driver profile (Phase 2)
+
+`drivers/{uid}` holds what is specific to a driver, separate from the shared `users/{uid}`: the
+verification status, availability status, rating, completed trips, and (later) detour settings. The
+document ID is the driver's uid, so a driver has exactly one and rules can check ownership directly.
+The fields follow spec section 10.
+
+- **Creation:** `completeRegistration` creates `drivers/{uid}` in the same transaction as
+  `users/{uid}` when the role is `DRIVER`, and writes a `DRIVER_PROFILE_CREATED` audit entry. A
+  repeated call repairs a driver whose profile is missing. Drivers who registered before this
+  module get theirs from `npm run admin:backfill-driver-profiles`.
+- **Starting values:** `verificationStatus` `PENDING`, `availabilityStatus` `OFFLINE`, `rating`
+  `null`, `totalTrips` 0. `maxDetourMinutes`, `maxDetourDistance` and `automaticMatchingEnabled`
+  are `null` until the driver sets them (Module 2.8); no optimization value is assumed.
+- **Reading:** `useDriverProfile` (`packages/firebase/src/react.tsx`) follows the document live.
+  The Profile tab shows a read-only "Driver details" card (verification, completed trips, rating) in
+  the driver app only, so the passenger app never reads `drivers`. If the document is missing the
+  card is replaced by a message and the rest of the screen keeps working; the screen recovers on
+  its own once the document exists.
+- **Writing:** clients cannot write `drivers/{uid}` at all. Each later Phase 2 module opens only the
+  specific fields it owns, and verification changes stay with staff.
+- `functions` cannot import `@ridemesh/types`, so the starting values are duplicated in
+  `functions/src/drivers.ts`; `tests/roles-parity.test.ts` fails if they diverge.
+- The verification values (`PENDING`, `VERIFIED`, `REJECTED`) and availability values (`OFFLINE`,
+  `ONLINE`) are a starting set that Modules 2.4 and 2.5 may extend.
+
 ## Design tokens
 
 `packages/ui/src/tokens.ts` is the source of truth. `tokens.css` mirrors the palette and radii for
@@ -125,8 +151,9 @@ while driving. Each is a one-line change in the app's `src/theme.ts`.
   `packages/config/src/firebase.ts`; `functions/src/index.ts` sets the same value, and a repository
   test keeps them aligned. A Firestore location cannot be changed after creation.
 - `firestore.rules` allows only verified users to read their own profile (staff may read any). A
-  person may update only their own name and phone; every other write is denied. Roles are custom
-  claims set server-side; see `docs/security.md`.
+  person may update only their own name and phone; every other write is denied. A driver may read
+  their own `drivers/{uid}` document and nothing may be written to it from a client. Roles are
+  custom claims set server-side; see `docs/security.md`.
 - The client uses long-polling auto-detection for Firestore, which helps on React Native networks
   where streaming is unavailable.
 - Emulator ports: Auth 9099, Functions 5001, Firestore 8080, UI 4000. Local function URLs include
