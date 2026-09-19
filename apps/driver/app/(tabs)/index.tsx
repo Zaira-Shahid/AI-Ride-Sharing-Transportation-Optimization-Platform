@@ -1,10 +1,6 @@
-import { ScreenShell } from '../../src/components/ScreenShell';
+import { DriverHomeScreen } from '@ridemesh/mobile-auth';
+import { theme } from '../../src/theme';
 
 export default function HomeScreen() {
-  return (
-    <ScreenShell
-      title="You are offline"
-      description="Your destination, available seats and matching settings will appear here."
-    />
-  );
+  return <DriverHomeScreen theme={theme} />;
 }
