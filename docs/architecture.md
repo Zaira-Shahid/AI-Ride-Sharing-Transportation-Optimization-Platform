@@ -21,19 +21,20 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 1.1)
+## What exists now (through Module 1.2)
 
-| Area            | Location                                  | State                                                                                        |
-| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Expo Router shell with Home, Trips, Wallet, Profile tabs (spec section 49). Empty states.    |
-| Driver app      | `apps/driver`                             | Expo Router shell with Home, Current Journey, Earnings, History, Profile tabs. Empty states. |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                  |
-| Cloud Functions | `functions`                               | `healthCheck` and the `completeRegistration` callable (role assignment). Emulator-tested.    |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.         |
-| Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                       |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.        |
-| Firebase client | `packages/firebase`                       | Validates the Firebase web config and initialises the shared Firebase app.                   |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                          |
+| Area            | Location                                  | State                                                                                     |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, registration and email verification, then Home, Trips, Wallet, Profile tabs.     |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home, Current Journey, Earnings, History, Profile tabs.              |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.               |
+| Cloud Functions | `functions`                               | `healthCheck` and the `completeRegistration` callable (role assignment). Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.      |
+| Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                    |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.     |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, registration flow, friendly errors, `AuthProvider`.    |
+| Mobile auth     | `packages/mobile-auth`                    | Shared Welcome, Register and Verify Email screens and form components.                    |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                       |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -49,6 +50,29 @@ Nothing here is mocked product logic. No fake data is displayed.
   first needs shared code in a function.
 - Strict TypeScript everywhere (`strict`, `noImplicitAny`, `strictNullChecks`, plus
   `noUncheckedIndexedAccess`). `any` is a lint error.
+
+## Mobile authentication flow
+
+Both mobile apps gate their screens on a session status derived from Firebase Auth
+(`packages/firebase/src/session.ts`), exposed by `AuthProvider` and `useAuth`:
+
+| Status       | Meaning                                    | Screen shown             |
+| ------------ | ------------------------------------------ | ------------------------ |
+| `loading`    | First auth state not known yet             | Loading indicator        |
+| `signedOut`  | Nobody signed in                           | Welcome, then Register   |
+| `unverified` | Signed in, email not verified              | Verify Email             |
+| `incomplete` | Email verified but no server-assigned role | Register (finish set-up) |
+| `ready`      | Signed in, verified and has a role         | Tabs                     |
+
+Expo Router `Stack.Protected` groups enforce this in each app's root `_layout.tsx`. Registration
+runs inside `runAuthFlow`, which stops the status changing halfway through the multi-step
+sequence (create account, assign role, send email). If a step fails after the account exists the
+person is signed out so the form can show the error, and submitting the same details again resumes
+where it stopped.
+
+The screens live in `packages/mobile-auth` so the passenger and driver apps share them. Each app
+passes its own `app` key and theme, which decide the role (`PASSENGER` or `DRIVER`) and the
+look. Until sign-in is built (Module 1.3) the session is held in memory only.
 
 ## Design tokens
 

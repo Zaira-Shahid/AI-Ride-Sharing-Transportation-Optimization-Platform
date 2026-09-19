@@ -1,4 +1,8 @@
-import { initializeFirebaseApp, parseFirebaseWebConfig } from '@ridemesh/firebase';
+import {
+  createFirebaseClient,
+  initializeFirebaseApp,
+  parseFirebaseWebConfig,
+} from '@ridemesh/firebase';
 
 export function readFirebaseConfig() {
   return parseFirebaseWebConfig({
@@ -14,4 +18,10 @@ export function readFirebaseConfig() {
 
 export function getFirebaseApp() {
   return initializeFirebaseApp(readFirebaseConfig());
+}
+
+export function getFirebaseClient() {
+  return createFirebaseClient(readFirebaseConfig(), {
+    emulatorHost: process.env.EXPO_PUBLIC_FIREBASE_EMULATOR_HOST || undefined,
+  });
 }

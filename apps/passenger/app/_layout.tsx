@@ -1,48 +1,50 @@
-import { Ionicons } from '@expo/vector-icons';
-import type { ColorValue } from 'react-native';
-import { Tabs } from 'expo-router';
+import { AuthProvider, useAuth } from '@ridemesh/firebase/react';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { tabActiveTint, theme } from '../src/theme';
+import { ActivityIndicator, View } from 'react-native';
+import { getFirebaseClient } from '../src/firebase';
+import { theme } from '../src/theme';
 
-type IconName = React.ComponentProps<typeof Ionicons>['name'];
+const client = getFirebaseClient();
 
-function tabIcon(name: IconName) {
-  return ({ color, size }: { color: ColorValue; size: number }) => (
-    <Ionicons name={name} size={size} color={color} />
+function Navigator() {
+  const { status } = useAuth();
+
+  if (status === 'loading') {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: theme.background,
+        }}
+      >
+        <ActivityIndicator accessibilityLabel="Loading" color={theme.accent} />
+      </View>
+    );
+  }
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Protected guard={status === 'signedOut' || status === 'incomplete'}>
+        <Stack.Screen name="(auth)" />
+      </Stack.Protected>
+      <Stack.Protected guard={status === 'unverified'}>
+        <Stack.Screen name="verify-email" />
+      </Stack.Protected>
+      <Stack.Protected guard={status === 'ready'}>
+        <Stack.Screen name="(tabs)" />
+      </Stack.Protected>
+    </Stack>
   );
 }
 
 export default function RootLayout() {
   return (
-    <>
+    <AuthProvider client={client}>
       <StatusBar style="dark" />
-      <Tabs
-        screenOptions={{
-          headerStyle: { backgroundColor: theme.background },
-          headerTintColor: theme.textPrimary,
-          headerShadowVisible: false,
-          tabBarStyle: { backgroundColor: theme.surface, borderTopColor: theme.border },
-          tabBarActiveTintColor: tabActiveTint,
-          tabBarInactiveTintColor: theme.textSecondary,
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{ title: 'Home', tabBarIcon: tabIcon('home-outline') }}
-        />
-        <Tabs.Screen
-          name="trips"
-          options={{ title: 'Trips', tabBarIcon: tabIcon('time-outline') }}
-        />
-        <Tabs.Screen
-          name="wallet"
-          options={{ title: 'Wallet', tabBarIcon: tabIcon('wallet-outline') }}
-        />
-        <Tabs.Screen
-          name="profile"
-          options={{ title: 'Profile', tabBarIcon: tabIcon('person-outline') }}
-        />
-      </Tabs>
-    </>
+      <Navigator />
+    </AuthProvider>
   );
 }
