@@ -107,3 +107,12 @@ export function validateLogin(values: LoginFormValues): LoginValidation {
   if (Object.keys(errors).length > 0 || !email.success) return { ok: false, errors };
   return { ok: true, data: { email: email.data, password: values.password } };
 }
+
+export type PasswordResetValidation =
+  { ok: true; data: { email: string } } | { ok: false; errors: { email: string } };
+
+export function validatePasswordResetRequest(values: { email: string }): PasswordResetValidation {
+  const email = emailSchema.safeParse(values.email);
+  if (!email.success) return { ok: false, errors: { email: 'Enter a valid email address.' } };
+  return { ok: true, data: { email: email.data } };
+}

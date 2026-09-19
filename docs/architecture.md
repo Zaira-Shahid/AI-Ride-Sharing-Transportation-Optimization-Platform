@@ -21,7 +21,7 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 1.4)
+## What exists now (through Module 1.5)
 
 | Area            | Location                                  | State                                                                                     |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ controls routing or safety constraints.
 | Shared types    | `packages/types`                          | Roles, user profile, state enumerations, `Location`, with Zod schemas.                    |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.     |
 | Firebase client | `packages/firebase`                       | Config validation, client factory, registration and sign-in flows, `AuthProvider`.        |
-| Mobile auth     | `packages/mobile-auth`                    | Shared Welcome, Login, Register, Verify Email, Profile screens, form components, client.  |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client. |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                       |
 
 Nothing here is mocked product logic. No fake data is displayed.
@@ -79,6 +79,13 @@ the other app, signs it out again and shows a clear message ("This is a driver a
 sign in with the RideMesh Driver app."). Accounts with no role yet, or an unverified email, are let
 through so the session gate can guide them. The first screen of the `(auth)` group is pinned with
 `unstable_settings` so it does not depend on route ordering.
+
+Password reset starts from a "Forgot password?" link on the Login screen only
+(`ForgotPasswordScreen`, `requestPasswordReset` in `packages/firebase/src/password-reset.ts`). It
+sends Firebase's standard reset email; the person chooses a new password on Firebase's hosted page,
+then returns to the app and signs in. The screen always shows the same message ("If an account
+exists for ..., we sent an email"), and "Back to sign in" returns to the existing Login screen
+rather than stacking a second one. Custom email templates and a branded reset page are future work.
 
 Signing out is done from the Profile tab (`ProfileScreen`, which also shows who is signed in). It
 asks for confirmation with an in-app `ConfirmDialog` rather than `Alert`, because `Alert` does
