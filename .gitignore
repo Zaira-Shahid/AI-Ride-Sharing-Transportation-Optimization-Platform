@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+build/
+.next/
+.expo/
+out/
+lib/
+*.tsbuildinfo
+coverage/
+
+# environment (never commit real values)
+.env
+.env.*
+!.env.example
+
+# firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log
+ui-debug.log
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# local tooling
+.claude/
+*.log
