@@ -35,6 +35,7 @@ export async function createAccount(
   role: string,
   verified: boolean,
   displayName?: string,
+  profile?: { name: string; phone: string | null },
 ) {
   const signUp = await fetch(
     `${authEmulator}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
@@ -59,6 +60,50 @@ export async function createAccount(
     },
   );
   expect(update.ok).toBe(true);
+  if (profile) await createProfileDoc(localId, { role, email, ...profile });
+  return localId;
+}
+
+const firestoreDocs = `http://127.0.0.1:8080/v1/projects/${projectId}/databases/(default)/documents`;
+
+/** Writes users/{uid} the way the server does, bypassing rules with the emulator owner token. */
+async function createProfileDoc(
+  uid: string,
+  profile: { role: string; email: string; name: string; phone: string | null },
+) {
+  const now = new Date().toISOString();
+  const response = await fetch(`${firestoreDocs}/users?documentId=${uid}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({
+      fields: {
+        role: { stringValue: profile.role },
+        name: { stringValue: profile.name },
+        email: { stringValue: profile.email },
+        phone: profile.phone ? { stringValue: profile.phone } : { nullValue: null },
+        photoUrl: { nullValue: null },
+        status: { stringValue: 'ACTIVE' },
+        createdAt: { timestampValue: now },
+        updatedAt: { timestampValue: now },
+      },
+    }),
+  });
+  expect(response.ok).toBe(true);
+}
+
+/** What is stored in users/{uid}, read with the emulator owner token. */
+export async function readProfileDoc(uid: string) {
+  const response = await fetch(`${firestoreDocs}/users/${uid}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  const { fields } = (await response.json()) as {
+    fields: Record<string, { stringValue?: string; nullValue?: null }>;
+  };
+  return {
+    name: fields.name?.stringValue,
+    phone: fields.phone?.stringValue ?? null,
+    role: fields.role?.stringValue,
+  };
 }
 
 export async function openLogin(page: Page, url: string, title: string) {

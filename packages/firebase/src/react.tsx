@@ -10,9 +10,10 @@ import {
   type ReactNode,
 } from 'react';
 import type { FirebaseClient } from './client';
+import { subscribeToProfile, type ProfileData } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
 
-type Client = Pick<FirebaseClient, 'auth' | 'functions'>;
+type Client = Pick<FirebaseClient, 'auth' | 'functions' | 'firestore'>;
 
 interface SessionSnapshot {
   status: SessionStatus;
@@ -108,4 +109,32 @@ export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used inside an AuthProvider.');
   return context;
+}
+
+export type ProfileState =
+  | { status: 'loading' }
+  | { status: 'ready'; profile: ProfileData }
+  | { status: 'missing' }
+  | { status: 'error' };
+
+/** The signed-in person's users/{uid} document, kept up to date. */
+export function useProfile(): ProfileState & { retry: () => void } {
+  const { client, user } = useAuth();
+  const uid = user?.uid;
+  const [state, setState] = useState<ProfileState>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    setState({ status: 'loading' });
+    if (!uid) return undefined;
+    return subscribeToProfile(
+      client,
+      uid,
+      (snapshot) => setState(snapshot),
+      () => setState({ status: 'error' }),
+    );
+  }, [client, uid, attempt]);
+
+  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  return { ...state, retry };
 }

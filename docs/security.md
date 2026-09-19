@@ -1,7 +1,7 @@
 # Roles, access and security
 
-Status: Module 1.1 (role system and Firestore rules). Registration, login and profile screens are
-built in later Phase 1 modules on top of this.
+Status: through Module 1.6 (profile). Module 1.1 defined the role system and Firestore rules;
+registration, login, logout, password reset and profile editing are built on top of it.
 
 ## Roles
 
@@ -85,6 +85,25 @@ when the person verifies.
 - After a role is changed by the staff script the person's sessions are revoked and they must sign
   in again.
 
+## Profile editing
+
+- A person can change only their own `name` and `phone`, directly in Firestore. The rule checks
+  that the changed keys are a subset of `name`, `phone` and `updatedAt`, so adding, changing or
+  removing `role`, `email`, `status`, `createdAt` or any other field is denied.
+- `updatedAt` must equal the server's clock (`serverTimestamp()`), so a client cannot back-date it.
+- The name must be 1 to 100 characters and not blank. The phone is optional; when present it must
+  be 7 to 32 characters from digits, `+`, space, `(`, `)`, `.` and `-`. The apps additionally
+  require 7 to 15 digits. The rule and `packages/types/src/auth.ts` must be kept in step.
+- Only an `ACTIVE` account can edit; a `SUSPENDED` account is read-only.
+- Only the owner can edit. Staff roles have read access to profiles and no write access.
+- The role claim and the `role` field are unaffected by any profile edit, so this path cannot be
+  used to change roles.
+- Email cannot be changed from the app. A change of email needs its own re-verification flow and
+  is not part of this module.
+- The Firebase Auth display name is copied from the saved name on a best-effort basis. It is
+  informational only; nothing authorizes from it.
+- Profile edits are not written to `auditLogs`; only role and status changes are audited.
+
 ## Staff roles
 
 ```bash
@@ -101,12 +120,13 @@ npm run admin:set-staff-role -- <email> <SUPPORT|OPERATIONS|ADMIN|SUPER_ADMIN> -
 
 ## Firestore rules (`firestore.rules`)
 
-| Collection      | Read                                                     | Write  |
-| --------------- | -------------------------------------------------------- | ------ |
-| `users/{uid}`   | Own profile, or any profile for verified staff (4 roles) | Nobody |
-| everything else | Nobody                                                   | Nobody |
+| Collection      | Read                                                     | Write                                         |
+| --------------- | -------------------------------------------------------- | --------------------------------------------- |
+| `users/{uid}`   | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
+| everything else | Nobody                                                   | Nobody                                        |
 
-All writes happen through Cloud Functions or scripts using the Admin SDK, which bypass rules.
+Creating and deleting profiles, and every other write, happens through Cloud Functions or scripts
+using the Admin SDK, which bypass rules.
 Collections other than `users` stay closed until the module that owns each one defines its rules.
 `auditLogs` is never readable by clients. A verified email is required for every allowed read.
 
