@@ -9,7 +9,7 @@ import {
   uniqueEmail,
   PASSWORD,
 } from './helpers';
-import { countLocationRequests, newPassenger, overlaps, watchMap } from './map-helpers';
+import { countLocationRequests, newPassenger, watchMap } from './map-helpers';
 
 const [, driver] = apps;
 const { office, station } = PLACES;
@@ -35,24 +35,20 @@ test.describe('passenger app: map', () => {
 
     await expect(map(page)).toBeVisible();
     await expect(page.getByRole('link', { name: 'OpenStreetMap' })).toBeVisible();
-    // The zoom buttons are not hidden behind the search or the location button: their boxes do
-    // not overlap the two cards drawn over the map.
+    // The zoom buttons are not hidden behind the cards drawn over the map: at the middle of each,
+    // the button itself is the topmost thing (a hit test, so cards that are scrolled out of sight,
+    // or clipped, do not count). The check is written as text because it runs in the browser.
     const zoomIn = page.getByRole('button', { name: 'Zoom in' });
-    const zoomOut = page.getByRole('button', { name: 'Zoom out' });
-    const cards = [
-      page.getByLabel('Where to', { exact: true }),
-      page.getByLabel('Pickup', { exact: true }),
-      page.getByLabel('Your location', { exact: true }),
-    ];
-    for (const control of [zoomIn, zoomOut]) {
+    for (const control of [zoomIn, page.getByRole('button', { name: 'Zoom out' })]) {
       await expect(control).toBeVisible();
-      const controlBox = await control.boundingBox();
-      expect(controlBox).not.toBeNull();
-      for (const card of cards) {
-        const cardBox = await card.boundingBox();
-        expect(cardBox).not.toBeNull();
-        expect(overlaps(controlBox, cardBox)).toBe(false);
-      }
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      const x = (box?.x ?? 0) + (box?.width ?? 0) / 2;
+      const y = (box?.y ?? 0) + (box?.height ?? 0) / 2;
+      const isTopmost = await page.evaluate<boolean>(
+        `(() => { const top = document.elementFromPoint(${x}, ${y}); return top !== null && top.closest('.leaflet-control-zoom') !== null; })()`,
+      );
+      expect(isTopmost).toBe(true);
     }
     await expect.poll(() => watch.tiles.length).toBeGreaterThan(0);
     for (const url of watch.tiles) {

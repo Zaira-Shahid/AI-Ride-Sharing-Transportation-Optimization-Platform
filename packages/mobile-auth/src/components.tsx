@@ -209,6 +209,35 @@ export function TextButton({ label, onPress, disabled = false }: ButtonProps) {
   );
 }
 
+/**
+ * A small button for a row of information, for example the "Change" beside an address. It says
+ * "Change" but is named for what it changes ("Change destination"), so a screen reader hears the full
+ * action and the visible text is part of it.
+ */
+export function CompactButton({
+  label,
+  visibleLabel,
+  onPress,
+}: {
+  /** What the button does, for screen readers. */
+  label: string;
+  /** What is shown on it. */
+  visibleLabel: string;
+  onPress: () => void;
+}) {
+  const theme = useAuthTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={[styles.compactButton, { borderColor: theme.textPrimary }]}
+    >
+      <Text style={[styles.compactButtonLabel, { color: theme.textPrimary }]}>{visibleLabel}</Text>
+    </Pressable>
+  );
+}
+
 interface ConfirmDialogProps {
   visible: boolean;
   title: string;
@@ -270,6 +299,16 @@ export function Notice({ tone, children }: { tone: 'error' | 'info'; children: R
 }
 
 const styles = StyleSheet.create({
+  compactButton: {
+    minHeight: 44,
+    minWidth: 76,
+    paddingHorizontal: spacing[3],
+    borderWidth: 1,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compactButtonLabel: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
   flex: { flex: 1 },
   content: { flexGrow: 1, paddingHorizontal: spacing[6], gap: spacing[4] },
   heading: { gap: spacing[2], marginBottom: spacing[2] },

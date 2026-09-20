@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { DESTINATION_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
 import { TILE_ATTRIBUTION_HTML, TILE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles';
 import type { MapPoint, MapViewProps } from './types';
-import { frameMap } from './view';
+import { clampInsets, frameMap, frameMargin } from './view';
 
 const toLatLng = (point: MapPoint): L.LatLngTuple => [point.latitude, point.longitude];
 
@@ -30,8 +30,6 @@ function dotMarker(point: MapPoint, marker: typeof PICKUP_MARKER, size: number):
 }
 
 const NO_INSETS = { top: 0, bottom: 0 };
-// Space kept between places and the edges of the part of the map that is not covered.
-const FRAME_MARGIN = 32;
 
 /**
  * The map on the web, drawn with Leaflet on OpenStreetMap tiles. It fills its parent, and shows the
@@ -82,7 +80,8 @@ export function MapView({
 
   // The zoom buttons sit on the right edge, below whatever covers the top of the map.
   useEffect(() => {
-    if (zoomCorner.current) zoomCorner.current.style.top = `${insets.top + 8}px`;
+    if (!zoomCorner.current) return;
+    zoomCorner.current.style.top = `${insets.top + 8}px`;
   }, [insets.top]);
 
   // The markers and the framing follow the points.
@@ -108,10 +107,12 @@ export function MapView({
       framing.kind === 'bounds'
         ? [framing.southWest, framing.northEast]
         : [framing.center, framing.center];
-    const { top, bottom } = latestInsets.current;
+    const height = instance.getSize().y;
+    const { top, bottom } = clampInsets(latestInsets.current, height);
+    const margin = frameMargin(height - top - bottom);
     instance.fitBounds([toLatLng(southWest), toLatLng(northEast)], {
-      paddingTopLeft: [FRAME_MARGIN, top + FRAME_MARGIN],
-      paddingBottomRight: [FRAME_MARGIN, bottom + FRAME_MARGIN],
+      paddingTopLeft: [margin, top + margin],
+      paddingBottomRight: [margin, bottom + margin],
       maxZoom: framing.kind === 'point' ? framing.zoom : 16,
     });
   }, [pickup, destination, currentLocation]);

@@ -27,6 +27,11 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: { ...devices['Pixel 7'], trace: 'retain-on-failure', screenshot: 'only-on-failure' },
+  // The two Expo servers are never reused. A server someone already has running on these ports (for
+  // example `expo start` for the real Firebase project) has a different configuration, and the tests
+  // would silently run against it: sign in with a fake account on the real project, or fail in ways
+  // that look like bugs. With reuse off, Playwright stops with "http://localhost:8081 is already used"
+  // instead. (The emulators may still be reused; the tests only add their own accounts to them.)
   webServer: [
     {
       command: `npx firebase emulators:start --only auth,functions,firestore --project ${projectId}`,
@@ -38,14 +43,14 @@ export default defineConfig({
       command: 'npm run web --workspace @ridemesh/passenger -- --port 8081',
       url: 'http://localhost:8081',
       timeout: 180_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: placesEnv,
     },
     {
       command: 'npm run web --workspace @ridemesh/driver -- --port 8082',
       url: 'http://localhost:8082',
       timeout: 180_000,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       env: placesEnv,
     },
   ],

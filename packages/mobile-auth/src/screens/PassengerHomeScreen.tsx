@@ -1,9 +1,11 @@
 import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
 import {
   checkChosenPlace,
+  DEFAULT_TRIP_TIMES,
   currentLocationPlace,
   type ChosenPlaceProblem,
   type StoredDestination,
+  type TripTimes,
 } from '@ridemesh/types';
 import { radius, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
@@ -12,6 +14,8 @@ import type { AuthScreenProps } from '../app-info';
 import { AuthThemeProvider, Notice, SecondaryButton, useAuthTheme } from '../components';
 import { PlaceRejectedError } from './PlaceSearch';
 import { DestinationCard, PickupCard } from './TripPlaceCards';
+import { TripTimeCard } from './TripTimeCard';
+import { useNow } from './useNow';
 
 const LOCATION_LABELS: Record<LocationStatus, string> = {
   idle: 'Show my location',
@@ -26,6 +30,13 @@ const LOCATION_PROBLEMS: Partial<Record<LocationStatus, string>> = {
     'Location is turned off for this app. You can turn it on in your browser or phone settings.',
   unavailable: 'We could not find your location. Check your signal and try again.',
 };
+
+// The cards on top take at most this share of the screen and scroll beyond it, so that the map keeps
+// room for the places, the zoom buttons and the location button.
+const TOP_CARDS_MAX_SHARE = 0.45;
+
+// How often the screen looks at the clock again, so that times that have become too soon are noticed.
+const NOW_REFRESH_MS = 30_000;
 
 // A place that cannot be used, or that is the same place as the other one (a trip from a place to
 // the same place is no trip), is refused, whichever of the two is being chosen. Both are decided by
@@ -70,9 +81,10 @@ function LocateButton({
  * The passenger's Home: a map that fills the screen, with where they are going and where they will
  * be picked up on top, and a button to show where they are at the bottom. The places chosen are
  * marked on the map. The pickup can be the device's location (asked for only when the passenger taps
- * the button, one reading, never stored) or a place from the search. Everything is held only here, in
- * the app: nothing is sent to the server until the trip request is submitted (Module 3.7); the
- * time and flexibility are added by the modules that follow. A pickup and a destination that are
+ * the button, one reading, never stored) or a place from the search. The passenger also says when:
+ * leave now (the default) or at a time, and optionally a time to arrive by. Everything is held only
+ * here, in the app: nothing is sent to the server until the trip request is submitted (Module 3.7);
+ * the flexibility settings are added by the module that follows. A pickup and a destination that are
  * the same place are refused.
  */
 export function PassengerHomeScreen({
@@ -86,6 +98,8 @@ export function PassengerHomeScreen({
   const [pickup, setPickup] = useState<StoredDestination | null>(null);
   const [destination, setDestination] = useState<StoredDestination | null>(null);
   const location = useCurrentLocation();
+  const [times, setTimes] = useState<TripTimes>(DEFAULT_TRIP_TIMES);
+  const now = useNow(NOW_REFRESH_MS);
   // Which button the passenger last pressed for the device's location, so that a problem with it
   // is shown next to that button and not twice.
   const [askedBy, setAskedBy] = useState<'map' | 'pickup' | null>(null);
@@ -153,7 +167,7 @@ export function PassengerHomeScreen({
           onLayout={(event) => setTopCover(event.nativeEvent.layout.height)}
         >
           <ScrollView
-            style={{ maxHeight: height * 0.62 }}
+            style={{ maxHeight: height * TOP_CARDS_MAX_SHARE }}
             contentContainerStyle={styles.stack}
             keyboardShouldPersistTaps="handled"
           >
@@ -175,6 +189,7 @@ export function PassengerHomeScreen({
                 setAskedBy((asked) => (asked === 'pickup' ? null : asked));
               }}
             />
+            <TripTimeCard times={times} now={now} onChange={setTimes} />
           </ScrollView>
         </View>
         <View

@@ -37,3 +37,28 @@ export function frameMap(points: readonly (MapPoint | null)[]): MapFraming {
     northEast: { latitude: north, longitude: east },
   };
 }
+
+/** How much of the map, in pixels, is always treated as free, however much the cards cover. */
+export const MIN_FREE_MAP_PX = 160;
+
+/**
+ * Limits how much of a map of the given height counts as covered. Places are framed in the part that
+ * is left; if the cards cover nearly everything (a small screen, several cards open) there would be
+ * no room to frame anything and the map would jump to street level. Past the limit both covers are
+ * shrunk in proportion, so the map still shows the places, partly behind the cards.
+ */
+export function clampInsets(
+  insets: { top: number; bottom: number },
+  height: number,
+): { top: number; bottom: number } {
+  const cover = insets.top + insets.bottom;
+  const room = Math.max(0, height - Math.min(height, MIN_FREE_MAP_PX));
+  if (cover <= room || cover === 0) return insets;
+  const scale = room / cover;
+  return { top: insets.top * scale, bottom: insets.bottom * scale };
+}
+
+/** The space kept between places and the edge of the free part of the map: 32 px, less when it is small. */
+export function frameMargin(freeHeight: number): number {
+  return Math.max(0, Math.min(32, freeHeight / 4));
+}
