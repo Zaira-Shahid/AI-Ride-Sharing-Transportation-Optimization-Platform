@@ -356,6 +356,26 @@ export const PLACES = {
     latitude: 51.4494,
     longitude: -2.5813,
   },
+  // On the other side of the world from the others, for a trip with no service area.
+  sydney: {
+    id: 'place-sydney',
+    text: 'Sydney Opera House, Sydney, Australia',
+    main: 'Sydney Opera House',
+    secondary: 'Sydney, Australia',
+    address: 'Bennelong Point, Sydney NSW 2000, Australia',
+    latitude: -33.8568,
+    longitude: 151.2153,
+  },
+  // A position that was never filled in: exactly 0, 0. It passes the shape rules but is no place.
+  nowhere: {
+    id: 'place-nowhere',
+    text: 'Middle of Nowhere, Atlantic Ocean',
+    main: 'Middle of Nowhere',
+    secondary: 'Atlantic Ocean',
+    address: 'Somewhere in the Atlantic Ocean',
+    latitude: 0,
+    longitude: 0,
+  },
   // 22 m north of the office: a different place, but the same place for a trip.
   neighbour: {
     id: 'place-neighbour',

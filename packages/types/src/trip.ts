@@ -1,4 +1,8 @@
-import type { StoredDestination } from './journey';
+import {
+  DESTINATION_ADDRESS_MAX_LENGTH,
+  PLACE_ID_MAX_LENGTH,
+  type StoredDestination,
+} from './journey';
 
 // Rules about the places of a trip request. Module 3.7 creates the request on the server and must
 // repeat the same-place rule there (functions cannot import this package, so it will be mirrored
@@ -54,4 +58,68 @@ export function currentLocationPlace(point: {
     formattedAddress: CURRENT_LOCATION_ADDRESS,
     placeId: null,
   };
+}
+
+/**
+ * Why a place cannot be a trip's pickup or destination, whatever the other one is:
+ * - BAD_COORDINATES: a coordinate is missing, not a number, or outside the range of the earth
+ * - NO_POSITION: exactly 0, 0 (in the ocean off Africa). No real place is there; it is what comes out
+ *   when a position was never filled in, so it is treated as no position at all
+ * - BAD_ADDRESS: the address is blank or longer than the limit
+ * - BAD_PLACE_ID: a place ID is given but blank or longer than the limit
+ */
+export type PlaceProblem = 'BAD_COORDINATES' | 'NO_POSITION' | 'BAD_ADDRESS' | 'BAD_PLACE_ID';
+
+/**
+ * Checks that a place is well-formed enough to build a trip on: what the map, the driver and the
+ * price will all rely on. Places from Google's search already pass through the same shape rules when
+ * they are fetched (`destinationSchema`); this is the check at the point of use, and it also covers
+ * the extra rule about 0, 0. It says nothing about where in the world the place is: there is no
+ * service area (the trip may go anywhere), and whether a route exists is Phase 4's question.
+ */
+export function findPlaceProblem(place: StoredDestination): PlaceProblem | null {
+  const { latitude, longitude, formattedAddress, placeId } = place;
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    Math.abs(latitude) > 90 ||
+    Math.abs(longitude) > 180
+  ) {
+    return 'BAD_COORDINATES';
+  }
+  if (latitude === 0 && longitude === 0) return 'NO_POSITION';
+  if (
+    typeof formattedAddress !== 'string' ||
+    formattedAddress.trim().length === 0 ||
+    formattedAddress.length > DESTINATION_ADDRESS_MAX_LENGTH
+  ) {
+    return 'BAD_ADDRESS';
+  }
+  if (
+    placeId !== null &&
+    placeId !== undefined &&
+    (typeof placeId !== 'string' ||
+      placeId.trim().length === 0 ||
+      placeId.length > PLACE_ID_MAX_LENGTH)
+  ) {
+    return 'BAD_PLACE_ID';
+  }
+  return null;
+}
+
+/** Why a place just chosen for a trip cannot be accepted. */
+export type ChosenPlaceProblem = 'UNUSABLE' | 'SAME_AS_OTHER';
+
+/**
+ * Decides whether a place the passenger has just chosen (as the pickup or the destination) can be
+ * accepted, given the other one if it has been chosen: it must be a usable place, and not the same
+ * place as the other. The one check both choices go through. Module 3.7 must repeat it on the server.
+ */
+export function checkChosenPlace(
+  place: StoredDestination,
+  other: StoredDestination | null,
+): ChosenPlaceProblem | null {
+  if (findPlaceProblem(place) !== null) return 'UNUSABLE';
+  if (other !== null && isSamePlace(place, other)) return 'SAME_AS_OTHER';
+  return null;
 }
