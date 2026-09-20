@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { TEST_PORTS } from '../test-ports';
 import {
   PASSWORD,
   PLACES,
@@ -36,7 +37,7 @@ test.describe('passenger app: location search', () => {
     await newPassenger(page, 'loc-pick');
     const serverCalls: string[] = [];
     page.on('request', (request) => {
-      if (request.url().includes(':5001/')) serverCalls.push(request.url());
+      if (request.url().includes(`:${TEST_PORTS.functions}/`)) serverCalls.push(request.url());
     });
 
     await expect(card(page).getByText('Heading to')).toHaveCount(0);

@@ -11,21 +11,23 @@ import {
 } from 'firebase/auth';
 import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
+import { TEST_PORTS } from '../test-ports';
 
-// Set by `firebase emulators:exec`; the ports come from firebase.json.
+// Set by `firebase emulators:exec`; the ports come from firebase.test.json (see ../test-ports).
 export const projectId = process.env.GCLOUD_PROJECT ?? 'demo-ridemesh';
 export const PASSWORD = 'correct-horse-battery-staple';
+export const AUTH_EMULATOR = `http://127.0.0.1:${TEST_PORTS.auth}`;
 
 let counter = 0;
 
 export function createClient() {
   const app = initializeApp({ apiKey: 'emulator-api-key', projectId }, `client-${counter++}`);
   const auth = getAuth(app);
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectAuthEmulator(auth, AUTH_EMULATOR, { disableWarnings: true });
   const functions = getFunctions(app, 'europe-west1');
-  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  connectFunctionsEmulator(functions, '127.0.0.1', TEST_PORTS.functions);
   const db = getFirestore(app);
-  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectFirestoreEmulator(db, '127.0.0.1', TEST_PORTS.firestore);
   return { app, auth, functions, db, firestore: db };
 }
 
@@ -48,7 +50,7 @@ export async function signUp(client: Client, prefix: string) {
 
 export async function verifyEmail(user: User, email: string) {
   await sendEmailVerification(user);
-  const response = await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/oobCodes`);
+  const response = await fetch(`${AUTH_EMULATOR}/emulator/v1/projects/${projectId}/oobCodes`);
   const { oobCodes } = (await response.json()) as {
     oobCodes: { email: string; oobCode: string; requestType: string }[];
   };
@@ -57,7 +59,7 @@ export async function verifyEmail(user: User, email: string) {
     .at(-1);
   if (!code) throw new Error(`No verification code was issued for ${email}`);
   const applied = await fetch(
-    'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:update?key=emulator-api-key',
+    `${AUTH_EMULATOR}/identitytoolkit.googleapis.com/v1/accounts:update?key=emulator-api-key`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

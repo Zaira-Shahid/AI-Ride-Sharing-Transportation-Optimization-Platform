@@ -1,20 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
+import { TEST_PORTS } from '../test-ports';
 
 const projectId = 'demo-ridemesh';
-const authEmulator = 'http://127.0.0.1:9099';
+const authEmulator = `http://127.0.0.1:${TEST_PORTS.auth}`;
 const PASSWORD = 'correct-horse-battery';
 
 const apps = [
   {
     name: 'passenger',
-    url: 'http://localhost:8081',
+    url: `http://localhost:${TEST_PORTS.passenger}`,
     title: 'RideMesh',
     role: 'PASSENGER',
     home: 'Where are you going?',
   },
   {
     name: 'driver',
-    url: 'http://localhost:8082',
+    url: `http://localhost:${TEST_PORTS.driver}`,
     title: 'RideMesh Driver',
     role: 'DRIVER',
     home: 'You are offline',

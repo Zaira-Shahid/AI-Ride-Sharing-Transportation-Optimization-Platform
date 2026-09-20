@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { TEST_PORTS } from '../test-ports';
 import { PASSWORD, apps, createAccount, openLogin, submitLogin, uniqueEmail } from './helpers';
 
 const [passenger] = apps;
@@ -27,7 +28,7 @@ export async function watchMap(page: Page): Promise<Watch> {
     if (/maps\.googleapis\.com|maps\.gstatic\.com|mt\d?\.google\.com/.test(url)) {
       watch.otherMapServers.push(url);
     }
-    if (url.includes(':5001/')) watch.serverCalls.push(url);
+    if (url.includes(`:${TEST_PORTS.functions}/`)) watch.serverCalls.push(url);
   });
   return watch;
 }

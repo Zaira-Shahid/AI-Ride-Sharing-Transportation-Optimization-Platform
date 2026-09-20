@@ -58,13 +58,13 @@ Nothing here is mocked product logic. No fake data is displayed.
 Both mobile apps gate their screens on a session status derived from Firebase Auth
 (`packages/firebase/src/session.ts`), exposed by `AuthProvider` and `useAuth`:
 
-| Status       | Meaning                                    | Screen shown             |
-| ------------ | ------------------------------------------ | ------------------------ |
-| `loading`    | First auth state not known yet             | Loading indicator        |
-| `signedOut`  | Nobody signed in                           | Welcome, Login, Register |
-| `unverified` | Signed in, email not verified              | Verify Email             |
-| `incomplete` | Email verified but no server-assigned role | Register (finish set-up) |
-| `ready`      | Signed in, verified and has a role         | Tabs                     |
+| Status       | Meaning                                    | Screen shown                                                                                                            |
+| ------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `loading`    | First auth state not known yet             | Loading indicator                                                                                                       |
+| `signedOut`  | Nobody signed in                           | Welcome, Login, Register                                                                                                |
+| `unverified` | Signed in, email not verified              | Verify Email                                                                                                            |
+| `incomplete` | Email verified but no server-assigned role | Register (finish set-up; the auth layout redirects there from any auth screen, and "Use a different account" signs out) |
+| `ready`      | Signed in, verified and has a role         | Tabs                                                                                                                    |
 
 Expo Router `Stack.Protected` groups enforce this in each app's root `_layout.tsx`. Registration
 runs inside `runAuthFlow`, which stops the status changing halfway through the multi-step
