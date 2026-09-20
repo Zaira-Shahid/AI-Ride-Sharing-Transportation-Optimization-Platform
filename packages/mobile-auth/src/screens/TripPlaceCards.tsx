@@ -1,7 +1,7 @@
 import type { StoredDestination } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { StyleSheet, Text, View } from 'react-native';
-import { Notice, SecondaryButton, useAuthTheme } from '../components';
+import { CompactButton, Notice, SecondaryButton, useAuthTheme } from '../components';
 import { PlaceSearch } from './PlaceSearch';
 
 function useCardStyle() {
@@ -28,7 +28,7 @@ function ChosenPlace({
         <Text style={[styles.caption, { color: theme.textSecondary }]}>{caption}</Text>
         <Text style={[styles.address, { color: theme.textPrimary }]}>{place.formattedAddress}</Text>
       </View>
-      <SecondaryButton label={changeLabel} onPress={onChange} />
+      <CompactButton label={changeLabel} visibleLabel="Change" onPress={onChange} />
     </View>
   );
 }
@@ -131,9 +131,9 @@ export function PickupCard({
 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4], gap: spacing[3] },
-  title: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
-  chosen: { gap: spacing[3] },
-  current: { gap: spacing[1] },
+  title: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
+  chosen: { flexDirection: 'row', alignItems: 'center', gap: spacing[3] },
+  current: { flex: 1, gap: spacing[1] },
   caption: { fontSize: fontSize.sm },
   address: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
 });

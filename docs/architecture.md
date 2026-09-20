@@ -21,11 +21,11 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.4)
+## What exists now (through Module 3.5)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination and pickup), Trips, Wallet, Profile.                                                                |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup and time), Trips, Wallet, Profile.                                                          |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
@@ -412,6 +412,39 @@ status (3.8).
   3.4): a trip may start and end anywhere, and Home offers no shortcuts. Whether a route exists
   between two places is Phase 4's question, and saved places (Home, Work) are the spec's separate
   "Quick destinations" feature. Module 3.7 must repeat `checkChosenPlace` on the server.
+- **Time preferences (Module 3.5).** A third card, "When do you want to go?", holds
+  `TripTimes` (`packages/types/src/trip-times.ts`): a departure, which is **leave now** (the default) or
+  a time chosen, and an optional **arrive by** time. Both are optional: a passenger may set neither,
+  either or both. Times are instants (milliseconds since 1970, UTC): **the screen shows them in the
+  device's time zone** (it says which, for example "Europe/London") and they are stored as UTC; the
+  request will carry them as UTC timestamps (Module 3.7). Like the places, they live only in the app
+  until the request is created.
+- **The rules** (`checkTripTimes`): a time chosen must be **at least 5 minutes and at most 7 days from
+  now** (exactly 5 minutes or exactly 7 days is fine), and an arrival time must be **at least a
+  minute after the departure** (after now when leaving now). "Leave now" is always allowed and means
+  "as soon as a ride is found"; on creation it will be stamped with the server's time. Nothing
+  here says whether the trip can be made in the time; that is routing's question (Phase 4).
+  `checkTripTimes` must be repeated on the server in 3.7 **with the server's clock**, because a
+  device's clock can be wrong (functions cannot import the types package, so it will be mirrored and
+  covered by the parity test).
+- **The picker** is our own, the same on the web and on phones and with no new library: first the day
+  (today to seven days ahead), then the hour, then the minute, in steps of 5 minutes (`TimePicker`,
+  `ChipRow`). Only times that can be chosen are offered, so a time that is too soon or too far cannot
+  be picked; changing the day or the hour keeps the rest of the time where it can. The days, hours and
+  minutes are those of the device's time zone (the offered times are on a 5-minute grid of instants,
+  which are whole clock times in every zone; a clock time that happens twice when the clocks go back
+  is offered once, and one that never happens when they go forward is not offered).
+- **The screen keeps itself honest while it is open.** `useNow` looks at the clock every 30 seconds, so
+  a time chosen that has become too soon is noticed: the card says so ("That leaving time is less
+  than 5 minutes away. Choose a later time, or leave now.") even while it is folded up, and the
+  earliest time on offer moves on. Changing the departure past an arrival time already chosen shows
+  "Your arrival time must be after your departure time." rather than changing anything silently.
+- **The three cards are compact.** A chosen place or the times are one row with a small "Change"
+  button, and the time card is a two-line summary until "Change" is pressed, so the cards leave room
+  for the map. `MapView` still limits how much of itself it treats as covered (`clampInsets`,
+  at least 160 px stay free) and keeps its framing margin small when little is free; without that,
+  many open cards made it jump to street level. While the times are being edited the cards can fill
+  most of the screen and the zoom buttons can end up behind them (pinching and scrolling still zoom).
 - `PlaceSearch` lets its caller refuse a place by throwing `PlaceRejectedError`; its message is
   shown as it is. The two cards live in `TripPlaceCards.tsx`; `PassengerHomeScreen` holds the state
   (pickup, destination, the device's location) and the rules.

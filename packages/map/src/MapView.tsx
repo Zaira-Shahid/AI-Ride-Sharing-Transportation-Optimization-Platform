@@ -4,12 +4,11 @@ import NativeMap, { Marker, UrlTile } from 'react-native-maps';
 import { DESTINATION_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
 import { TILE_ATTRIBUTION_TEXT, TILE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles';
 import type { MapViewProps } from './types';
-import { WORLD_CENTER, WORLD_ZOOM, frameMap } from './view';
+import { WORLD_CENTER, WORLD_ZOOM, clampInsets, frameMap, frameMargin } from './view';
 
 // A region this many degrees across is about a street; a whole world is about 360 wide.
 const POINT_SPAN = 0.01;
 const NO_INSETS = { top: 0, bottom: 0 };
-const FRAME_MARGIN = 32;
 const WORLD_SPAN = 360 / 2 ** (WORLD_ZOOM - 1);
 
 /**
@@ -34,20 +33,21 @@ export function MapView({
     if (!instance) return;
     const framing = frameMap([pickup, destination, currentLocation]);
     if (framing.kind === 'bounds') {
-      const { top, bottom } = latestInsets.current;
+      const { top, bottom } = clampInsets(latestInsets.current, height.current);
+      const margin = frameMargin(height.current - top - bottom);
       instance.fitToCoordinates([framing.southWest, framing.northEast], {
         edgePadding: {
-          top: top + FRAME_MARGIN,
-          right: FRAME_MARGIN,
-          bottom: bottom + FRAME_MARGIN,
-          left: FRAME_MARGIN,
+          top: top + margin,
+          right: margin,
+          bottom: bottom + margin,
+          left: margin,
         },
         animated: true,
       });
     } else if (framing.kind === 'point') {
       // Put the place in the middle of the part that is not covered: move the centre of the map
       // north by half the difference of the covers, in degrees.
-      const { top, bottom } = latestInsets.current;
+      const { top, bottom } = clampInsets(latestInsets.current, height.current);
       const shift = height.current > 0 ? ((top - bottom) / 2 / height.current) * POINT_SPAN : 0;
       instance.animateToRegion({
         latitude: framing.center.latitude + shift,

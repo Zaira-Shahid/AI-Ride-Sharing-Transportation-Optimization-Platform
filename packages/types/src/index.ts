@@ -6,6 +6,7 @@ export * from './location';
 export * from './roles';
 export * from './states';
 export * from './trip';
+export * from './trip-times';
 export * from './user';
 export * from './verification';
 export * from './vehicle';

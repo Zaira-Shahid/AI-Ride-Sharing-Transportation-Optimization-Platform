@@ -42,6 +42,7 @@ test.describe('passenger app: map', () => {
     const cards = [
       page.getByLabel('Where to', { exact: true }),
       page.getByLabel('Pickup', { exact: true }),
+      page.getByLabel('When', { exact: true }),
       page.getByLabel('Your location', { exact: true }),
     ];
     for (const control of [zoomIn, zoomOut]) {
