@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import { TEST_PORT_OFFSET } from './packages/config/src';
+import { TEST_PORTS } from './tests/test-ports';
 
 // End-to-end tests drive the real Expo web builds against the local Firebase emulators, using a
 // throwaway demo project and fake client config, so no real credentials are involved.
@@ -14,6 +16,8 @@ const clientEnv = {
   EXPO_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:e2e',
   EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID: '',
   EXPO_PUBLIC_FIREBASE_EMULATOR_HOST: '127.0.0.1',
+  // The emulators the tests start listen on the usual ports plus this (firebase.test.json).
+  EXPO_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET: String(TEST_PORT_OFFSET),
 };
 
 // A fake Maps key. The tests answer Google's Places requests themselves, so nothing reaches Google.
@@ -27,28 +31,29 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: { ...devices['Pixel 7'], trace: 'retain-on-failure', screenshot: 'only-on-failure' },
-  // The two Expo servers are never reused. A server someone already has running on these ports (for
-  // example `expo start` for the real Firebase project) has a different configuration, and the tests
-  // would silently run against it: sign in with a fake account on the real project, or fail in ways
-  // that look like bugs. With reuse off, Playwright stops with "http://localhost:8081 is already used"
-  // instead. (The emulators may still be reused; the tests only add their own accounts to them.)
+  // Everything the tests start listens on ports above the usual ones (TEST_PORTS: the usual ports
+  // plus 10000, and firebase.test.json for the emulators), so the tests can run while a developer has
+  // their own dev servers and emulators open. The two Expo servers are still never reused: a server
+  // someone already has on these ports would have a different configuration, and the tests would
+  // silently run against it. With reuse off, Playwright stops with "http://localhost:18081 is
+  // already used" instead. (The tests' own emulators may be reused; the tests only add accounts.)
   webServer: [
     {
-      command: `npx firebase emulators:start --only auth,functions,firestore --project ${projectId}`,
-      port: 9099,
+      command: `npx firebase emulators:start --config firebase.test.json --only auth,functions,firestore --project ${projectId}`,
+      port: TEST_PORTS.auth,
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: 'npm run web --workspace @ridemesh/passenger -- --port 8081',
-      url: 'http://localhost:8081',
+      command: `npm run web --workspace @ridemesh/passenger -- --port ${TEST_PORTS.passenger}`,
+      url: `http://localhost:${TEST_PORTS.passenger}`,
       timeout: 180_000,
       reuseExistingServer: false,
       env: placesEnv,
     },
     {
-      command: 'npm run web --workspace @ridemesh/driver -- --port 8082',
-      url: 'http://localhost:8082',
+      command: `npm run web --workspace @ridemesh/driver -- --port ${TEST_PORTS.driver}`,
+      url: `http://localhost:${TEST_PORTS.driver}`,
       timeout: 180_000,
       reuseExistingServer: false,
       env: placesEnv,

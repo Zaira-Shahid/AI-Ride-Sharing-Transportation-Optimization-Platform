@@ -50,10 +50,11 @@ stop. To keep them, start the emulators with `npm run emulators:persist` instead
 saved last time from `emulator-data/` (Auth accounts, their verified state and Firestore data) and
 saves everything back to it when the emulators stop.
 
-- **Stop them with Ctrl+C, once, and wait for "Export complete".** Only a Ctrl+C (or the same signal
-  from another tool) saves; closing the terminal window or killing the process loses what happened
-  since the last save. On Windows, npm may ask "Terminate batch job (Y/N)?": the export has already
-  started, so either answer is fine, but do not close the window until it says "Export complete".
+- **Stop them with Ctrl+C, once, and wait for "Export complete".** That is what saves. Closing the
+  terminal window also started a save when tried on Windows, but do not rely on it; killing the
+  process (Task Manager, `kill -9`) or a crash saves nothing, and you lose what happened since the
+  last save. On Windows, npm may ask "Terminate batch job (Y/N)?": the export has already started,
+  so either answer is fine, but do not close the window until it says "Export complete".
 - The first run has nothing to load and prints "Could not find import/export metadata file, skipping
   data import". That is expected; the folder is created and filled when you stop.
 - `emulator-data/` is git-ignored. To start from nothing again, stop the emulators and delete the
@@ -62,10 +63,9 @@ saves everything back to it when the emulators stop.
   saved, and each `emulators:persist` run replaces the folder's contents with its own state.
 - Saved data belongs to the code that made it. If a later change alters how accounts or documents are
   stored, delete the folder and register again.
-- Do not run `npm run test:e2e` while `emulators:persist` is running. The end-to-end tests reuse
-  emulators that are already listening, so their many test accounts would be saved into
-  `emulator-data/`. `npm run test:integration` starts its own emulators and is not affected, but it
-  needs the default ports free.
+- The automated tests are not affected: they use ports of their own (see below), so you can run
+  `npm run test:e2e` and `npm run test:integration` while `emulators:persist` is running, and none of
+  their accounts end up in `emulator-data/`.
 
 `.env` and `.env.*` files are git-ignored; only `.env.example` files are committed. Anything
 prefixed `NEXT_PUBLIC_` or `EXPO_PUBLIC_` is shipped to the client, so never put a secret in one.
@@ -137,11 +137,31 @@ Vitest runs unit tests that live next to their code (`*.test.ts`) and repository
 project, deny-all Firestore rules, no committed env values, and no coding-agent branding in product
 source.
 
-**The end-to-end tests always start their own Expo servers** (ports 8081 and 8082) and never reuse
-one that is already running. A dev server you have open (for example `expo start` for the real
-Firebase project) has a different configuration, and the tests would silently run against it. If a
-port is taken, Playwright stops with "http://localhost:8081 is already used"; close that server and
-run again. (The emulators may still be reused.)
+**The automated tests use ports of their own, so they can run beside your dev servers and
+emulators.** Everything the tests start (the two Expo web servers and the Firebase emulators) listens
+on the usual port plus 10000:
+
+| What               | Your own (`npm run emulators`, `expo start`) | The tests |
+| ------------------ | -------------------------------------------- | --------- |
+| Passenger web app  | 8081                                         | 18081     |
+| Driver web app     | 8081 (or the next free one)                  | 18082     |
+| Auth emulator      | 9099                                         | 19099     |
+| Firestore emulator | 8080                                         | 18080     |
+| Functions emulator | 5001                                         | 15001     |
+| Emulator UI        | 4000                                         | (none)    |
+
+The emulators for the tests are configured in `firebase.test.json` (a copy of `firebase.json` with
+these ports, no UI, and the functions' build folder ignored so that someone else rebuilding the
+functions does not reload them in the middle of a run). `npm run test:integration` uses the same
+file. The apps under test are built with `EXPO_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET=10000`, which
+Playwright sets; you never set it yourself. The numbers live in `packages/config/src/firebase.ts`
+(`TEST_PORT_OFFSET`) and `tests/test-ports.ts`, and `tests/ports.test.ts` fails if the two
+emulator files ever share a port.
+
+**The end-to-end tests always start their own Expo servers** and never reuse one that is already
+running. If a port is taken (by another test run, say), Playwright stops with "http://localhost:18081
+is already used" instead of running against whatever is there. Two test runs at once still clash, as
+they should; a dev server or emulators of yours no longer do.
 
 End-to-end tests in `tests/e2e` use Playwright with Chromium (`npx playwright install chromium`
 once). `npm run test:e2e` starts the emulators and both Expo web builds with fake demo-project

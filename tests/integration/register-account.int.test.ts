@@ -2,7 +2,7 @@ import type { RegistrationFormValues } from '@ridemesh/types';
 import { createUserWithEmailAndPassword, getIdTokenResult, signOut } from 'firebase/auth';
 import { describe, expect, it } from 'vitest';
 import { describeAuthError, registerAccount } from '../../packages/firebase/src';
-import { PASSWORD, admin, createClient, projectId, uniqueEmail } from './support';
+import { AUTH_EMULATOR, PASSWORD, admin, createClient, projectId, uniqueEmail } from './support';
 
 function form(email: string, overrides: Partial<RegistrationFormValues> = {}) {
   return {
@@ -16,7 +16,7 @@ function form(email: string, overrides: Partial<RegistrationFormValues> = {}) {
 }
 
 async function verificationCodesFor(email: string) {
-  const response = await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/oobCodes`);
+  const response = await fetch(`${AUTH_EMULATOR}/emulator/v1/projects/${projectId}/oobCodes`);
   const { oobCodes } = (await response.json()) as {
     oobCodes: { email: string; requestType: string }[];
   };

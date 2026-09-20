@@ -25,7 +25,7 @@ export function RegisterScreen({
   theme,
   onSignIn,
 }: AuthScreenProps & { onSignIn: () => void }) {
-  const { client, runAuthFlow, status } = useAuth();
+  const { client, runAuthFlow, signOut, status } = useAuth();
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [failure, setFailure] = useState<AuthFailure | null>(null);
@@ -153,11 +153,19 @@ export function RegisterScreen({
         onPress={() => void submit()}
         loading={submitting}
       />
-      <TextButton
-        label="Already have an account? Sign in"
-        onPress={onSignIn}
-        disabled={submitting}
-      />
+      {status === 'incomplete' ? (
+        <TextButton
+          label="Use a different account"
+          onPress={() => void signOut().then(onSignIn)}
+          disabled={submitting}
+        />
+      ) : (
+        <TextButton
+          label="Already have an account? Sign in"
+          onPress={onSignIn}
+          disabled={submitting}
+        />
+      )}
     </AuthFrame>
   );
 }

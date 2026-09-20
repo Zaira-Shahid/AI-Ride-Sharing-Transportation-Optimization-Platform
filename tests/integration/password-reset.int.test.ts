@@ -5,12 +5,12 @@ import {
   requestPasswordReset,
   signIn,
 } from '../../packages/firebase/src';
-import { PASSWORD, createClient, projectId, uniqueEmail } from './support';
+import { AUTH_EMULATOR, PASSWORD, createClient, projectId, uniqueEmail } from './support';
 
 const NEW_PASSWORD = 'a-brand-new-password';
 
 async function resetCodesFor(email: string) {
-  const response = await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/oobCodes`);
+  const response = await fetch(`${AUTH_EMULATOR}/emulator/v1/projects/${projectId}/oobCodes`);
   const { oobCodes } = (await response.json()) as {
     oobCodes: { email: string; oobCode: string; requestType: string }[];
   };
@@ -48,7 +48,7 @@ describe('requestPasswordReset (real emulators)', () => {
 
     // What Firebase's hosted page does when the person chooses a new password.
     const applied = await fetch(
-      'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=emulator-api-key',
+      `${AUTH_EMULATOR}/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=emulator-api-key`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
