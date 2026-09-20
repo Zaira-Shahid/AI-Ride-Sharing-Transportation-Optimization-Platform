@@ -157,9 +157,9 @@ export type SetVehicleCapacityResult = { status: 'updated' | 'unchanged' };
 /**
  * Sets how many passenger seats the calling driver's vehicle has (1 to 6, the driver's seat not
  * counted). Raising the number, or setting it for the first time, sends the vehicle back to
- * PENDING, because the review did not cover those seats; lowering it never does. If seats on offer
- * (availableSeats, Module 2.7) would exceed the new capacity they are lowered to match, so they
- * can never be more than the vehicle holds.
+ * PENDING, because the review did not cover those seats; lowering it never does. If the seats on
+ * offer (availableSeats on the driver's journey, Module 2.7) would exceed the new capacity they are
+ * lowered to match, so they can never be more than the vehicle holds.
  */
 export async function setVehicleCapacity(
   deps: { firestore: Firestore },
@@ -192,6 +192,14 @@ export async function setVehicleCapacity(
     const previous: unknown = vehicle.get('seatCapacity');
     if (previous === seatCapacity) return { status: 'unchanged' };
 
+    // Seats on offer live on the driver's own open journey; read it now, before any write.
+    const journeyId: unknown = driver.get('currentJourneyId');
+    const journeyRef =
+      typeof journeyId === 'string' && journeyId
+        ? firestore.collection('driverJourneys').doc(journeyId)
+        : null;
+    const journey = journeyRef ? await tx.get(journeyRef) : undefined;
+
     const raised = typeof previous !== 'number' || seatCapacity > previous;
     const previousAvailable: unknown = vehicle.get('availableSeats');
     const availableSeats =
@@ -221,6 +229,20 @@ export async function setVehicleCapacity(
       newState: { seatCapacity, availableSeats, verificationStatus },
       reason: 'Driver changed the passenger seats of their vehicle',
     });
+    // A journey can never offer more seats than the vehicle holds.
+    const offered: unknown = journey?.get('availableSeats');
+    if (
+      journeyRef &&
+      journey?.exists &&
+      journey.get('driverId') === caller.uid &&
+      typeof offered === 'number' &&
+      offered > seatCapacity
+    ) {
+      tx.update(journeyRef, {
+        availableSeats: seatCapacity,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
     // More seats than were reviewed need a new review, so the driver cannot stay online.
     const offline = raised ? offlineFields(driver) : undefined;
     if (offline) {

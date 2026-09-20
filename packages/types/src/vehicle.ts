@@ -17,7 +17,8 @@ export const PLATE_KEY_MAX_LENGTH = 12;
 
 // vehicles/{userId}. A driver has one vehicle and its document ID is the driver's uid. Created and
 // changed only by the saveVehicle function; clients can read their own but never write it.
-// seatCapacity is set in Module 2.3 and availableSeats in Module 2.7, so both start as null.
+// seatCapacity is set in Module 2.3. Seats on offer live on the driver's journey (Module 2.7), so
+// availableSeats is kept as in the spec but stays null.
 export interface VehicleProfile {
   driverId: string;
   type: VehicleType;

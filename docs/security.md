@@ -1,6 +1,6 @@
 # Roles, access and security
 
-Status: through Module 2.5 (availability). Module 1.1 defined the role system and Firestore
+Status: through Module 2.7 (seat availability). Module 1.1 defined the role system and Firestore
 rules; registration, login, logout, password reset, profile editing, the driver profile and the
 vehicle are built on top of it.
 
@@ -226,6 +226,43 @@ run unless the Auth and Firestore emulators are configured.
 - Suspending an account is not yet an action anyone can take, so a suspended driver is not taken
   offline automatically; they are only refused when going online. The admin module will need to
   take suspended drivers offline.
+
+## Journeys and destinations
+
+- **A destination is location data,** so it is kept in one place, `driverJourneys/{id}`, which only
+  the driver themselves (verified email and the `DRIVER` claim, matched on the journey's
+  `driverId`) and verified staff can read. Passengers cannot. It is not copied anywhere else, and
+  the audit trail records that a journey was started, never where it goes.
+- **Only the server writes it.** The rules deny every client write to `driverJourneys` and to
+  `drivers/{uid}.currentJourneyId`; `declareDestination` creates and changes journeys. It uses the
+  caller's own uid, needs a verified DRIVER with an ACTIVE account and a vehicle, and ignores every
+  other field in the request (status, seats, detour, another driver's ID).
+- **The place is the driver's own claim.** The function checks the shape and range of the
+  coordinates and the address length, not that they match a real place, because it has no access to
+  Google (functions are not deployed on the Spark plan, and a server-side check would need one).
+  A driver who sends made-up coordinates only misdirects their own journey. Matching must not treat
+  a destination as verified.
+- **The destination can change only while the journey is a `DRAFT`,** and only the driver's own
+  journey. A journey that has moved past draft, or a pointer to someone else's journey, is refused.
+- **Going online needs a destination** that belongs to the driver; someone else's journey, or one
+  without a destination, does not count.
+- **Seats on offer are checked on the server.** `setJourneySeats` accepts a whole number from 1 to
+  6 and refuses more than the vehicle's `seatCapacity`, reading both in one transaction; the
+  rules cannot compare two documents, so a client write of `availableSeats` is denied outright. It
+  ignores every other field in the request, needs a verified DRIVER with an ACTIVE account and
+  changes only the driver's own `DRAFT` journey. Going online counts seats only when they are
+  within 1 and the vehicle's capacity, and only on the driver's own journey. Lowering the vehicle's
+  seats lowers the journey's in the same transaction, so a journey can never offer more seats than
+  the vehicle holds. Seat changes are not audited.
+- **The Maps key is public.** Expo bundles `EXPO_PUBLIC_*` values into the app, so anyone can read
+  it. Treat it as identifying the app, not as a secret: restrict it to the Places API (New) and to
+  the driver app (bundle ID / package name / web origin), set a quota and a budget alert in Google
+  Cloud, and never reuse it for a server. It is never committed; `.env.example` lists it empty.
+  Requests carry it in a header, and no error message shown to a person contains it.
+- **Google's attribution** for place suggestions is shown as text; the official logo still has to
+  be added before launch.
+- Sending a driver's typed search text to Google is a disclosure to a third party. It should be
+  covered by the privacy notice and consent required by spec section 56 before launch.
 
 ## Staff roles
 

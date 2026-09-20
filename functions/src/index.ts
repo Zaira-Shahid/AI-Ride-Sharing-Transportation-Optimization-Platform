@@ -6,6 +6,10 @@ import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { buildHealthResponse } from './health.js';
 import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
+import {
+  declareDestination as declareDriverDestination,
+  setJourneySeats as setDriverJourneySeats,
+} from './journeys.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
   saveVehicle as saveDriverVehicle,
@@ -87,4 +91,12 @@ export const requestReview = onCall((request) =>
 
 export const setAvailability = onCall((request) =>
   setDriverAvailability({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const declareDestination = onCall((request) =>
+  declareDriverDestination({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const setJourneySeats = onCall((request) =>
+  setDriverJourneySeats({ firestore: getFirestore() }, callerOf(request), request.data),
 );

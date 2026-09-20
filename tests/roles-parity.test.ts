@@ -5,6 +5,11 @@ import {
 } from '../functions/src/roles';
 import { NEW_DRIVER_PROFILE_DEFAULTS as functionsDriverDefaults } from '../functions/src/drivers';
 import {
+  NEW_JOURNEY_DEFAULTS as functionsJourneyDefaults,
+  declareDestinationInputSchema as functionsDestinationSchema,
+  setJourneySeatsInputSchema as functionsSeatsSchema,
+} from '../functions/src/journeys';
+import {
   AVAILABILITY_TARGETS as functionsAvailabilityTargets,
   GO_ONLINE_REQUIREMENTS as functionsRequirements,
   evaluateGoOnline as functionsEvaluate,
@@ -29,6 +34,9 @@ import {
   setVehicleCapacityInputSchema as functionsCapacitySchema,
 } from '../functions/src/vehicles';
 import {
+  NEW_JOURNEY_DEFAULTS,
+  declareDestinationInputSchema as sharedDestinationSchema,
+  setJourneySeatsInputSchema as sharedSeatsSchema,
   AVAILABILITY_TARGETS,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
@@ -221,16 +229,69 @@ describe('functions and shared types stay aligned', () => {
       for (const driverStatus of statuses) {
         for (const vehicleStatus of statuses) {
           for (const seatCapacity of [null, 1, 4]) {
-            const facts = { accountActive, driverStatus, vehicleStatus, seatCapacity };
-            const shared = evaluateGoOnline(facts);
-            const server = functionsEvaluate(facts);
-            expect(server.eligible).toBe(shared.eligible);
-            expect(server.unmet).toEqual(
-              shared.checks.filter((check) => !check.met).map((check) => check.requirement),
-            );
+            for (const destinationDeclared of [true, false]) {
+              for (const availableSeats of [null, 0, 1, 2.5, 4, 5]) {
+                const facts = {
+                  accountActive,
+                  driverStatus,
+                  vehicleStatus,
+                  seatCapacity,
+                  destinationDeclared,
+                  availableSeats,
+                };
+                const shared = evaluateGoOnline(facts);
+                const server = functionsEvaluate(facts);
+                expect(server.eligible).toBe(shared.eligible);
+                expect(server.unmet).toEqual(
+                  shared.checks.filter((check) => !check.met).map((check) => check.requirement),
+                );
+              }
+            }
           }
         }
       }
+    }
+  });
+
+  it('starts a new journey the same way, and validates destinations identically', () => {
+    expect(functionsJourneyDefaults).toEqual(NEW_JOURNEY_DEFAULTS);
+    const place = { latitude: 51.5, longitude: -0.02, formattedAddress: 'Office', placeId: 'p1' };
+    const inputs: unknown[] = [
+      { destination: place },
+      { destination: { ...place, placeId: null } },
+      { destination: { ...place, placeId: undefined } },
+      { destination: { ...place, placeId: '' } },
+      { destination: { ...place, latitude: 91 } },
+      { destination: { ...place, longitude: -181 } },
+      { destination: { ...place, latitude: '51' } },
+      { destination: { ...place, formattedAddress: '  ' } },
+      { destination: { ...place, formattedAddress: 'x'.repeat(300) } },
+      { destination: { ...place, formattedAddress: 'x'.repeat(301) } },
+      { destination: { ...place, placeId: 'x'.repeat(301) } },
+      { destination: null },
+      place,
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsDestinationSchema.safeParse(input).success).toBe(
+        sharedDestinationSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('validates the seats on offer identically', () => {
+    const inputs: unknown[] = [
+      ...[0, 1, 2, 3, 4, 5, 6, 7, -1, 2.5, Number.NaN].map((availableSeats) => ({
+        availableSeats,
+      })),
+      { availableSeats: '3' },
+      { availableSeats: null },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsSeatsSchema.safeParse(input).success).toBe(
+        sharedSeatsSchema.safeParse(input).success,
+      );
     }
   });
 });

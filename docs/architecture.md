@@ -21,20 +21,21 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.5)
+## What exists now (through Module 2.7)
 
-| Area            | Location                                  | State                                                                                                                     |
-| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                 |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                  |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                               |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                      |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                         |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                     |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                 |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                       |
+| Area            | Location                                  | State                                                                                                                                                              |
+| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                                                          |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                           |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                        |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                               |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                  |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                              |
+| Maps client     | `packages/maps`                           | Google Places (New) search for destinations, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                         |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                         |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                          |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -156,8 +157,9 @@ uid, the same convention as `drivers/{uid}`.
   spaces and hyphens are accepted (2 to 12 characters without separators); no country format is
   assumed. Non-Latin plates are not supported yet.
 - **Seats are not set by `saveVehicle`.** `seatCapacity` and `availableSeats` start as `null`, and
-  editing the vehicle details keeps whatever they hold. Capacity is set by its own function (below);
-  `availableSeats` is Module 2.7's.
+  editing the vehicle details keeps whatever they hold. Capacity is set by its own function (below).
+  The vehicle's `availableSeats` is kept as in the spec but stays `null`: the seats a driver offers
+  live on the journey (Module 2.7, see "Journey and destination").
 - **Capacity (Module 2.3).** `seatCapacity` is the number of seats **for passengers**; the driver's
   own seat is not counted, so a "capacity 4" vehicle carries up to 4 passengers. It must be a whole
   number from 1 to 6, the same for every vehicle type (`SEAT_CAPACITY_MIN` and `SEAT_CAPACITY_MAX`
@@ -165,8 +167,9 @@ uid, the same convention as `drivers/{uid}`.
   vehicle card (radio buttons 1 to 6, so nothing has to be typed), which calls `setVehicleCapacity`
   (`functions/src/vehicles.ts`). Raising the number, or setting it for the first time, sends the
   vehicle back to `PENDING`; lowering it never does, and setting the same number changes nothing.
-  If `availableSeats` would exceed the new capacity it is lowered to match, so seats on offer can
-  never be more than the vehicle holds. Each change writes a `VEHICLE_CAPACITY_CHANGED` audit
+  If the seats on offer on the driver's journey (`driverJourneys.availableSeats`) would exceed the
+  new capacity they are lowered to match, in the same transaction, so seats on offer can never be
+  more than the vehicle holds. Each change writes a `VEHICLE_CAPACITY_CHANGED` audit
   entry. A vehicle added before this module shows "Not set yet" until the driver picks a number.
 - **Verification:** a new vehicle is `PENDING`. If a driver changes any identifying detail the
   vehicle goes back to `PENDING`, because the review was of the earlier details. How staff decide
@@ -217,9 +220,11 @@ tab, but it is changed only by the `setAvailability` function (`functions/src/av
 the client cannot write it.
 
 - **Going online needs all of these** (`evaluateGoOnline`): an ACTIVE account, a `VERIFIED` driver
-  profile, a vehicle that has been added and is `VERIFIED`, and its passenger seats set
-  (`seatCapacity`, not the per-journey `availableSeats` of Module 2.7). Otherwise the function
-  refuses with `failed-precondition` and lists what is unmet. Going offline always works.
+  profile, a vehicle that has been added and is `VERIFIED`, its passenger seats set
+  (`seatCapacity`), a destination declared, and seats on offer chosen on the journey
+  (`availableSeats`, at least 1 and at most `seatCapacity`; the two seat requirements are
+  `seatsSet` and `seatsOffered`). Otherwise the function refuses with `failed-precondition` and
+  lists what is unmet. Going offline always works.
 - **Losing a requirement takes the driver offline at once.** If staff reject the driver profile or
   the vehicle, the driver changes the vehicle's details, or raises its seats (each sends the
   vehicle back to `PENDING`), the same transaction sets an `ONLINE` driver `OFFLINE` and writes a
@@ -237,8 +242,69 @@ the client cannot write it.
   `ONLINE` until they go offline or lose a requirement. Expiring stale drivers needs a heartbeat or
   a scheduled function (Blaze plan) and belongs with the location strategy (spec section 72);
   matching must not treat an old `availabilityChangedAt` as proof the driver is still there.
-- **Online does not mean matched.** Nothing uses `ONLINE` yet. Destination (2.6), seats on offer
-  (2.7) and detour (2.8) will add their requirements to the same list.
+- **Online does not mean matched.** Nothing uses `ONLINE` yet. Destination (2.6) and seats on offer
+  (2.7) have added their requirements to the same list; detour (2.8) will add its own.
+
+## Journey and destination (Phase 2)
+
+`driverJourneys/{journeyId}` is the driver's trip plan (spec section 10). A driver has at most one
+open journey, found through `drivers/{uid}.currentJourneyId`, so the document ID can be generated
+and finished journeys can pile up later without any index. Module 2.6 creates it as a `DRAFT` that
+holds the destination; the seats on offer (2.7) and the detour limits (2.8) go into the same
+journey, and its later states (`AVAILABLE`, `ACTIVE`, ...) come with the modules that own them.
+
+- **Declaring a destination:** the driver app calls `declareDestination`
+  (`functions/src/journeys.ts`). It needs a verified DRIVER, an ACTIVE account and a vehicle, and
+  validates the place (latitude -90 to 90, longitude -180 to 180, an address of 1 to 300
+  characters, an optional place ID). The first call creates the journey and points the driver at
+  it; later calls replace the destination while the journey is still a `DRAFT`, and do nothing if
+  it is the same place. A destination is replaced, never cleared. `vehicleId` is the driver's uid,
+  the same as their vehicle. `origin` (the driver's position) and `departureTime` stay `null`: the
+  origin comes from GPS in Phase 4, and "departing" means "when the driver goes online".
+- **Where the place comes from:** Google Places (New), used from the app through the
+  `@ridemesh/maps` package (`packages/maps/src/places.ts`). It sends an autocomplete request as the
+  person types (after two characters, 300 ms after they stop, and cancelling requests that were
+  overtaken), then one details request for the place they pick, asking only for
+  `id,formattedAddress,location`. Both share one session token. The key goes in a request header
+  and is never part of a URL or a message. Failures are turned into plain sentences; an
+  unreadable answer from Google is rejected rather than trusted. Nothing but plain `fetch` is used.
+- **The key:** `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` in the driver app's local `.env` (git-ignored,
+  see `docs/development.md`). Without it the Destination card says place search is not set up; it
+  never pretends. Expo inlines it into the app, so it is a public key that must be restricted in
+  Google Cloud.
+- **Home tab:** the driver's Home also has a "Destination" card: the current destination and
+  "Change destination", or a search box when none is set (and a note to add a vehicle first when
+  there is none). Picking a suggestion saves it straight away. The list of requirements to go
+  online now ends with "Destination set" (`destinationDeclared`), so going online needs a
+  declared destination, and it can be changed while online. Google requires its attribution next
+  to suggestions shown without a map; a "Powered by Google" line is shown, and the official logo
+  is still to be added before launch.
+- **Reading:** `useJourney` follows the journey document live. The Home screen shows its spinner
+  only for the first load, so saving the first destination (which creates a new journey to load)
+  does not blank the screen.
+- `functions` cannot import `@ridemesh/types`, so the destination schema and the new-journey
+  defaults are duplicated in `functions/src/journeys.ts`; `tests/roles-parity.test.ts` keeps them
+  aligned.
+- **Seats on offer (Module 2.7).** `driverJourneys.availableSeats` is how many passenger seats the
+  driver offers on this journey. It starts `null` and the driver has to choose: nothing is filled in
+  for them. The driver app's "Seats on offer" card on Home shows radio buttons from 1 up to the
+  vehicle's `seatCapacity` and a "Save seats" button, which calls `setJourneySeats`
+  (`functions/src/journeys.ts`). The function checks the number is a whole number from 1 to 6
+  (`SEAT_CAPACITY_MIN`/`MAX`) and no more than the vehicle's `seatCapacity`, which lives on another
+  document and is why this is a function and not a rule. It needs a verified DRIVER with an ACTIVE
+  account, a journey (so a destination first) and a vehicle with its seats set, and it changes the
+  seats only while the journey is a `DRAFT`, like the destination. Choosing the same number changes
+  nothing. Routine changes are not audited. Because journeys stay `DRAFT` until a later module
+  moves them on, the seats can still be changed while the driver is online; booked passengers do
+  not exist yet, so a later module must decide what changing seats means once there are some.
+  `setVehicleCapacity` lowers the journey's seats when the vehicle gets fewer seats (above). The
+  card says what is missing when it cannot be used yet (vehicle seats, then a destination).
+  `evaluateGoOnline` gained the `seatsOffered` requirement and an `availableSeats` fact; the Home
+  checklist shows it as "Choose how many seats you offer below." until it is met. The vehicle's own
+  `availableSeats` is not used.
+- **Not verified against Google itself.** The requests follow Google's documented Places API
+  (New) format, and the tests answer them with a stand-in, but no real key has been used yet.
+  Check place search once with a real key before relying on it.
 
 ## Design tokens
 
