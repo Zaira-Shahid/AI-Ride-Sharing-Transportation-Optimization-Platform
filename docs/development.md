@@ -112,6 +112,12 @@ Vitest runs unit tests that live next to their code (`*.test.ts`) and repository
 project, deny-all Firestore rules, no committed env values, and no coding-agent branding in product
 source.
 
+**The end-to-end tests always start their own Expo servers** (ports 8081 and 8082) and never reuse
+one that is already running. A dev server you have open (for example `expo start` for the real
+Firebase project) has a different configuration, and the tests would silently run against it. If a
+port is taken, Playwright stops with "http://localhost:8081 is already used"; close that server and
+run again. (The emulators may still be reused.)
+
 End-to-end tests in `tests/e2e` use Playwright with Chromium (`npx playwright install chromium`
 once). `npm run test:e2e` starts the emulators and both Expo web builds with fake demo-project
 configuration, so it needs no real credentials, and drives the real registration screens.
