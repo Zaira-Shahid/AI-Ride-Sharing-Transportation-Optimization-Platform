@@ -3,6 +3,8 @@ import {
   type DeclareDestinationInput,
   type DeclareDestinationResult,
   type DriverJourneyStatus,
+  type SetJourneyDetourInput,
+  type SetJourneyDetourResult,
   type SetJourneySeatsInput,
   type SetJourneySeatsResult,
   type StoredDestination,
@@ -17,6 +19,10 @@ export interface JourneyData {
   destination: StoredDestination | null;
   /** Passenger seats on offer; null until the driver chooses. */
   availableSeats: number | null;
+  /** Extra minutes the driver accepts for passengers; null until they choose. */
+  maxDetourMinutes: number | null;
+  /** Extra kilometres the driver accepts for passengers; null until they choose. */
+  maxDetourDistance: number | null;
 }
 
 export type JourneySnapshot = { status: 'ready'; journey: JourneyData } | { status: 'missing' };
@@ -65,6 +71,12 @@ export function subscribeToJourney(
           destination: readDestination(data.destination),
           availableSeats: Number.isInteger(data.availableSeats)
             ? (data.availableSeats as number)
+            : null,
+          maxDetourMinutes: Number.isInteger(data.maxDetourMinutes)
+            ? (data.maxDetourMinutes as number)
+            : null,
+          maxDetourDistance: Number.isInteger(data.maxDetourDistance)
+            ? (data.maxDetourDistance as number)
             : null,
         },
       });
@@ -119,6 +131,34 @@ export async function setJourneySeats(
       throw new AuthFlowError(
         'permission',
         'You cannot set seats right now. Set your destination and vehicle seats first, then try again.',
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sets how far the signed-in driver will go out of their way on their journey, through the
+ * setJourneyDetour function: extra minutes and extra kilometres, both set together. It needs a
+ * destination first.
+ */
+export async function setJourneyDetour(
+  client: Pick<FirebaseClient, 'functions'>,
+  maxDetourMinutes: number,
+  maxDetourDistanceKm: number,
+): Promise<SetJourneyDetourResult['status']> {
+  try {
+    const result = await httpsCallable<SetJourneyDetourInput, SetJourneyDetourResult>(
+      client.functions,
+      'setJourneyDetour',
+    )({ maxDetourMinutes, maxDetourDistance: maxDetourDistanceKm });
+    return result.data.status;
+  } catch (error) {
+    const code = getErrorCode(error);
+    if (code === 'functions/failed-precondition' || code === 'functions/invalid-argument') {
+      throw new AuthFlowError(
+        'permission',
+        'You cannot set a detour right now. Set your destination first, then try again.',
       );
     }
     throw error;

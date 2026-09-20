@@ -13,7 +13,7 @@ export type DriverAvailabilityStatus = z.infer<typeof driverAvailabilityStatusSc
 
 // drivers/{userId}. The document ID is the driver's uid. Created by server-side code when a driver
 // registers; clients can read their own document but never write it. Detour settings stay null
-// until the driver sets them (Module 2.8, which also fixes the unit of maxDetourDistance).
+// until the driver sets them (Module 2.8 decided the detour limits belong to the journey, in minutes and kilometres, so these stay null and unused).
 export interface DriverProfile {
   userId: string;
   verificationStatus: DriverVerificationStatus;

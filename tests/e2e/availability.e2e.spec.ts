@@ -39,7 +39,9 @@ async function newDriver(prefix: string, setup: Setup = {}) {
     phone: '+44 7700 900123',
   });
   const withDestination = setup.destination !== false;
-  if (withDestination) await writeJourneyDoc(uid, PLACES.office, setup.seats ?? 3);
+  if (withDestination) {
+    await writeJourneyDoc(uid, PLACES.office, setup.seats ?? 3, { minutes: 10, km: 5 });
+  }
   await writeDriverDoc(uid, {
     ...setup.driver,
     currentJourneyId: withDestination ? journeyId(uid) : null,
@@ -101,6 +103,9 @@ test.describe('driver app: going online', () => {
     ).toBeVisible();
     await expect(checklist(page).getByText('Set your destination below.')).toBeVisible();
     await expect(checklist(page).getByText('Choose how many seats you offer below.')).toBeVisible();
+    await expect(
+      checklist(page).getByText('Choose how far you will go out of your way below.'),
+    ).toBeVisible();
     expect(await readDriverAvailability(uid)).toBe('OFFLINE');
   });
 

@@ -46,11 +46,52 @@ export interface SetJourneySeatsResult {
   status: 'updated' | 'unchanged';
 }
 
+// The most a driver will go out of their way for passengers (Module 2.8): extra minutes and extra
+// kilometres, both whole numbers. The apps offer the presets; the server accepts any whole number
+// in the range. Mirrored in functions/src/journeys.ts; tests/roles-parity.test.ts checks them.
+export const DETOUR_MINUTES_MIN = 1;
+export const DETOUR_MINUTES_MAX = 60;
+export const DETOUR_DISTANCE_KM_MIN = 1;
+export const DETOUR_DISTANCE_KM_MAX = 30;
+export const DETOUR_MINUTES_PRESETS = [5, 10, 15, 20, 30] as const;
+export const DETOUR_DISTANCE_KM_PRESETS = [1, 2, 5, 10, 15] as const;
+
+/** Whether the number is a whole number of minutes a detour may last. */
+export function isValidDetourMinutes(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= DETOUR_MINUTES_MIN &&
+    value <= DETOUR_MINUTES_MAX
+  );
+}
+
+/** Whether the number is a whole number of kilometres a detour may add. */
+export function isValidDetourDistanceKm(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= DETOUR_DISTANCE_KM_MIN &&
+    value <= DETOUR_DISTANCE_KM_MAX
+  );
+}
+
+/** Both limits are set together: extra minutes, and extra kilometres (maxDetourDistance is km). */
+export const setJourneyDetourInputSchema = z.object({
+  maxDetourMinutes: z.number().int().min(DETOUR_MINUTES_MIN).max(DETOUR_MINUTES_MAX),
+  maxDetourDistance: z.number().int().min(DETOUR_DISTANCE_KM_MIN).max(DETOUR_DISTANCE_KM_MAX),
+});
+export type SetJourneyDetourInput = z.infer<typeof setJourneyDetourInputSchema>;
+
+export interface SetJourneyDetourResult {
+  status: 'updated' | 'unchanged';
+}
+
 // driverJourneys/{journeyId} (spec section 10). A driver has at most one open journey, pointed to
 // by drivers/{uid}.currentJourneyId. It starts as a DRAFT holding the destination; seats on offer
-// (Module 2.7, never more than the vehicle's seatCapacity) and the detour limits (Module 2.8) are
-// added to the same journey. Created and changed only by server-side code; clients can read their
-// own but never write it.
+// (Module 2.7, never more than the vehicle's seatCapacity) and the detour limits (Module 2.8, on the
+// journey, not the driver profile) are added to the same journey. Created and changed only by
+// server-side code; clients can read their own but never write it.
 export interface DriverJourney {
   driverId: string;
   /** The driver's vehicle, which has the same ID as the driver. */
@@ -60,7 +101,9 @@ export interface DriverJourney {
   destination: StoredDestination | null;
   departureTime: FirestoreTimestamp | null;
   availableSeats: number | null;
+  /** Extra minutes the driver accepts for passengers (Module 2.8). Null until they choose. */
   maxDetourMinutes: number | null;
+  /** Extra kilometres the driver accepts for passengers (Module 2.8). Null until they choose. */
   maxDetourDistance: number | null;
   status: DriverJourneyStatus;
   currentLocation: StoredDestination | null;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { DriverVerificationStatus } from './driver';
+import { isValidDetourDistanceKm, isValidDetourMinutes } from './journey';
 import { SEAT_CAPACITY_MIN, type VehicleVerificationStatus } from './vehicle';
 
 export const AVAILABILITY_TARGETS = ['ONLINE', 'OFFLINE'] as const;
@@ -20,6 +21,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'seatsSet',
   'destinationDeclared',
   'seatsOffered',
+  'detourSet',
 ] as const;
 export type GoOnlineRequirement = (typeof GO_ONLINE_REQUIREMENTS)[number];
 
@@ -34,6 +36,10 @@ export interface GoOnlineFacts {
   destinationDeclared: boolean;
   /** Seats the driver offers on their open journey; null until they choose. */
   availableSeats: number | null;
+  /** Extra minutes the driver accepts on their open journey; null until they choose. */
+  maxDetourMinutes: number | null;
+  /** Extra kilometres the driver accepts on their open journey; null until they choose. */
+  maxDetourDistance: number | null;
 }
 
 export interface GoOnlineCheck {
@@ -44,7 +50,8 @@ export interface GoOnlineCheck {
 /**
  * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle, its
  * passenger seats set, a destination declared and seats on offer chosen (at least one, never more
- * than the vehicle has). Mirrored in functions/src/availability.ts, which is what enforces it;
+ * than the vehicle has) and both detour limits chosen (whole minutes and kilometres within their
+ * ranges). Mirrored in functions/src/availability.ts, which is what enforces it;
  * tests/roles-parity.test.ts fails if the two diverge. This copy drives the Home checklist.
  */
 export function evaluateGoOnline(facts: GoOnlineFacts): {
@@ -65,6 +72,9 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
       Number.isInteger(facts.availableSeats) &&
       facts.availableSeats >= SEAT_CAPACITY_MIN &&
       facts.availableSeats <= facts.seatCapacity,
+    detourSet:
+      isValidDetourMinutes(facts.maxDetourMinutes) &&
+      isValidDetourDistanceKm(facts.maxDetourDistance),
   };
   const checks = GO_ONLINE_REQUIREMENTS.map((requirement) => ({
     requirement,

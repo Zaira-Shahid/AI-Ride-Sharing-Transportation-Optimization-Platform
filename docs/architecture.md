@@ -21,21 +21,21 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.7)
+## What exists now (through Module 2.8)
 
-| Area            | Location                                  | State                                                                                                                                                              |
-| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                                                          |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                           |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                        |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                               |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                  |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                              |
-| Maps client     | `packages/maps`                           | Google Places (New) search for destinations, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                         |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                         |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                          |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                |
+| Area            | Location                                  | State                                                                                                                                                                                  |
+| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                                                                              |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                   |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                      |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                  |
+| Maps client     | `packages/maps`                           | Google Places (New) search for destinations, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                             |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                             |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                              |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                    |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -113,7 +113,7 @@ and creates its client in `src/firebase.ts` (React Native).
 ## Driver profile (Phase 2)
 
 `drivers/{uid}` holds what is specific to a driver, separate from the shared `users/{uid}`: the
-verification status, availability status, rating, completed trips, and (later) detour settings. The
+verification status, availability status, rating, completed trips and the (unused) detour fields. The
 document ID is the driver's uid, so a driver has exactly one and rules can check ownership directly.
 The fields follow spec section 10.
 
@@ -123,7 +123,8 @@ The fields follow spec section 10.
   module get theirs from `npm run admin:backfill-driver-profiles`.
 - **Starting values:** `verificationStatus` `PENDING`, `availabilityStatus` `OFFLINE`, `rating`
   `null`, `totalTrips` 0. `maxDetourMinutes`, `maxDetourDistance` and `automaticMatchingEnabled`
-  are `null` until the driver sets them (Module 2.8); no optimization value is assumed.
+  are `null`; no optimization value is assumed. Module 2.8 put the detour limits on the journey,
+  not here, so these two detour fields stay `null` and unused.
 - **Reading:** `useDriverProfile` (`packages/firebase/src/react.tsx`) follows the document live.
   The Profile tab shows a read-only "Driver details" card (verification, completed trips, rating) in
   the driver app only, so the passenger app never reads `drivers`. If the document is missing the
@@ -223,8 +224,9 @@ the client cannot write it.
   profile, a vehicle that has been added and is `VERIFIED`, its passenger seats set
   (`seatCapacity`), a destination declared, and seats on offer chosen on the journey
   (`availableSeats`, at least 1 and at most `seatCapacity`; the two seat requirements are
-  `seatsSet` and `seatsOffered`). Otherwise the function refuses with `failed-precondition` and
-  lists what is unmet. Going offline always works.
+  `seatsSet` and `seatsOffered`), and both detour limits chosen on the journey (`detourSet`).
+  Otherwise the function refuses with `failed-precondition` and lists what is unmet. Going offline
+  always works.
 - **Losing a requirement takes the driver offline at once.** If staff reject the driver profile or
   the vehicle, the driver changes the vehicle's details, or raises its seats (each sends the
   vehicle back to `PENDING`), the same transaction sets an `ONLINE` driver `OFFLINE` and writes a
@@ -243,14 +245,14 @@ the client cannot write it.
   a scheduled function (Blaze plan) and belongs with the location strategy (spec section 72);
   matching must not treat an old `availabilityChangedAt` as proof the driver is still there.
 - **Online does not mean matched.** Nothing uses `ONLINE` yet. Destination (2.6) and seats on offer
-  (2.7) have added their requirements to the same list; detour (2.8) will add its own.
+  (2.7) and the maximum detour (2.8) have added their requirements to the same list.
 
 ## Journey and destination (Phase 2)
 
 `driverJourneys/{journeyId}` is the driver's trip plan (spec section 10). A driver has at most one
 open journey, found through `drivers/{uid}.currentJourneyId`, so the document ID can be generated
 and finished journeys can pile up later without any index. Module 2.6 creates it as a `DRAFT` that
-holds the destination; the seats on offer (2.7) and the detour limits (2.8) go into the same
+holds the destination; the seats on offer (2.7) and the detour limits (2.8) are set on the same
 journey, and its later states (`AVAILABLE`, `ACTIVE`, ...) come with the modules that own them.
 
 - **Declaring a destination:** the driver app calls `declareDestination`
@@ -302,6 +304,23 @@ journey, and its later states (`AVAILABLE`, `ACTIVE`, ...) come with the modules
   `evaluateGoOnline` gained the `seatsOffered` requirement and an `availableSeats` fact; the Home
   checklist shows it as "Choose how many seats you offer below." until it is met. The vehicle's own
   `availableSeats` is not used.
+- **Maximum detour (Module 2.8).** `driverJourneys.maxDetourMinutes` and `maxDetourDistance` are how
+  far the driver will go out of their way on this journey: extra **minutes** and extra
+  **kilometres**, whole numbers, always set together. They live on the journey (a driver may want a
+  different limit each trip), not on `drivers/{uid}`. Both start `null` and the driver has to choose
+  both: nothing is filled in. The "Maximum detour" card on Home offers presets (5, 10, 15, 20, 30
+  min; 1, 2, 5, 10, 15 km) and a "Save detour" button, which calls `setJourneyDetour`
+  (`functions/src/journeys.ts`). The function accepts any whole number from 1 to 60 minutes and 1
+  to 30 km (`DETOUR_*` in `packages/types/src/journey.ts`, repeated in the function and checked by
+  `tests/roles-parity.test.ts`), so the presets can change without a server change. It needs a
+  verified DRIVER with an ACTIVE account and a journey (a destination first), and changes the limits
+  only while the journey is a `DRAFT`, like the destination and the seats; the same limits can
+  therefore still be changed while the driver is online. Saving the same values changes nothing and
+  routine changes are not audited. `evaluateGoOnline` gained the `detourSet` requirement (both
+  values whole numbers in range) and the two detour facts; the Home checklist shows it as "Choose
+  how far you will go out of your way below." until it is met. What the limits mean to matching
+  (how a detour is measured, along which route) belongs to the matching modules; nothing uses them
+  yet.
 - **Not verified against Google itself.** The requests follow Google's documented Places API
   (New) format, and the tests answer them with a stand-in, but no real key has been used yet.
   Check place search once with a real key before relying on it.
