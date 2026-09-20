@@ -21,11 +21,11 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.5)
+## What exists now (through Module 3.6)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup and time), Trips, Wallet, Profile.                                                          |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility), Trips, Wallet, Profile.                                             |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
@@ -445,6 +445,34 @@ status (3.8).
   at least 160 px stay free) and keeps its framing margin small when little is free; without that,
   many open cards made it jump to street level. While the times are being edited the cards can fill
   most of the screen and the zoom buttons can end up behind them (pinching and scrolling still zoom).
+- **Flexibility settings (Module 3.6).** A fourth card, "How flexible are you?", holds how much the
+  passenger will bend for a shared ride (spec section 3, the passenger-consent rule: the optimizer
+  may only propose plans inside these limits and must ask before going outside them). It is
+  `Flexibility` in `packages/types/src/flexibility.ts`: a **level** and two switches.
+- **The level sets the numbers; the passenger does not type them.** Strict: walk up to 200 m, up to 5
+  extra minutes, up to 1 km off the direct route, route changes off. Balanced: 500 m, 10 minutes, 3
+  km, route changes on. Flexible: 1000 m, 20 minutes, 5 km, route changes on
+  (`FLEXIBILITY_LEVEL_LIMITS`; these numbers were agreed for this module, not taken from the spec,
+  which gives none). **The default is Balanced** with sharing allowed. Units are the ones the trip
+  request will use (`passengerPreferences` in spec section 10): `maxWalkingDistance` in metres,
+  `maxExtraTime` in minutes, `maxDetourDistance` in kilometres (as for a driver's detour),
+  `allowSharedRide`, `allowRouteChange` and `flexibilityLevel`.
+- **The two switches start from the level and can be changed.** "Share my ride" (sharing allowed)
+  always starts on and choosing a level leaves it as it was. "Allow route changes" starts from the
+  level (Strict off, the others on) and the passenger can switch it either way; choosing a level
+  (even the same one again) puts it back to the level's value. The level keeps the name that was
+  chosen whatever the switches say. Matching (Phases 5 and 6) decides what "not sharing" and "route
+  changes off" do; for now the choice is only saved on the request.
+- `flexibilityPreferences` gives the request's form of a choice, and
+  `isValidFlexibilityPreferences` accepts only a known level whose three numbers are exactly that
+  level's plus two booleans, so a request cannot claim a Strict level with a 5 km walk. **Module 3.7
+  must repeat that check on the server** (functions cannot import the types package, so it will be
+  mirrored and covered by the parity test). The "arrive by" of module 3.5 is the request's
+  `arrivalDeadline`; the spec's separate "preferred arrival time" is not in the trip request's data
+  model and is not offered.
+- Like the times, the card is a short summary (level, the numbers in words, sharing and route
+  changes) with a small "Change" button, and opens into the editor (`FlexibilityCard`,
+  `ToggleRow`). Everything is held only in the app until the request is created (Module 3.7).
 - `PlaceSearch` lets its caller refuse a place by throwing `PlaceRejectedError`; its message is
   shown as it is. The two cards live in `TripPlaceCards.tsx`; `PassengerHomeScreen` holds the state
   (pickup, destination, the device's location) and the rules.
