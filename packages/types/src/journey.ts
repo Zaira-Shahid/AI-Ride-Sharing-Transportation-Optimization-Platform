@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { DriverJourneyStatus } from './states';
 import type { FirestoreTimestamp } from './user';
+import { SEAT_CAPACITY_MAX, SEAT_CAPACITY_MIN } from './vehicle';
 
 export const DESTINATION_ADDRESS_MAX_LENGTH = 300;
 export const PLACE_ID_MAX_LENGTH = 300;
@@ -32,10 +33,24 @@ export interface DeclareDestinationResult {
   status: 'created' | 'updated' | 'unchanged';
 }
 
+/**
+ * How many passenger seats a driver offers on their journey. The vehicle's own capacity is the
+ * upper limit, which only the server can check because it lives on another document.
+ */
+export const setJourneySeatsInputSchema = z.object({
+  availableSeats: z.number().int().min(SEAT_CAPACITY_MIN).max(SEAT_CAPACITY_MAX),
+});
+export type SetJourneySeatsInput = z.infer<typeof setJourneySeatsInputSchema>;
+
+export interface SetJourneySeatsResult {
+  status: 'updated' | 'unchanged';
+}
+
 // driverJourneys/{journeyId} (spec section 10). A driver has at most one open journey, pointed to
 // by drivers/{uid}.currentJourneyId. It starts as a DRAFT holding the destination; seats on offer
-// (Module 2.7) and the detour limits (Module 2.8) are added to the same journey. Created and
-// changed only by server-side code; clients can read their own but never write it.
+// (Module 2.7, never more than the vehicle's seatCapacity) and the detour limits (Module 2.8) are
+// added to the same journey. Created and changed only by server-side code; clients can read their
+// own but never write it.
 export interface DriverJourney {
   driverId: string;
   /** The driver's vehicle, which has the same ID as the driver. */

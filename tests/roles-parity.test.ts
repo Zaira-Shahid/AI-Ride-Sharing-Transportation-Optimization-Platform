@@ -7,6 +7,7 @@ import { NEW_DRIVER_PROFILE_DEFAULTS as functionsDriverDefaults } from '../funct
 import {
   NEW_JOURNEY_DEFAULTS as functionsJourneyDefaults,
   declareDestinationInputSchema as functionsDestinationSchema,
+  setJourneySeatsInputSchema as functionsSeatsSchema,
 } from '../functions/src/journeys';
 import {
   AVAILABILITY_TARGETS as functionsAvailabilityTargets,
@@ -35,6 +36,7 @@ import {
 import {
   NEW_JOURNEY_DEFAULTS,
   declareDestinationInputSchema as sharedDestinationSchema,
+  setJourneySeatsInputSchema as sharedSeatsSchema,
   AVAILABILITY_TARGETS,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
@@ -228,19 +230,22 @@ describe('functions and shared types stay aligned', () => {
         for (const vehicleStatus of statuses) {
           for (const seatCapacity of [null, 1, 4]) {
             for (const destinationDeclared of [true, false]) {
-              const facts = {
-                accountActive,
-                driverStatus,
-                vehicleStatus,
-                seatCapacity,
-                destinationDeclared,
-              };
-              const shared = evaluateGoOnline(facts);
-              const server = functionsEvaluate(facts);
-              expect(server.eligible).toBe(shared.eligible);
-              expect(server.unmet).toEqual(
-                shared.checks.filter((check) => !check.met).map((check) => check.requirement),
-              );
+              for (const availableSeats of [null, 0, 1, 2.5, 4, 5]) {
+                const facts = {
+                  accountActive,
+                  driverStatus,
+                  vehicleStatus,
+                  seatCapacity,
+                  destinationDeclared,
+                  availableSeats,
+                };
+                const shared = evaluateGoOnline(facts);
+                const server = functionsEvaluate(facts);
+                expect(server.eligible).toBe(shared.eligible);
+                expect(server.unmet).toEqual(
+                  shared.checks.filter((check) => !check.met).map((check) => check.requirement),
+                );
+              }
             }
           }
         }
@@ -270,6 +275,22 @@ describe('functions and shared types stay aligned', () => {
     for (const input of inputs) {
       expect(functionsDestinationSchema.safeParse(input).success).toBe(
         sharedDestinationSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('validates the seats on offer identically', () => {
+    const inputs: unknown[] = [
+      ...[0, 1, 2, 3, 4, 5, 6, 7, -1, 2.5, Number.NaN].map((availableSeats) => ({
+        availableSeats,
+      })),
+      { availableSeats: '3' },
+      { availableSeats: null },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsSeatsSchema.safeParse(input).success).toBe(
+        sharedSeatsSchema.safeParse(input).success,
       );
     }
   });

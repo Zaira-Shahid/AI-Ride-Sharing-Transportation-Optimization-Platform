@@ -3,6 +3,8 @@ import {
   type DeclareDestinationInput,
   type DeclareDestinationResult,
   type DriverJourneyStatus,
+  type SetJourneySeatsInput,
+  type SetJourneySeatsResult,
   type StoredDestination,
 } from '@ridemesh/types';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -13,6 +15,8 @@ import type { FirebaseClient } from './client';
 export interface JourneyData {
   status: DriverJourneyStatus;
   destination: StoredDestination | null;
+  /** Passenger seats on offer; null until the driver chooses. */
+  availableSeats: number | null;
 }
 
 export type JourneySnapshot = { status: 'ready'; journey: JourneyData } | { status: 'missing' };
@@ -59,6 +63,9 @@ export function subscribeToJourney(
             ? (data.status as DriverJourneyStatus)
             : 'DRAFT',
           destination: readDestination(data.destination),
+          availableSeats: Number.isInteger(data.availableSeats)
+            ? (data.availableSeats as number)
+            : null,
         },
       });
     },
@@ -85,6 +92,33 @@ export async function declareDestination(
       throw new AuthFlowError(
         'permission',
         'You cannot set a destination right now. Add your vehicle first, then try again.',
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sets how many passenger seats the signed-in driver offers on their journey, through the
+ * setJourneySeats function. It needs a destination and the vehicle's seats to be set first, and the
+ * number can never be more than the vehicle holds.
+ */
+export async function setJourneySeats(
+  client: Pick<FirebaseClient, 'functions'>,
+  availableSeats: number,
+): Promise<SetJourneySeatsResult['status']> {
+  try {
+    const result = await httpsCallable<SetJourneySeatsInput, SetJourneySeatsResult>(
+      client.functions,
+      'setJourneySeats',
+    )({ availableSeats });
+    return result.data.status;
+  } catch (error) {
+    const code = getErrorCode(error);
+    if (code === 'functions/failed-precondition' || code === 'functions/invalid-argument') {
+      throw new AuthFlowError(
+        'permission',
+        'You cannot set seats right now. Set your destination and vehicle seats first, then try again.',
       );
     }
     throw error;

@@ -17,7 +17,7 @@ import {
 } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import {
   Notice,
   PrimaryButton,
@@ -26,6 +26,7 @@ import {
   TextField,
   useAuthTheme,
 } from '../components';
+import { ChoiceGroup } from './ChoiceGroup';
 import { DetailRow, ReviewStatus } from './ReviewStatus';
 
 const TYPE_LABELS: Record<VehicleType, string> = {
@@ -35,66 +36,6 @@ const TYPE_LABELS: Record<VehicleType, string> = {
 };
 
 type FieldErrors = Partial<Record<VehicleField, string>>;
-
-interface Choice<Value extends string | number> {
-  value: Value;
-  label: string;
-}
-
-/** A row of exclusive choices (radio buttons) that is quick to use with a thumb. */
-function ChoiceGroup<Value extends string | number>({
-  label,
-  choices,
-  value,
-  onChange,
-  error,
-  disabled,
-}: {
-  label: string;
-  choices: readonly Choice<Value>[];
-  value: Value | '' | null;
-  onChange: (value: Value) => void;
-  error?: string | undefined;
-  disabled: boolean;
-}) {
-  const theme = useAuthTheme();
-  return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: theme.textPrimary }]}>{label}</Text>
-      <View role="radiogroup" aria-label={label} style={styles.choices}>
-        {choices.map((choice) => {
-          const selected = value === choice.value;
-          return (
-            <Pressable
-              key={choice.value}
-              role="radio"
-              aria-label={choice.label}
-              aria-checked={selected}
-              aria-disabled={disabled}
-              disabled={disabled}
-              onPress={() => onChange(choice.value)}
-              style={[
-                styles.choice,
-                {
-                  borderColor: selected ? theme.accent : error ? theme.danger : theme.border,
-                  backgroundColor: selected ? theme.surface : 'transparent',
-                  borderWidth: selected ? 2 : 1,
-                },
-              ]}
-            >
-              <Text style={[styles.choiceLabel, { color: theme.textPrimary }]}>{choice.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      {error ? (
-        <Text accessibilityLiveRegion="polite" style={[styles.message, { color: theme.danger }]}>
-          {error}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
 
 const TYPE_CHOICES = VEHICLE_TYPES.map((type) => ({ value: type, label: TYPE_LABELS[type] }));
 
@@ -363,16 +304,5 @@ const styles = StyleSheet.create({
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   caption: { fontSize: fontSize.sm },
   message: { fontSize: fontSize.sm },
-  field: { gap: spacing[1] },
   seats: { gap: spacing[3] },
-  label: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },
-  choices: { flexDirection: 'row', gap: spacing[2] },
-  choice: {
-    flex: 1,
-    minHeight: 52,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  choiceLabel: { fontSize: fontSize.base, fontWeight: fontWeight.medium },
 });

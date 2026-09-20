@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   PASSWORD,
+  PLACES,
   apps,
   createAccount,
   journeyId,
@@ -26,6 +27,8 @@ interface Setup {
   vehicle?: Parameters<typeof writeVehicleDoc>[1] | null;
   /** Whether the driver has a destination. Defaults to true. */
   destination?: boolean;
+  /** Seats on offer on the journey. Defaults to 3; only used with a destination. */
+  seats?: number | null;
 }
 
 /** A driver account with a profile, and the driver and vehicle records a test asks for. */
@@ -36,7 +39,7 @@ async function newDriver(prefix: string, setup: Setup = {}) {
     phone: '+44 7700 900123',
   });
   const withDestination = setup.destination !== false;
-  if (withDestination) await writeJourneyDoc(uid);
+  if (withDestination) await writeJourneyDoc(uid, PLACES.office, setup.seats ?? 3);
   await writeDriverDoc(uid, {
     ...setup.driver,
     currentJourneyId: withDestination ? journeyId(uid) : null,
@@ -97,6 +100,7 @@ test.describe('driver app: going online', () => {
       checklist(page).getByText('Set your passenger seats in the Profile tab.'),
     ).toBeVisible();
     await expect(checklist(page).getByText('Set your destination below.')).toBeVisible();
+    await expect(checklist(page).getByText('Choose how many seats you offer below.')).toBeVisible();
     expect(await readDriverAvailability(uid)).toBe('OFFLINE');
   });
 
@@ -118,6 +122,8 @@ test.describe('driver app: going online', () => {
     await expect(
       checklist(page).getByText('Set your passenger seats in the Profile tab.'),
     ).toBeVisible();
+    // Seats on offer count only once the vehicle they are offered in has its seats.
+    await expect(checklist(page).getByText('Choose how many seats you offer below.')).toBeVisible();
 
     await writeVehicleDoc(uid, { verificationStatus: 'VERIFIED', seatCapacity: 3 });
     await expect(goOnline(page)).toBeEnabled();

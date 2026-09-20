@@ -6,6 +6,7 @@ import {
   describeAuthError,
   saveVehicle,
   setAvailability,
+  setJourneySeats,
   setVehicleCapacity,
   subscribeToJourney,
   type JourneySnapshot,
@@ -308,6 +309,242 @@ describe('who may declare a destination', () => {
   });
 });
 
+describe('setJourneySeats: seats on offer (functions + firestore emulators)', () => {
+  /** A driver with a vehicle of the given passenger seats and a destination. */
+  async function driverWithJourney(prefix: string, capacity = 4) {
+    const { client, uid } = await driver(prefix);
+    await setVehicleCapacity(client, capacity);
+    await declareDestination(client, OFFICE);
+    return { client, uid, id: await currentJourneyId(uid) };
+  }
+  const seatsCall = (client: Client, availableSeats: unknown, extra: object = {}) =>
+    call(client, 'setJourneySeats', { availableSeats, ...extra });
+
+  it('sets the seats on the journey and does nothing when they are unchanged', async () => {
+    const { client, id } = await driverWithJourney('seats-set');
+    expect((await journeyDoc(id))?.availableSeats).toBeNull();
+
+    expect(await setJourneySeats(client, 3)).toBe('updated');
+    expect((await journeyDoc(id))?.availableSeats).toBe(3);
+
+    expect(await setJourneySeats(client, 3)).toBe('unchanged');
+    expect(await setJourneySeats(client, 1)).toBe('updated');
+    expect((await journeyDoc(id))?.availableSeats).toBe(1);
+  });
+
+  it('accepts every number from one up to the vehicle capacity', async () => {
+    const { client, id } = await driverWithJourney('seats-range', 6);
+    for (const seats of [1, 2, 3, 4, 5, 6]) {
+      await setJourneySeats(client, seats);
+      expect((await journeyDoc(id))?.availableSeats).toBe(seats);
+    }
+  });
+
+  it('keeps the rest of the journey and does not touch the vehicle', async () => {
+    const { client, uid, id } = await driverWithJourney('seats-rest');
+    await setJourneySeats(client, 2);
+
+    expect(await journeyDoc(id)).toMatchObject({
+      driverId: uid,
+      destination: OFFICE,
+      status: 'DRAFT',
+      maxDetourMinutes: null,
+    });
+    const vehicle = (await admin().firestore.doc(`vehicles/${uid}`).get()).data();
+    expect(vehicle).toMatchObject({ seatCapacity: 4, availableSeats: null });
+    expect(await createdAudit(id)).toHaveLength(1);
+  });
+
+  it('keeps the seats when the destination changes', async () => {
+    const { client, id } = await driverWithJourney('seats-dest');
+    await setJourneySeats(client, 2);
+    await declareDestination(client, HOME);
+    expect((await journeyDoc(id))?.availableSeats).toBe(2);
+  });
+
+  it('refuses more seats than the vehicle holds', async () => {
+    const { client, id } = await driverWithJourney('seats-over', 3);
+    await setJourneySeats(client, 2);
+
+    await expect(seatsCall(client, 4)).rejects.toMatchObject({
+      code: 'functions/invalid-argument',
+    });
+    expect((await journeyDoc(id))?.availableSeats).toBe(2);
+  });
+
+  it.each([
+    ['zero', 0],
+    ['a negative number', -1],
+    ['more than any vehicle', 7],
+    ['a fraction', 2.5],
+    ['text', '2'],
+    ['nothing', null],
+  ])('rejects %s', async (_label, availableSeats) => {
+    const { client, id } = await driverWithJourney('seats-invalid', 6);
+    await expect(seatsCall(client, availableSeats)).rejects.toMatchObject({
+      code: 'functions/invalid-argument',
+    });
+    expect((await journeyDoc(id))?.availableSeats).toBeNull();
+  });
+
+  it('ignores anything else in the request', async () => {
+    const { client, uid, id } = await driverWithJourney('seats-extra');
+    await seatsCall(client, 2, {
+      driverId: 'someone-else',
+      status: 'ACTIVE',
+      destination: HOME,
+      maxDetourMinutes: 99,
+    });
+    expect(await journeyDoc(id)).toMatchObject({
+      driverId: uid,
+      status: 'DRAFT',
+      destination: OFFICE,
+      maxDetourMinutes: null,
+      availableSeats: 2,
+    });
+  });
+
+  it('needs a destination first, and the vehicle seats to be set', async () => {
+    const noJourney = await driver('seats-nojourney');
+    await setVehicleCapacity(noJourney.client, 4);
+    await expect(seatsCall(noJourney.client, 2)).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+    });
+    let failure;
+    try {
+      await setJourneySeats(noJourney.client, 2);
+    } catch (error) {
+      failure = describeAuthError(error);
+    }
+    expect(failure?.kind).toBe('permission');
+
+    const noCapacity = await driver('seats-nocapacity');
+    await declareDestination(noCapacity.client, OFFICE);
+    await expect(seatsCall(noCapacity.client, 2)).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+    });
+    const id = await currentJourneyId(noCapacity.uid);
+    expect((await journeyDoc(id))?.availableSeats).toBeNull();
+  });
+
+  it('refuses to change a journey that has moved past draft', async () => {
+    const { client, id } = await driverWithJourney('seats-active');
+    await setJourneySeats(client, 2);
+    await admin().firestore.doc(`driverJourneys/${id}`).update({ status: 'ACTIVE' });
+
+    await expect(seatsCall(client, 3)).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+    });
+    expect((await journeyDoc(id))?.availableSeats).toBe(2);
+  });
+
+  it("refuses when the driver points at someone else's journey, and a suspended driver", async () => {
+    const mine = await driverWithJourney('seats-mine');
+    const theirs = await driverWithJourney('seats-theirs');
+    await admin().firestore.doc(`drivers/${mine.uid}`).update({ currentJourneyId: theirs.id });
+    await expect(seatsCall(mine.client, 2)).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+    });
+    expect((await journeyDoc(theirs.id))?.availableSeats).toBeNull();
+
+    const suspended = await driverWithJourney('seats-suspended');
+    await admin().firestore.doc(`users/${suspended.uid}`).update({ status: 'SUSPENDED' });
+    await expect(seatsCall(suspended.client, 2)).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+    });
+  });
+
+  it('refuses callers who are not verified drivers', async () => {
+    await expect(seatsCall(createClient(), 2)).rejects.toMatchObject({
+      code: 'functions/unauthenticated',
+    });
+
+    const callers = [
+      await person('PASSENGER', 'seats-pass'),
+      await person('DRIVER', 'seats-unv', false),
+    ];
+    for (const caller of callers) {
+      await expect(seatsCall(caller.client, 2)).rejects.toMatchObject({
+        code: 'functions/permission-denied',
+      });
+    }
+  });
+
+  it('follows the seats live', async () => {
+    const { client, id } = await driverWithJourney('seats-live');
+    const snapshots: JourneySnapshot[] = [];
+    const unsubscribe = subscribeToJourney(
+      client,
+      id,
+      (snapshot) => snapshots.push(snapshot),
+      (error) => {
+        throw error;
+      },
+    );
+    try {
+      await setJourneySeats(client, 3);
+      await expect
+        .poll(() => snapshots.at(-1))
+        .toEqual({
+          status: 'ready',
+          journey: { status: 'DRAFT', destination: OFFICE, availableSeats: 3 },
+        });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('refuses a direct client write of the seats', async () => {
+    const { client, id } = await driverWithJourney('seats-direct');
+    await expect(
+      updateDoc(doc(client.db, `driverJourneys/${id}`), { availableSeats: 4 }),
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+    expect((await journeyDoc(id))?.availableSeats).toBeNull();
+  });
+});
+
+describe('seats on offer and going online', () => {
+  async function readyDriver(prefix: string) {
+    const { client, uid } = await driver(prefix);
+    await setVehicleCapacity(client, 4);
+    await admin().firestore.doc(`drivers/${uid}`).update({ verificationStatus: 'VERIFIED' });
+    await admin().firestore.doc(`vehicles/${uid}`).update({ verificationStatus: 'VERIFIED' });
+    await declareDestination(client, OFFICE);
+    return { client, uid, id: await currentJourneyId(uid) };
+  }
+
+  it('is needed to go online, and then allows it', async () => {
+    const { client } = await readyDriver('seats-online');
+    await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+      details: { unmet: ['seatsOffered'] },
+    });
+
+    await setJourneySeats(client, 2);
+    expect(await setAvailability(client, 'ONLINE')).toBe('updated');
+  });
+
+  it('does not count seats the vehicle cannot hold, or none at all', async () => {
+    const { client, id } = await readyDriver('seats-online-bad');
+    for (const availableSeats of [5, 0, null, 2.5]) {
+      await admin().firestore.doc(`driverJourneys/${id}`).update({ availableSeats });
+      await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
+        code: 'functions/failed-precondition',
+        details: { unmet: ['seatsOffered'] },
+      });
+    }
+  });
+
+  it('can be changed while the driver is online, and the driver stays online', async () => {
+    const { client, uid } = await readyDriver('seats-online-change');
+    await setJourneySeats(client, 2);
+    await setAvailability(client, 'ONLINE');
+
+    expect(await setJourneySeats(client, 3)).toBe('updated');
+    expect((await driverDoc(uid))?.availabilityStatus).toBe('ONLINE');
+  });
+});
+
 describe('the destination and going online', () => {
   async function readyExceptDestination(prefix: string) {
     const { client, uid } = await driver(prefix);
@@ -321,17 +558,19 @@ describe('the destination and going online', () => {
     const { client, uid } = await readyExceptDestination('jny-online');
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared'] },
+      details: { unmet: ['destinationDeclared', 'seatsOffered'] },
     });
     expect((await driverDoc(uid))?.availabilityStatus).toBe('OFFLINE');
 
     await declareDestination(client, OFFICE);
+    await setJourneySeats(client, 2);
     expect(await setAvailability(client, 'ONLINE')).toBe('updated');
   });
 
   it('can be changed while online, and the driver stays online', async () => {
     const { client, uid } = await readyExceptDestination('jny-online-change');
     await declareDestination(client, OFFICE);
+    await setJourneySeats(client, 2);
     await setAvailability(client, 'ONLINE');
 
     expect(await declareDestination(client, HOME)).toBe('updated');
@@ -341,6 +580,7 @@ describe('the destination and going online', () => {
   it("does not count a journey without a destination, or someone else's journey", async () => {
     const { client, uid } = await readyExceptDestination('jny-online-bad');
     await declareDestination(client, OFFICE);
+    await setJourneySeats(client, 2);
     const id = await currentJourneyId(uid);
 
     await admin().firestore.doc(`driverJourneys/${id}`).update({ destination: null });
@@ -354,7 +594,7 @@ describe('the destination and going online', () => {
       .update({ destination: OFFICE, driverId: 'other' });
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared'] },
+      details: { unmet: ['destinationDeclared', 'seatsOffered'] },
     });
   });
 });
@@ -377,12 +617,18 @@ describe('reading a journey as the driver (real auth tokens)', () => {
     try {
       await expect
         .poll(() => snapshots.at(-1))
-        .toEqual({ status: 'ready', journey: { status: 'DRAFT', destination: OFFICE } });
+        .toEqual({
+          status: 'ready',
+          journey: { status: 'DRAFT', destination: OFFICE, availableSeats: null },
+        });
 
       await declareDestination(client, HOME);
       await expect
         .poll(() => snapshots.at(-1))
-        .toEqual({ status: 'ready', journey: { status: 'DRAFT', destination: HOME } });
+        .toEqual({
+          status: 'ready',
+          journey: { status: 'DRAFT', destination: HOME, availableSeats: null },
+        });
     } finally {
       unsubscribe();
     }
