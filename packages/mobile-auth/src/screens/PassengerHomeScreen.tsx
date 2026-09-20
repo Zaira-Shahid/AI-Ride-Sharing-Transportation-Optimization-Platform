@@ -1,9 +1,11 @@
 import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
 import {
   checkChosenPlace,
+  DEFAULT_FLEXIBILITY,
   DEFAULT_TRIP_TIMES,
   currentLocationPlace,
   type ChosenPlaceProblem,
+  type Flexibility,
   type StoredDestination,
   type TripTimes,
 } from '@ridemesh/types';
@@ -12,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { AuthScreenProps } from '../app-info';
 import { AuthThemeProvider, Notice, SecondaryButton, useAuthTheme } from '../components';
+import { FlexibilityCard } from './FlexibilityCard';
 import { PlaceRejectedError } from './PlaceSearch';
 import { DestinationCard, PickupCard } from './TripPlaceCards';
 import { TripTimeCard } from './TripTimeCard';
@@ -82,10 +85,10 @@ function LocateButton({
  * be picked up on top, and a button to show where they are at the bottom. The places chosen are
  * marked on the map. The pickup can be the device's location (asked for only when the passenger taps
  * the button, one reading, never stored) or a place from the search. The passenger also says when:
- * leave now (the default) or at a time, and optionally a time to arrive by. Everything is held only
- * here, in the app: nothing is sent to the server until the trip request is submitted (Module 3.7);
- * the flexibility settings are added by the module that follows. A pickup and a destination that are
- * the same place are refused.
+ * leave now (the default) or at a time, and optionally a time to arrive by; and how flexible they
+ * are: a level, and whether they will share and allow route changes. Everything is held only here,
+ * in the app: nothing is sent to the server until the trip request is submitted (Module 3.7). A
+ * pickup and a destination that are the same place are refused.
  */
 export function PassengerHomeScreen({
   theme,
@@ -99,6 +102,7 @@ export function PassengerHomeScreen({
   const [destination, setDestination] = useState<StoredDestination | null>(null);
   const location = useCurrentLocation();
   const [times, setTimes] = useState<TripTimes>(DEFAULT_TRIP_TIMES);
+  const [flexibility, setFlexibility] = useState<Flexibility>(DEFAULT_FLEXIBILITY);
   const now = useNow(NOW_REFRESH_MS);
   // Which button the passenger last pressed for the device's location, so that a problem with it
   // is shown next to that button and not twice.
@@ -190,6 +194,7 @@ export function PassengerHomeScreen({
               }}
             />
             <TripTimeCard times={times} now={now} onChange={setTimes} />
+            <FlexibilityCard flexibility={flexibility} onChange={setFlexibility} />
           </ScrollView>
         </View>
         <View
