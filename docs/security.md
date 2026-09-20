@@ -267,7 +267,10 @@ run unless the Auth and Firestore emulators are configured.
   Requests carry it in a header, and no error message shown to a person contains it.
 - **Google's attribution** for place suggestions is shown as text; the official logo still has to
   be added before launch.
-- Sending a driver's typed search text to Google is a disclosure to a third party. It should be
+- The passenger app uses the same key and the same search (Module 3.1); it is restricted in the
+  same way. A passenger's picked place is held only in the app and sent to no server until the trip
+  request is submitted (Module 3.7).
+- Sending a driver's or passenger's typed search text to Google is a disclosure to a third party. It should be
   covered by the privacy notice and consent required by spec section 56 before launch.
 
 ## Staff roles

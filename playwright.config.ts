@@ -17,7 +17,7 @@ const clientEnv = {
 };
 
 // A fake Maps key. The tests answer Google's Places requests themselves, so nothing reaches Google.
-const driverEnv = { ...clientEnv, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'e2e-places-key' };
+const placesEnv = { ...clientEnv, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'e2e-places-key' };
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -39,14 +39,14 @@ export default defineConfig({
       url: 'http://localhost:8081',
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
-      env: clientEnv,
+      env: placesEnv,
     },
     {
       command: 'npm run web --workspace @ridemesh/driver -- --port 8082',
       url: 'http://localhost:8082',
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
-      env: driverEnv,
+      env: placesEnv,
     },
   ],
 });

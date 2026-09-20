@@ -10,7 +10,7 @@ const apps = [
     url: 'http://localhost:8081',
     title: 'RideMesh',
     role: 'PASSENGER',
-    home: 'No active trip',
+    home: 'Where are you going?',
   },
   {
     name: 'driver',

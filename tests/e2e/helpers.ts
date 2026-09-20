@@ -11,7 +11,7 @@ export const apps = [
     url: 'http://localhost:8081',
     title: 'RideMesh',
     role: 'PASSENGER',
-    home: 'No active trip',
+    home: 'Where are you going?',
     otherRole: 'DRIVER',
     mismatch: 'This is a driver account. Please sign in with the RideMesh Driver app.',
   },

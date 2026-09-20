@@ -56,19 +56,21 @@ the local env files and network access, so it is not part of `npm run verify` or
 printing any values. Build the raw object from literal `process.env.X` references; bundlers only
 inline variables referenced literally.
 
-### Google Maps key (destination search)
+### Google Maps key (place search)
 
-The driver app searches destinations with Google Places (New). To try it locally:
+The driver app (destination) and the passenger app (where are you going) search places with Google
+Places (New). To try it locally:
 
 1. In the Google Cloud console, for the project you use for Maps (a billing account is required;
    Google gives a monthly free credit), enable **Places API (New)**.
 2. Create an API key (APIs & Services, Credentials) and restrict it: under **API restrictions**
-   allow only Places API (New), and under **Application restrictions** allow only the driver app
-   (HTTP referrers for the web build, the package name `com.ridemesh.driver` and its SHA-1 for
-   Android, the bundle ID `com.ridemesh.driver` for iOS).
+   allow only Places API (New), and under **Application restrictions** allow only your apps
+   (HTTP referrers for the web builds, the package names `com.ridemesh.driver` and
+   `com.ridemesh.passenger` and their SHA-1s for Android, the bundle IDs for iOS). One key can cover
+   both apps, or use one key per app.
 3. Set a quota and a budget alert for the key.
-4. Put it in `apps/driver/.env` as `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=...`. That file is git-ignored.
-   Without it the Destination card says place search is not set up.
+4. Put it in `apps/driver/.env` and `apps/passenger/.env` as `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=...`.
+   Those files are git-ignored. Without it the search says place search is not set up.
 
 The key is bundled into the app, so it is public by design: the restrictions in step 2 are what
 protect it. Tests never call Google; Playwright answers the Places requests itself, with a fake key

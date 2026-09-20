@@ -21,18 +21,18 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.8)
+## What exists now (through Module 3.1)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                                                                              |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (place search), Trips, Wallet, Profile.                                                                               |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                   |
 | Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                      |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                  |
-| Maps client     | `packages/maps`                           | Google Places (New) search for destinations, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                             |
+| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                             |
 | Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                             |
 | Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                              |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                    |
@@ -324,6 +324,32 @@ journey, and its later states (`AVAILABLE`, `ACTIVE`, ...) come with the modules
 - **Not verified against Google itself.** The requests follow Google's documented Places API
   (New) format, and the tests answer them with a stand-in, but no real key has been used yet.
   Check place search once with a real key before relying on it.
+
+## Passenger trip request (Phase 3)
+
+The passenger builds a trip request from a chain of small modules: location search (3.1), map (3.2),
+pickup (3.3), destination (3.4), time preferences (3.5), flexibility (3.6), creation (3.7) and
+status (3.8).
+
+- **The request is built in the app and submitted once.** Nothing about a request is stored until
+  Module 3.7 creates `tripRequests/{id}` with the first status, `REQUESTED` (the spec's trip
+  statuses have no `DRAFT`). Until then the pickup, destination, time and flexibility live only in
+  the app's memory, so half-finished location data is never on the server and closing the app
+  discards it. The place picked in 3.1 is held by `PassengerHomeScreen` for now; the modules after
+  it will move it into one shared request state.
+- **Location search (Module 3.1).** `PlaceSearch` (`packages/mobile-auth/src/screens/PlaceSearch.tsx`)
+  is the one place-search component, used by the passenger's Home and by the driver's Destination
+  card. It searches with Google Places autocomplete as the person types (after two characters, 300
+  ms after they stop, cancelling overtaken requests), fetches the details of the place they pick
+  (id, formatted address and coordinates only) and hands it to the caller as a
+  `StoredDestination`. What happens next is the caller's job: the driver saves it through
+  `declareDestination`, the passenger keeps it in the app. If the caller throws, the search shows
+  why and stays open. Failures are turned into plain sentences and never contain the key. The search
+  is not limited to a country. Quick destinations and recent trips from the spec's Home screen are
+  not part of 3.1.
+- **Passenger Home:** "Where are you going?" with a search box; the place picked is shown as
+  "Heading to" with "Change destination". It sends nothing to the server (checked by an e2e test).
+  Without a Maps key it says place search is not set up.
 
 ## Design tokens
 
