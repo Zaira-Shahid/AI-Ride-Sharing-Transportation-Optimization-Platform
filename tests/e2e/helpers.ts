@@ -32,7 +32,7 @@ export const uniqueEmail = (prefix: string) => `${prefix}-${Date.now()}-${counte
 /** Creates an account directly in the Auth emulator, with a server-style role claim. */
 export async function createAccount(
   email: string,
-  role: string,
+  role: string | null,
   verified: boolean,
   displayName?: string,
   profile?: { name: string; phone: string | null },
@@ -54,13 +54,13 @@ export async function createAccount(
       body: JSON.stringify({
         localId,
         emailVerified: verified,
-        customAttributes: JSON.stringify({ role }),
+        customAttributes: JSON.stringify(role ? { role } : {}),
         ...(displayName ? { displayName } : {}),
       }),
     },
   );
   expect(update.ok).toBe(true);
-  if (profile) {
+  if (profile && role) {
     await createProfileDoc(localId, { role, email, ...profile });
     if (role === 'DRIVER') await writeDriverDoc(localId);
   }
