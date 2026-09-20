@@ -21,11 +21,11 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.2)
+## What exists now (through Module 3.3)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map and place search), Trips, Wallet, Profile.                                                                       |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination and pickup), Trips, Wallet, Profile.                                                                |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
@@ -348,9 +348,9 @@ status (3.8).
   why and stays open. Failures are turned into plain sentences and never contain the key. The search
   is not limited to a country. Quick destinations and recent trips from the spec's Home screen are
   not part of 3.1.
-- **Passenger Home:** a map that fills the screen, "Where are you going?" with the search on top
-  (the place picked is shown as "Heading to" with "Change destination"), and a "Show my location"
-  button at the bottom. It sends nothing to the server (checked by an e2e test). Without a Maps key
+- **Passenger Home:** a map that fills the screen, with two cards on top ("Where are you going?"
+  and "Where should we pick you up?"; a place chosen is shown as "Heading to" / "Picking up at" with
+  a Change button) and a "Show my location" button at the bottom. It sends nothing to the server (checked by an e2e test). Without a Maps key
   the search says place search is not set up; the map does not need one.
 - **Map (Module 3.2).** `@ridemesh/map` (`packages/map`) draws the map and finds the device. Its
   parts:
@@ -369,11 +369,38 @@ status (3.8).
     `denied`, `unavailable`). The browser's geolocation on the web, expo-location on phones. It asks
     for permission only when the passenger taps "Show my location", takes one reading (nothing is
     watched), and keeps it in memory. Full GPS handling (continuous, background, accuracy) is Phase 4.
+  - `MapView` also takes `insets` (how many pixels are covered at the top and the bottom) and `pickup`.
+    Places are framed in the part that is not covered, and the zoom buttons sit below the top
+    cards, so nothing is hidden behind the search. Home measures its cards with `onLayout` and passes
+    the heights. Markers: green "Pickup", cyan "Destination", blue "Your location" (a pickup taken
+    from the device's location is drawn over the blue dot). On phones the vertical shift for one
+    place is computed from the map's height; that and the phone framing are not run on a device.
   - The map is display only: tapping it does not pick a place (that needs reverse geocoding, Phase 4).
   - `react-native-maps` and `expo-location` are dependencies of both apps, because the shared
     `PassengerHomeScreen` (in `mobile-auth`) imports the map and native modules must be declared by
     the app that builds them; the driver will need a map for navigation in any case. `expo-location`
     is also a config plugin in both `app.json` files with the permission text.
+
+- **Pickup (Module 3.3).** The pickup is chosen in the "Where should we pick you up?" card in one of
+  two ways, both starting only when the passenger acts: **"Use my current location"** (one reading of
+  the device, as for "Show my location") or the same `PlaceSearch` ("Search for a pickup"). Nothing
+  is preselected and the device is not asked until the button is pressed. A pickup taken from the
+  device's location is a `StoredDestination` with the coordinates, the text "Current location"
+  (`CURRENT_LOCATION_ADDRESS`) and no place ID: there is no address for it because reverse geocoding
+  (Phase 4) needs Google billing. Tapping the map or dragging a pin to adjust the pickup is not part
+  of this module for the same reason.
+- **A pickup and a destination that are the same place are refused,** not just warned about, when
+  either is chosen: the place is rejected with a clear message ("Your pickup is the same place as
+  your destination. Choose a different pickup." or the reverse), the search stays open and nothing is
+  set. The rule is `isSamePlace` in `packages/types/src/trip.ts`: the same Google place ID, **or
+  closer than 50 m** (`SAME_PLACE_DISTANCE_METERS`, haversine distance), so two different search
+  results for the same building, or the device standing at the destination, are also refused. It is
+  enforced in the app only for now; **Module 3.7 must repeat it on the server** when it creates the
+  request (functions cannot import the types package, so it will be mirrored and covered by the
+  parity test).
+- `PlaceSearch` lets its caller refuse a place by throwing `PlaceRejectedError`; its message is
+  shown as it is. The two cards live in `TripPlaceCards.tsx`; `PassengerHomeScreen` holds the state
+  (pickup, destination, the device's location) and the rules.
 
 ## Design tokens
 
