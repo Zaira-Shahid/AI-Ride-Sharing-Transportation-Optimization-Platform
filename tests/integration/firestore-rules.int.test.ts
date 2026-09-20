@@ -185,6 +185,11 @@ describe('users: a person editing their own contact details', () => {
     await assertSucceeds(
       updateDoc(doc(db, 'users/driver-1'), { name: 'Renamed', updatedAt: stamp() }),
     );
+    // The rule needs updatedAt to change, and the emulator's clock is only about a millisecond
+    // fine: two updates in the same tick get the same server time and the second is refused (this
+    // failed about one run in five before the pause; with 2 ms or more it never did in 600
+    // tries). Real Firestore stamps to the microsecond, so this is a test-only concern.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     await assertSucceeds(updateDoc(doc(db, 'users/driver-1'), { phone: null, updatedAt: stamp() }));
   });
 
