@@ -17,6 +17,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { TEST_PORTS } from '../test-ports';
 
 const root = resolve(__dirname, '../..');
 let env: RulesTestEnvironment;
@@ -27,7 +28,7 @@ beforeAll(async () => {
     firestore: {
       rules: readFileSync(join(root, 'firestore.rules'), 'utf8'),
       host: '127.0.0.1',
-      port: 8080,
+      port: TEST_PORTS.firestore,
     },
   });
 });

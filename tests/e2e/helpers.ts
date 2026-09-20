@@ -1,14 +1,15 @@
 import { expect, type Page } from '@playwright/test';
+import { TEST_PORTS } from '../test-ports';
 
 export const projectId = 'demo-ridemesh';
-export const authEmulator = 'http://127.0.0.1:9099';
+export const authEmulator = `http://127.0.0.1:${TEST_PORTS.auth}`;
 export const apiKey = 'e2e-api-key';
 export const PASSWORD = 'correct-horse-battery';
 
 export const apps = [
   {
     name: 'passenger',
-    url: 'http://localhost:8081',
+    url: `http://localhost:${TEST_PORTS.passenger}`,
     title: 'RideMesh',
     role: 'PASSENGER',
     home: 'Where are you going?',
@@ -17,7 +18,7 @@ export const apps = [
   },
   {
     name: 'driver',
-    url: 'http://localhost:8082',
+    url: `http://localhost:${TEST_PORTS.driver}`,
     title: 'RideMesh Driver',
     role: 'DRIVER',
     home: 'You are offline',
@@ -67,7 +68,7 @@ export async function createAccount(
   return localId;
 }
 
-const firestoreDocs = `http://127.0.0.1:8080/v1/projects/${projectId}/databases/(default)/documents`;
+const firestoreDocs = `http://127.0.0.1:${TEST_PORTS.firestore}/v1/projects/${projectId}/databases/(default)/documents`;
 
 /** Writes users/{uid} the way the server does, bypassing rules with the emulator owner token. */
 async function createProfileDoc(
@@ -292,7 +293,7 @@ export async function readDriverAvailability(uid: string) {
   return fields.availabilityStatus?.stringValue;
 }
 
-const functionsUrl = `http://127.0.0.1:5001/${projectId}/europe-west1`;
+const functionsUrl = `http://127.0.0.1:${TEST_PORTS.functions}/${projectId}/europe-west1`;
 
 /**
  * Makes a staff decision the way the admin dashboard will: a real ADMIN account calls the real

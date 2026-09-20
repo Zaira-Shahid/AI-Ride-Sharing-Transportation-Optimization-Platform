@@ -112,11 +112,31 @@ Vitest runs unit tests that live next to their code (`*.test.ts`) and repository
 project, deny-all Firestore rules, no committed env values, and no coding-agent branding in product
 source.
 
-**The end-to-end tests always start their own Expo servers** (ports 8081 and 8082) and never reuse
-one that is already running. A dev server you have open (for example `expo start` for the real
-Firebase project) has a different configuration, and the tests would silently run against it. If a
-port is taken, Playwright stops with "http://localhost:8081 is already used"; close that server and
-run again. (The emulators may still be reused.)
+**The automated tests use ports of their own, so they can run beside your dev servers and
+emulators.** Everything the tests start (the two Expo web servers and the Firebase emulators) listens
+on the usual port plus 10000:
+
+| What               | Your own (`npm run emulators`, `expo start`) | The tests |
+| ------------------ | -------------------------------------------- | --------- |
+| Passenger web app  | 8081                                         | 18081     |
+| Driver web app     | 8081 (or the next free one)                  | 18082     |
+| Auth emulator      | 9099                                         | 19099     |
+| Firestore emulator | 8080                                         | 18080     |
+| Functions emulator | 5001                                         | 15001     |
+| Emulator UI        | 4000                                         | (none)    |
+
+The emulators for the tests are configured in `firebase.test.json` (a copy of `firebase.json` with
+these ports, no UI, and the functions' build folder ignored so that someone else rebuilding the
+functions does not reload them in the middle of a run). `npm run test:integration` uses the same
+file. The apps under test are built with `EXPO_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET=10000`, which
+Playwright sets; you never set it yourself. The numbers live in `packages/config/src/firebase.ts`
+(`TEST_PORT_OFFSET`) and `tests/test-ports.ts`, and `tests/ports.test.ts` fails if the two
+emulator files ever share a port.
+
+**The end-to-end tests always start their own Expo servers** and never reuse one that is already
+running. If a port is taken (by another test run, say), Playwright stops with "http://localhost:18081
+is already used" instead of running against whatever is there. Two test runs at once still clash, as
+they should; a dev server or emulators of yours no longer do.
 
 End-to-end tests in `tests/e2e` use Playwright with Chromium (`npx playwright install chromium`
 once). `npm run test:e2e` starts the emulators and both Expo web builds with fake demo-project

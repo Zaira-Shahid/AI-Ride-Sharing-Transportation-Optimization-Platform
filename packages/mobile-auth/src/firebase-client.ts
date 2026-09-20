@@ -38,8 +38,9 @@ const webPersistence = (): Persistence[] => [
 export function createMobileFirebaseClient(
   config: FirebaseWebConfig,
   emulatorHost?: string,
+  emulatorPortOffset?: number,
 ): FirebaseClient {
   const persistence =
     Platform.OS === 'web' ? webPersistence() : getReactNativePersistence?.(AsyncStorage);
-  return createFirebaseClient(config, { emulatorHost, persistence });
+  return createFirebaseClient(config, { emulatorHost, emulatorPortOffset, persistence });
 }

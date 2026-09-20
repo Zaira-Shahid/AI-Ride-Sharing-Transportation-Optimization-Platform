@@ -1,4 +1,4 @@
-import { EMULATOR_PORTS, FIREBASE_REGION } from '@ridemesh/config';
+import { FIREBASE_REGION, emulatorPorts } from '@ridemesh/config';
 import type { FirebaseApp } from 'firebase/app';
 import {
   connectAuthEmulator,
@@ -28,6 +28,8 @@ export interface FirebaseClient {
 export interface FirebaseClientOptions {
   /** Host running the Firebase emulators. Leave undefined to use the real project. */
   emulatorHost?: string | undefined;
+  /** How far above the usual ports the emulators are listening. Only the tests set this. */
+  emulatorPortOffset?: number | undefined;
   /**
    * Where the signed-in session is stored, in order of preference. Leave undefined to use the
    * platform default (getAuth), which on the web also loads the popup and redirect sign-in support.
@@ -73,9 +75,10 @@ export function createFirebaseClient(
 
   const host = options.emulatorHost?.trim();
   if (host) {
-    connectAuthEmulator(auth, `http://${host}:${EMULATOR_PORTS.auth}`, { disableWarnings: true });
-    connectFunctionsEmulator(functions, host, EMULATOR_PORTS.functions);
-    connectFirestoreEmulator(firestore, host, EMULATOR_PORTS.firestore);
+    const ports = emulatorPorts(options.emulatorPortOffset);
+    connectAuthEmulator(auth, `http://${host}:${ports.auth}`, { disableWarnings: true });
+    connectFunctionsEmulator(functions, host, ports.functions);
+    connectFirestoreEmulator(firestore, host, ports.firestore);
   }
 
   const client = { app, auth, functions, firestore };
