@@ -11,7 +11,7 @@ the single source of truth for scope, sequencing and the definition of done.
 
 ## Status
 
-Phase 3, Module 3.1 (location search). Phase 2 (driver and vehicle) is complete. Phase 0 and Phase 1 (roles, registration, login, logout,
+Phase 3, Module 3.2 (map). Phase 2 (driver and vehicle) is complete. Phase 0 and Phase 1 (roles, registration, login, logout,
 password reset and profile editing) are complete. Passengers and drivers can register, verify their email, sign in, stay signed
 in, reset a forgotten password, edit their name and phone number, and sign out from the Profile
 tab. Drivers also get a driver profile that shows their verification status, completed trips and
@@ -19,8 +19,9 @@ rating, see whether staff have verified or rejected them (and why), and add thei
 Staff can verify drivers and vehicles through server functions, and a verified driver can set a
 destination (searched with Google Places, which needs a Maps key that is not set up yet), choose
 how many seats they offer, set how far they will go out of their way (minutes and kilometres),
-and go online or offline from the Home tab. Passengers can search for a place on their Home (also
-needs the Maps key); the rest of the trip request is not built yet. The admin dashboard is not built
+and go online or offline from the Home tab. Passengers get a map on their Home (OpenStreetMap, no key) with a search for where they are going
+(needs the Maps key) and a button to show where they are; the rest of the trip request is not built
+yet. The admin dashboard is not built
 yet, and the other signed-in screens are still empty states.
 
 ## Repository layout

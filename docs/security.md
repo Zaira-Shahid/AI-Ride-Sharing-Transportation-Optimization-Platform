@@ -270,6 +270,17 @@ run unless the Auth and Firestore emulators are configured.
 - The passenger app uses the same key and the same search (Module 3.1); it is restricted in the
   same way. A passenger's picked place is held only in the app and sent to no server until the trip
   request is submitted (Module 3.7).
+- **The passenger's location (Module 3.2).** It is location data of a private person, so: it is
+  asked for only when the passenger taps "Show my location" (never on start-up), it is one reading
+  (nothing is watched), it is held only in the app's memory, and it is sent to no server of ours
+  (an e2e test checks that no function is called and that it is gone after a reload). The browser or
+  phone shows its own permission prompt, and a refusal is handled with a plain message. Phones use
+  the "while using the app" permission only, never background location.
+- **The map tile provider sees where the map is looking.** Every tile request carries the tile's
+  zoom and position, which is roughly the area the passenger is viewing (including around their
+  own location), plus their IP address and the app's referrer. That is a disclosure to
+  OpenStreetMap's servers and belongs in the privacy notice (spec section 56) along with Google
+  Places. The web map's code is bundled with the app; it loads no third-party script.
 - Sending a driver's or passenger's typed search text to Google is a disclosure to a third party. It should be
   covered by the privacy notice and consent required by spec section 56 before launch.
 

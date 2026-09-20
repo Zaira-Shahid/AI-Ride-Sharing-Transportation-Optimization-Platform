@@ -6,8 +6,20 @@
     "version": "0.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "ios": { "bundleIdentifier": "com.ridemesh.passenger" },
-    "android": { "package": "com.ridemesh.passenger" },
-    "plugins": ["expo-router"]
+    "ios": {
+      "bundleIdentifier": "com.ridemesh.passenger"
+    },
+    "android": {
+      "package": "com.ridemesh.passenger"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "RideMesh uses your location to show where you are on the map."
+        }
+      ]
+    ]
   }
 }

@@ -1,0 +1,26 @@
+{
+  "name": "@ridemesh/map",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The map and the device location for RideMesh apps, on OpenStreetMap tiles",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21"
+  },
+  "peerDependencies": {
+    "expo-location": ">=57",
+    "react": ">=19",
+    "react-native": ">=0.80",
+    "react-native-maps": ">=1.20"
+  }
+}

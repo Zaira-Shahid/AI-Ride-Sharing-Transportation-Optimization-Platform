@@ -21,17 +21,18 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.1)
+## What exists now (through Module 3.2)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (place search), Trips, Wallet, Profile.                                                                               |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map and place search), Trips, Wallet, Profile.                                                                       |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                   |
 | Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                      |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                  |
+| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                              |
 | Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                             |
 | Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                             |
 | Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                              |
@@ -347,9 +348,32 @@ status (3.8).
   why and stays open. Failures are turned into plain sentences and never contain the key. The search
   is not limited to a country. Quick destinations and recent trips from the spec's Home screen are
   not part of 3.1.
-- **Passenger Home:** "Where are you going?" with a search box; the place picked is shown as
-  "Heading to" with "Change destination". It sends nothing to the server (checked by an e2e test).
-  Without a Maps key it says place search is not set up.
+- **Passenger Home:** a map that fills the screen, "Where are you going?" with the search on top
+  (the place picked is shown as "Heading to" with "Change destination"), and a "Show my location"
+  button at the bottom. It sends nothing to the server (checked by an e2e test). Without a Maps key
+  the search says place search is not set up; the map does not need one.
+- **Map (Module 3.2).** `@ridemesh/map` (`packages/map`) draws the map and finds the device. Its
+  parts:
+  - `MapView` takes a `destination` and a `currentLocation` (or null) and fills its parent. There is
+    one file per platform: `MapView.web.tsx` (Leaflet, bundled with the app; the markers are drawn
+    in CSS, so no image files) and `MapView.tsx` (react-native-maps with the tiles drawn over it).
+    Both show a destination marker and a "Your location" marker, and frame whatever is on the map
+    (`frameMap` in `view.ts`, shared and unit-tested: the whole world when there is nothing, street
+    level for one point, the smallest box for two).
+  - **The tile provider is one file, `tiles.ts`** (URL template, maximum zoom and the attribution
+    text), so moving to Google's tiles or a paid provider later means changing that file and the two
+    `MapView` files, nothing that uses the map. Today it is OpenStreetMap's own server: free, no key,
+    attribution shown ("© OpenStreetMap contributors"). Its usage policy allows only light use, so
+    it suits development and small pilots; switch before launch (see `docs/development.md`).
+  - `useCurrentLocation` returns `{ status, point, locate }` (`idle`, `locating`, `ready`,
+    `denied`, `unavailable`). The browser's geolocation on the web, expo-location on phones. It asks
+    for permission only when the passenger taps "Show my location", takes one reading (nothing is
+    watched), and keeps it in memory. Full GPS handling (continuous, background, accuracy) is Phase 4.
+  - The map is display only: tapping it does not pick a place (that needs reverse geocoding, Phase 4).
+  - `react-native-maps` and `expo-location` are dependencies of both apps, because the shared
+    `PassengerHomeScreen` (in `mobile-auth`) imports the map and native modules must be declared by
+    the app that builds them; the driver will need a map for navigation in any case. `expo-location`
+    is also a config plugin in both `app.json` files with the permission text.
 
 ## Design tokens
 
