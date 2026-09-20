@@ -56,19 +56,21 @@ the local env files and network access, so it is not part of `npm run verify` or
 printing any values. Build the raw object from literal `process.env.X` references; bundlers only
 inline variables referenced literally.
 
-### Google Maps key (destination search)
+### Google Maps key (place search)
 
-The driver app searches destinations with Google Places (New). To try it locally:
+The driver app (destination) and the passenger app (where are you going) search places with Google
+Places (New). To try it locally:
 
 1. In the Google Cloud console, for the project you use for Maps (a billing account is required;
    Google gives a monthly free credit), enable **Places API (New)**.
 2. Create an API key (APIs & Services, Credentials) and restrict it: under **API restrictions**
-   allow only Places API (New), and under **Application restrictions** allow only the driver app
-   (HTTP referrers for the web build, the package name `com.ridemesh.driver` and its SHA-1 for
-   Android, the bundle ID `com.ridemesh.driver` for iOS).
+   allow only Places API (New), and under **Application restrictions** allow only your apps
+   (HTTP referrers for the web builds, the package names `com.ridemesh.driver` and
+   `com.ridemesh.passenger` and their SHA-1s for Android, the bundle IDs for iOS). One key can cover
+   both apps, or use one key per app.
 3. Set a quota and a budget alert for the key.
-4. Put it in `apps/driver/.env` as `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=...`. That file is git-ignored.
-   Without it the Destination card says place search is not set up.
+4. Put it in `apps/driver/.env` and `apps/passenger/.env` as `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=...`.
+   Those files are git-ignored. Without it the search says place search is not set up.
 
 The key is bundled into the app, so it is public by design: the restrictions in step 2 are what
 protect it. Tests never call Google; Playwright answers the Places requests itself, with a fake key
@@ -113,6 +115,25 @@ source.
 End-to-end tests in `tests/e2e` use Playwright with Chromium (`npx playwright install chromium`
 once). `npm run test:e2e` starts the emulators and both Expo web builds with fake demo-project
 configuration, so it needs no real credentials, and drives the real registration screens.
+
+### Map tiles (OpenStreetMap)
+
+The passenger's map (`packages/map`) draws OpenStreetMap tiles from `tile.openstreetmap.org`. No
+key or account is needed. What to know:
+
+- OpenStreetMap's tile server is run on donations and its usage policy allows only light use (no
+  bulk downloading, an identifiable referrer or user agent, attribution). That is fine for
+  development and a small pilot. **Before launch, switch to a tile provider whose terms cover the
+  expected traffic** (Google's, once billing is set up, or a paid or free-tier provider): change
+  `packages/map/src/tiles.ts` and the two `MapView` files.
+- Tests never call OpenStreetMap; Playwright answers the tile requests itself with a one-pixel image.
+- **Not verified on a phone.** The web map was checked in the browser (with real tiles too), but the
+  phone map (react-native-maps with `UrlTile`, `mapType="none"` on Android) and expo-location
+  have been type-checked and bundled for Android (`npx expo export --platform android` in each app), but not run on a device or emulator. Two things to check when
+  one is available: (1) whether Android's Google Maps SDK insists on an API key in the build config
+  even with the base map turned off (if it does, use a MapLibre-based map with an OpenStreetMap
+  raster style instead of react-native-maps, keeping the same `MapView` props), and (2) that the
+  tiles replace Apple's map on iOS. Expo Go may not include every native module.
 
 ### The "stuck on Loading" start-up failure (fixed)
 

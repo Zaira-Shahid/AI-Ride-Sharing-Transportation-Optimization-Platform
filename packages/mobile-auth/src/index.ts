@@ -3,6 +3,7 @@ export { createMobileFirebaseClient } from './firebase-client';
 export { DriverHomeScreen } from './screens/DriverHomeScreen';
 export { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
 export { LoginScreen } from './screens/LoginScreen';
+export { PassengerHomeScreen } from './screens/PassengerHomeScreen';
 export { ProfileScreen } from './screens/ProfileScreen';
 export { RegisterScreen } from './screens/RegisterScreen';
 export { VerifyEmailScreen } from './screens/VerifyEmailScreen';

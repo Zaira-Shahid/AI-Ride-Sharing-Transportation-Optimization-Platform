@@ -11,7 +11,7 @@ export const apps = [
     url: 'http://localhost:8081',
     title: 'RideMesh',
     role: 'PASSENGER',
-    home: 'No active trip',
+    home: 'Where are you going?',
     otherRole: 'DRIVER',
     mismatch: 'This is a driver account. Please sign in with the RideMesh Driver app.',
   },
@@ -355,6 +355,26 @@ export const PLACES = {
     address: 'Temple Meads, Bristol BS1 6QS, UK',
     latitude: 51.4494,
     longitude: -2.5813,
+  },
+  // 22 m north of the office: a different place, but the same place for a trip.
+  neighbour: {
+    id: 'place-neighbour',
+    text: 'Reuters Plaza, London, UK',
+    main: 'Reuters Plaza',
+    secondary: 'London, UK',
+    address: '30 South Colonnade, London E14 5EP, UK',
+    latitude: 51.5051,
+    longitude: -0.0195,
+  },
+  // 89 m north of the office: close, but far enough to be a different place for a trip.
+  nearby: {
+    id: 'place-nearby',
+    text: 'Cabot Square, London, UK',
+    main: 'Cabot Square',
+    secondary: 'London, UK',
+    address: 'Cabot Square, London E14 4QT, UK',
+    latitude: 51.5057,
+    longitude: -0.0195,
   },
 } satisfies Record<string, Place>;
 

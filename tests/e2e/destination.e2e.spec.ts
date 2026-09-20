@@ -264,7 +264,7 @@ test.describe('driver app: destination', () => {
 });
 
 test.describe('passenger app: destination', () => {
-  test('has no destination search', async ({ page }) => {
+  test('has no driver destination card', async ({ page }) => {
     await mockPlaces(page);
     const email = uniqueEmail('dst-passenger');
     await createAccount(email, passenger.role, true, 'Pat Passenger', {
@@ -274,7 +274,8 @@ test.describe('passenger app: destination', () => {
     await signIn(page, passenger, email);
 
     await expect(page.getByText(passenger.home)).toBeVisible();
+    // The passenger searches for a place too, but on their own Home, not in the driver's card.
     await expect(card(page)).toHaveCount(0);
-    await expect(search(page)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Change destination' })).toHaveCount(0);
   });
 });

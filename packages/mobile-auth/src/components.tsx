@@ -23,6 +23,20 @@ export function useAuthTheme(): ThemeColors {
   return theme;
 }
 
+/**
+ * Gives the components in this file their theme, for a screen that lays itself out instead of
+ * using an AuthFrame (for example one that is mostly a map).
+ */
+export function AuthThemeProvider({
+  theme,
+  children,
+}: {
+  theme: ThemeColors;
+  children: ReactNode;
+}) {
+  return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>;
+}
+
 export function AuthFrame({
   theme,
   children,

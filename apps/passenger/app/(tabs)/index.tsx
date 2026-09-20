@@ -1,10 +1,9 @@
-import { ScreenShell } from '../../src/components/ScreenShell';
+import { PassengerHomeScreen } from '@ridemesh/mobile-auth';
+import { theme } from '../../src/theme';
+
+// Expo only inlines variables that are referenced literally.
+const placesApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || undefined;
 
 export default function HomeScreen() {
-  return (
-    <ScreenShell
-      title="No active trip"
-      description="Your destination search and active trip will appear here."
-    />
-  );
+  return <PassengerHomeScreen theme={theme} placesApiKey={placesApiKey} />;
 }

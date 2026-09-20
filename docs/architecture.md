@@ -21,18 +21,19 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 2.8)
+## What exists now (through Module 3.3)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home, Trips, Wallet, Profile.                                                                                              |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination and pickup), Trips, Wallet, Profile.                                                                |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                   |
 | Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                      |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                  |
-| Maps client     | `packages/maps`                           | Google Places (New) search for destinations, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                             |
+| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                              |
+| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                             |
 | Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                             |
 | Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                              |
 | Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                    |
@@ -324,6 +325,82 @@ journey, and its later states (`AVAILABLE`, `ACTIVE`, ...) come with the modules
 - **Not verified against Google itself.** The requests follow Google's documented Places API
   (New) format, and the tests answer them with a stand-in, but no real key has been used yet.
   Check place search once with a real key before relying on it.
+
+## Passenger trip request (Phase 3)
+
+The passenger builds a trip request from a chain of small modules: location search (3.1), map (3.2),
+pickup (3.3), destination (3.4), time preferences (3.5), flexibility (3.6), creation (3.7) and
+status (3.8).
+
+- **The request is built in the app and submitted once.** Nothing about a request is stored until
+  Module 3.7 creates `tripRequests/{id}` with the first status, `REQUESTED` (the spec's trip
+  statuses have no `DRAFT`). Until then the pickup, destination, time and flexibility live only in
+  the app's memory, so half-finished location data is never on the server and closing the app
+  discards it. The place picked in 3.1 is held by `PassengerHomeScreen` for now; the modules after
+  it will move it into one shared request state.
+- **Location search (Module 3.1).** `PlaceSearch` (`packages/mobile-auth/src/screens/PlaceSearch.tsx`)
+  is the one place-search component, used by the passenger's Home and by the driver's Destination
+  card. It searches with Google Places autocomplete as the person types (after two characters, 300
+  ms after they stop, cancelling overtaken requests), fetches the details of the place they pick
+  (id, formatted address and coordinates only) and hands it to the caller as a
+  `StoredDestination`. What happens next is the caller's job: the driver saves it through
+  `declareDestination`, the passenger keeps it in the app. If the caller throws, the search shows
+  why and stays open. Failures are turned into plain sentences and never contain the key. The search
+  is not limited to a country. Quick destinations and recent trips from the spec's Home screen are
+  not part of 3.1.
+- **Passenger Home:** a map that fills the screen, with two cards on top ("Where are you going?"
+  and "Where should we pick you up?"; a place chosen is shown as "Heading to" / "Picking up at" with
+  a Change button) and a "Show my location" button at the bottom. It sends nothing to the server (checked by an e2e test). Without a Maps key
+  the search says place search is not set up; the map does not need one.
+- **Map (Module 3.2).** `@ridemesh/map` (`packages/map`) draws the map and finds the device. Its
+  parts:
+  - `MapView` takes a `destination` and a `currentLocation` (or null) and fills its parent. There is
+    one file per platform: `MapView.web.tsx` (Leaflet, bundled with the app; the markers are drawn
+    in CSS, so no image files) and `MapView.tsx` (react-native-maps with the tiles drawn over it).
+    Both show a destination marker and a "Your location" marker, and frame whatever is on the map
+    (`frameMap` in `view.ts`, shared and unit-tested: the whole world when there is nothing, street
+    level for one point, the smallest box for two).
+  - **The tile provider is one file, `tiles.ts`** (URL template, maximum zoom and the attribution
+    text), so moving to Google's tiles or a paid provider later means changing that file and the two
+    `MapView` files, nothing that uses the map. Today it is OpenStreetMap's own server: free, no key,
+    attribution shown ("© OpenStreetMap contributors"). Its usage policy allows only light use, so
+    it suits development and small pilots; switch before launch (see `docs/development.md`).
+  - `useCurrentLocation` returns `{ status, point, locate }` (`idle`, `locating`, `ready`,
+    `denied`, `unavailable`). The browser's geolocation on the web, expo-location on phones. It asks
+    for permission only when the passenger taps "Show my location", takes one reading (nothing is
+    watched), and keeps it in memory. Full GPS handling (continuous, background, accuracy) is Phase 4.
+  - `MapView` also takes `insets` (how many pixels are covered at the top and the bottom) and `pickup`.
+    Places are framed in the part that is not covered, and the zoom buttons sit below the top
+    cards, so nothing is hidden behind the search. Home measures its cards with `onLayout` and passes
+    the heights. Markers: green "Pickup", cyan "Destination", blue "Your location" (a pickup taken
+    from the device's location is drawn over the blue dot). On phones the vertical shift for one
+    place is computed from the map's height; that and the phone framing are not run on a device.
+  - The map is display only: tapping it does not pick a place (that needs reverse geocoding, Phase 4).
+  - `react-native-maps` and `expo-location` are dependencies of both apps, because the shared
+    `PassengerHomeScreen` (in `mobile-auth`) imports the map and native modules must be declared by
+    the app that builds them; the driver will need a map for navigation in any case. `expo-location`
+    is also a config plugin in both `app.json` files with the permission text.
+
+- **Pickup (Module 3.3).** The pickup is chosen in the "Where should we pick you up?" card in one of
+  two ways, both starting only when the passenger acts: **"Use my current location"** (one reading of
+  the device, as for "Show my location") or the same `PlaceSearch` ("Search for a pickup"). Nothing
+  is preselected and the device is not asked until the button is pressed. A pickup taken from the
+  device's location is a `StoredDestination` with the coordinates, the text "Current location"
+  (`CURRENT_LOCATION_ADDRESS`) and no place ID: there is no address for it because reverse geocoding
+  (Phase 4) needs Google billing. Tapping the map or dragging a pin to adjust the pickup is not part
+  of this module for the same reason.
+- **A pickup and a destination that are the same place are refused,** not just warned about, when
+  either is chosen: the place is rejected with a clear message ("Your pickup is the same place as
+  your destination. Choose a different pickup." or the reverse), the search stays open and nothing is
+  set. The rule is `isSamePlace` in `packages/types/src/trip.ts`: the same Google place ID, **or
+  closer than 50 m** (`SAME_PLACE_DISTANCE_METERS`, haversine distance), so two different search
+  results for the same building, or the device standing at the destination, are also refused. It is
+  enforced in the app only for now; **Module 3.7 must repeat it on the server** when it creates the
+  request (functions cannot import the types package, so it will be mirrored and covered by the
+  parity test).
+- `PlaceSearch` lets its caller refuse a place by throwing `PlaceRejectedError`; its message is
+  shown as it is. The two cards live in `TripPlaceCards.tsx`; `PassengerHomeScreen` holds the state
+  (pickup, destination, the device's location) and the rules.
 
 ## Design tokens
 
