@@ -8,6 +8,7 @@ import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
   declareDestination as declareDriverDestination,
+  setJourneyDetour as setDriverJourneyDetour,
   setJourneySeats as setDriverJourneySeats,
 } from './journeys.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
@@ -99,4 +100,8 @@ export const declareDestination = onCall((request) =>
 
 export const setJourneySeats = onCall((request) =>
   setDriverJourneySeats({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const setJourneyDetour = onCall((request) =>
+  setDriverJourneyDetour({ firestore: getFirestore() }, callerOf(request), request.data),
 );

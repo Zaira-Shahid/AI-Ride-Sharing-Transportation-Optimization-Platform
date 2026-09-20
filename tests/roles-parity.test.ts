@@ -8,6 +8,11 @@ import {
   NEW_JOURNEY_DEFAULTS as functionsJourneyDefaults,
   declareDestinationInputSchema as functionsDestinationSchema,
   setJourneySeatsInputSchema as functionsSeatsSchema,
+  setJourneyDetourInputSchema as functionsDetourSchema,
+  DETOUR_DISTANCE_KM_MAX as functionsDetourKmMax,
+  DETOUR_DISTANCE_KM_MIN as functionsDetourKmMin,
+  DETOUR_MINUTES_MAX as functionsDetourMinutesMax,
+  DETOUR_MINUTES_MIN as functionsDetourMinutesMin,
 } from '../functions/src/journeys';
 import {
   AVAILABILITY_TARGETS as functionsAvailabilityTargets,
@@ -37,6 +42,11 @@ import {
   NEW_JOURNEY_DEFAULTS,
   declareDestinationInputSchema as sharedDestinationSchema,
   setJourneySeatsInputSchema as sharedSeatsSchema,
+  setJourneyDetourInputSchema as sharedDetourSchema,
+  DETOUR_DISTANCE_KM_MAX,
+  DETOUR_DISTANCE_KM_MIN,
+  DETOUR_MINUTES_MAX,
+  DETOUR_MINUTES_MIN,
   AVAILABILITY_TARGETS,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
@@ -231,20 +241,26 @@ describe('functions and shared types stay aligned', () => {
           for (const seatCapacity of [null, 1, 4]) {
             for (const destinationDeclared of [true, false]) {
               for (const availableSeats of [null, 0, 1, 2.5, 4, 5]) {
-                const facts = {
-                  accountActive,
-                  driverStatus,
-                  vehicleStatus,
-                  seatCapacity,
-                  destinationDeclared,
-                  availableSeats,
-                };
-                const shared = evaluateGoOnline(facts);
-                const server = functionsEvaluate(facts);
-                expect(server.eligible).toBe(shared.eligible);
-                expect(server.unmet).toEqual(
-                  shared.checks.filter((check) => !check.met).map((check) => check.requirement),
-                );
+                for (const maxDetourMinutes of [null, 0, 1, 7.5, 60, 61]) {
+                  for (const maxDetourDistance of [null, 0, 1, 2.5, 30, 31]) {
+                    const facts = {
+                      accountActive,
+                      driverStatus,
+                      vehicleStatus,
+                      seatCapacity,
+                      destinationDeclared,
+                      availableSeats,
+                      maxDetourMinutes,
+                      maxDetourDistance,
+                    };
+                    const shared = evaluateGoOnline(facts);
+                    const server = functionsEvaluate(facts);
+                    expect(server.eligible).toBe(shared.eligible);
+                    expect(server.unmet).toEqual(
+                      shared.checks.filter((check) => !check.met).map((check) => check.requirement),
+                    );
+                  }
+                }
               }
             }
           }
@@ -293,5 +309,29 @@ describe('functions and shared types stay aligned', () => {
         sharedSeatsSchema.safeParse(input).success,
       );
     }
+  });
+
+  it('validates the detour limits identically, with the same ranges', () => {
+    expect([
+      functionsDetourMinutesMin,
+      functionsDetourMinutesMax,
+      functionsDetourKmMin,
+      functionsDetourKmMax,
+    ]).toEqual([
+      DETOUR_MINUTES_MIN,
+      DETOUR_MINUTES_MAX,
+      DETOUR_DISTANCE_KM_MIN,
+      DETOUR_DISTANCE_KM_MAX,
+    ]);
+    const values = [0, 1, 2, 5, 7.5, 30, 31, 60, 61, -1, Number.NaN, '5', null, undefined];
+    for (const maxDetourMinutes of values) {
+      for (const maxDetourDistance of values) {
+        const input = { maxDetourMinutes, maxDetourDistance };
+        expect(functionsDetourSchema.safeParse(input).success).toBe(
+          sharedDetourSchema.safeParse(input).success,
+        );
+      }
+    }
+    expect(functionsDetourSchema.safeParse({}).success).toBe(false);
   });
 });

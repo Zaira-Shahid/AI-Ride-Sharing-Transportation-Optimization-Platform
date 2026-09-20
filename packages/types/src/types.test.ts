@@ -8,6 +8,11 @@ import {
   declareDestinationInputSchema,
   destinationSchema,
   setJourneySeatsInputSchema,
+  setJourneyDetourInputSchema,
+  isValidDetourMinutes,
+  isValidDetourDistanceKm,
+  DETOUR_MINUTES_PRESETS,
+  DETOUR_DISTANCE_KM_PRESETS,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
   setAvailabilityInputSchema,
@@ -278,6 +283,8 @@ describe('going online', () => {
     seatCapacity: 4,
     destinationDeclared: true,
     availableSeats: 3,
+    maxDetourMinutes: 10,
+    maxDetourDistance: 5,
   } as const;
 
   it('lists the requirements in the order the driver sees them', () => {
@@ -289,6 +296,7 @@ describe('going online', () => {
       'seatsSet',
       'destinationDeclared',
       'seatsOffered',
+      'detourSet',
     ]);
   });
 
@@ -311,6 +319,13 @@ describe('going online', () => {
     ['zero seats on offer', { availableSeats: 0 }, 'seatsOffered'],
     ['a fraction of a seat on offer', { availableSeats: 2.5 }, 'seatsOffered'],
     ['more seats than the vehicle has', { availableSeats: 5 }, 'seatsOffered'],
+    ['no detour minutes', { maxDetourMinutes: null }, 'detourSet'],
+    ['no detour distance', { maxDetourDistance: null }, 'detourSet'],
+    ['zero detour minutes', { maxDetourMinutes: 0 }, 'detourSet'],
+    ['too many detour minutes', { maxDetourMinutes: 61 }, 'detourSet'],
+    ['zero detour kilometres', { maxDetourDistance: 0 }, 'detourSet'],
+    ['too many detour kilometres', { maxDetourDistance: 31 }, 'detourSet'],
+    ['a fraction of a detour minute', { maxDetourMinutes: 7.5 }, 'detourSet'],
   ] as const)('does not let a driver with %s go online', (_label, change, requirement) => {
     const result = evaluateGoOnline({ ...ready, ...change });
     expect(result.eligible).toBe(false);
@@ -407,5 +422,42 @@ describe('seats on offer', () => {
 
   it('needs the seats to be given', () => {
     expect(setJourneySeatsInputSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('maximum detour', () => {
+  it('accepts whole minutes from 1 to 60 and whole kilometres from 1 to 30', () => {
+    for (const [minutes, km] of [
+      [1, 1],
+      [60, 30],
+      [10, 5],
+    ]) {
+      expect(
+        setJourneyDetourInputSchema.safeParse({ maxDetourMinutes: minutes, maxDetourDistance: km })
+          .success,
+      ).toBe(true);
+    }
+  });
+
+  it.each([
+    ['zero minutes', { maxDetourMinutes: 0, maxDetourDistance: 5 }],
+    ['61 minutes', { maxDetourMinutes: 61, maxDetourDistance: 5 }],
+    ['zero kilometres', { maxDetourMinutes: 10, maxDetourDistance: 0 }],
+    ['31 kilometres', { maxDetourMinutes: 10, maxDetourDistance: 31 }],
+    ['fractions', { maxDetourMinutes: 7.5, maxDetourDistance: 2.5 }],
+    ['negative numbers', { maxDetourMinutes: -5, maxDetourDistance: -1 }],
+    ['text', { maxDetourMinutes: '10', maxDetourDistance: '5' }],
+    ['only minutes', { maxDetourMinutes: 10 }],
+    ['only kilometres', { maxDetourDistance: 5 }],
+    ['nothing', {}],
+  ])('refuses %s', (_label, input) => {
+    expect(setJourneyDetourInputSchema.safeParse(input).success).toBe(false);
+  });
+
+  it('offers presets that are all valid', () => {
+    expect(DETOUR_MINUTES_PRESETS.every((value) => isValidDetourMinutes(value))).toBe(true);
+    expect(DETOUR_DISTANCE_KM_PRESETS.every((value) => isValidDetourDistanceKm(value))).toBe(true);
+    expect(isValidDetourMinutes(null)).toBe(false);
+    expect(isValidDetourDistanceKm(Number.NaN)).toBe(false);
   });
 });

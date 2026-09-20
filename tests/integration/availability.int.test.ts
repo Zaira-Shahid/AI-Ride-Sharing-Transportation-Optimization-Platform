@@ -6,6 +6,7 @@ import {
   declareDestination,
   saveVehicle,
   setAvailability,
+  setJourneyDetour,
   setJourneySeats,
   setVehicleCapacity,
   subscribeToDriverProfile,
@@ -75,6 +76,7 @@ async function eligibleDriver(prefix: string) {
   await vehicleRef(driver.uid).update({ verificationStatus: 'VERIFIED' });
   await declareDestination(driver.client, OFFICE);
   await setJourneySeats(driver.client, 3);
+  await setJourneyDetour(driver.client, 10, 5);
   return driver;
 }
 
@@ -172,6 +174,29 @@ describe('setAvailability: going online and offline (functions + firestore emula
     expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('OFFLINE');
   });
 
+  it('refuses a driver whose journey has no valid detour limits', async () => {
+    const driver = await eligibleDriver('avl-nodetour');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const journey = admin().firestore.doc(`driverJourneys/${journeyId}`);
+
+    for (const [maxDetourMinutes, maxDetourDistance] of [
+      [null, null],
+      [10, null],
+      [null, 5],
+      [0, 5],
+      [10, 31],
+    ]) {
+      await journey.update({ maxDetourMinutes, maxDetourDistance });
+      await expect(
+        call(driver.client, 'setAvailability', { status: 'ONLINE' }),
+      ).rejects.toMatchObject({
+        code: 'functions/failed-precondition',
+        details: { unmet: ['detourSet'] },
+      });
+    }
+    expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('OFFLINE');
+  });
+
   it('says which requirements are missing', async () => {
     const driver = await person('DRIVER', 'avl-details');
     await expect(
@@ -186,6 +211,7 @@ describe('setAvailability: going online and offline (functions + firestore emula
           'seatsSet',
           'destinationDeclared',
           'seatsOffered',
+          'detourSet',
         ],
       },
     });

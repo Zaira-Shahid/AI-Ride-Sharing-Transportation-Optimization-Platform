@@ -28,13 +28,16 @@ export interface FirebaseClient {
 export interface FirebaseClientOptions {
   /** Host running the Firebase emulators. Leave undefined to use the real project. */
   emulatorHost?: string | undefined;
-  /** Where the signed-in session is stored. Leave undefined to use the platform default. */
-  persistence?: Persistence | undefined;
+  /**
+   * Where the signed-in session is stored, in order of preference. Leave undefined to use the
+   * platform default (getAuth), which on the web also loads the popup and redirect sign-in support.
+   */
+  persistence?: Persistence | Persistence[] | undefined;
 }
 
 const clients = new Map<string, FirebaseClient>();
 
-function createAuth(app: FirebaseApp, persistence: Persistence | undefined): Auth {
+function createAuth(app: FirebaseApp, persistence: Persistence | Persistence[] | undefined): Auth {
   if (!persistence) return getAuth(app);
   try {
     return initializeAuth(app, { persistence });

@@ -17,6 +17,17 @@ export const setJourneySeatsInputSchema = z.object({
   availableSeats: z.number().int().min(SEAT_CAPACITY_MIN).max(SEAT_CAPACITY_MAX),
 });
 
+// Extra minutes and kilometres a driver accepts. Availability.ts repeats these two ranges as plain
+// numbers (it cannot import this file); tests/roles-parity.test.ts checks all of them.
+export const DETOUR_MINUTES_MIN = 1;
+export const DETOUR_MINUTES_MAX = 60;
+export const DETOUR_DISTANCE_KM_MIN = 1;
+export const DETOUR_DISTANCE_KM_MAX = 30;
+export const setJourneyDetourInputSchema = z.object({
+  maxDetourMinutes: z.number().int().min(DETOUR_MINUTES_MIN).max(DETOUR_MINUTES_MAX),
+  maxDetourDistance: z.number().int().min(DETOUR_DISTANCE_KM_MIN).max(DETOUR_DISTANCE_KM_MAX),
+});
+
 export const NEW_JOURNEY_DEFAULTS = {
   origin: null,
   departureTime: null,
@@ -30,6 +41,7 @@ export const NEW_JOURNEY_DEFAULTS = {
 
 export type DeclareDestinationResult = { status: 'created' | 'updated' | 'unchanged' };
 export type SetJourneySeatsResult = { status: 'updated' | 'unchanged' };
+export type SetJourneyDetourResult = { status: 'updated' | 'unchanged' };
 
 interface StoredDestination {
   latitude: number;
@@ -53,7 +65,7 @@ function sameDestination(stored: unknown, next: StoredDestination): boolean {
  * Sets where the calling driver is heading. A driver has at most one open journey, found through
  * drivers/{uid}.currentJourneyId: the first declaration creates it as a DRAFT and later ones
  * replace its destination while it is still a DRAFT. Seats on offer (setJourneySeats) and detour
- * limits (a later module) are added to the same journey.
+ * limits (setJourneyDetour) are added to the same journey.
  *
  * The coordinates and address come from the app's place search and are checked only for shape and
  * range; they are the driver's own claim. The address is not written to the audit log, because a
@@ -200,6 +212,63 @@ export async function setJourneySeats(
 
     if (journey.get('availableSeats') === availableSeats) return { status: 'unchanged' };
     tx.update(journeyRef, { availableSeats, updatedAt: FieldValue.serverTimestamp() });
+    return { status: 'updated' };
+  });
+}
+
+/**
+ * Sets how far the calling driver will go out of their way on their open journey: extra minutes
+ * (1 to 60) and extra kilometres (1 to 30), both whole numbers and always set together. Like the
+ * destination and the seats, they can only be changed while the journey is a DRAFT, and they need
+ * a journey (so a destination first). Routine changes are not audited.
+ */
+export async function setJourneyDetour(
+  deps: { firestore: Firestore },
+  caller: DriverCaller,
+  rawInput: unknown,
+): Promise<SetJourneyDetourResult> {
+  requireVerifiedDriver(caller);
+
+  const parsed = setJourneyDetourInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new HttpsError('invalid-argument', 'The detour limits are not valid.');
+  }
+  const { maxDetourMinutes, maxDetourDistance } = parsed.data;
+
+  const { firestore } = deps;
+  const userRef = firestore.collection('users').doc(caller.uid);
+  const driverRef = firestore.collection('drivers').doc(caller.uid);
+
+  return firestore.runTransaction(async (tx): Promise<SetJourneyDetourResult> => {
+    const [user, driver] = await Promise.all([tx.get(userRef), tx.get(driverRef)]);
+    if (!user.exists || user.get('status') !== 'ACTIVE' || !driver.exists) {
+      throw new HttpsError('failed-precondition', 'This account cannot set a detour right now.');
+    }
+
+    const currentId: unknown = driver.get('currentJourneyId');
+    const journeyRef =
+      typeof currentId === 'string' && currentId
+        ? firestore.collection('driverJourneys').doc(currentId)
+        : null;
+    const journey = journeyRef ? await tx.get(journeyRef) : undefined;
+    if (!journeyRef || !journey?.exists || journey.get('driverId') !== caller.uid) {
+      throw new HttpsError('failed-precondition', 'Set your destination before you set a detour.');
+    }
+    if (journey.get('status') !== 'DRAFT') {
+      throw new HttpsError('failed-precondition', 'The detour cannot be changed for this journey.');
+    }
+
+    if (
+      journey.get('maxDetourMinutes') === maxDetourMinutes &&
+      journey.get('maxDetourDistance') === maxDetourDistance
+    ) {
+      return { status: 'unchanged' };
+    }
+    tx.update(journeyRef, {
+      maxDetourMinutes,
+      maxDetourDistance,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
     return { status: 'updated' };
   });
 }

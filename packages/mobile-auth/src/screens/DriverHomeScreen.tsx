@@ -27,6 +27,7 @@ import {
   useAuthTheme,
 } from '../components';
 import { DestinationSection } from './DestinationSection';
+import { DetourSection } from './DetourSection';
 import { SeatsOfferSection } from './SeatsOfferSection';
 
 const DESCRIPTION = 'Your destination, available seats and matching settings will appear here.';
@@ -66,6 +67,8 @@ function describeRequirement(requirement: GoOnlineRequirement, met: boolean, fac
       return met ? 'Destination set' : 'Set your destination below.';
     case 'seatsOffered':
       return met ? 'Seats on offer set' : 'Choose how many seats you offer below.';
+    case 'detourSet':
+      return met ? 'Maximum detour set' : 'Choose how far you will go out of your way below.';
   }
 }
 
@@ -133,6 +136,10 @@ export function DriverHomeScreen({
     lastDestination.current = destination;
   }, [destination]);
   const availableSeats = journey.status === 'ready' ? journey.journey.availableSeats : null;
+  const maxDetourMinutes = journey.status === 'ready' ? journey.journey.maxDetourMinutes : null;
+  const maxDetourDistance = journey.status === 'ready' ? journey.journey.maxDetourDistance : null;
+  // Seats and detour can only be changed while the journey is a draft.
+  const editable = journey.status !== 'ready' || journey.journey.status === 'DRAFT';
 
   const facts: Facts = {
     accountActive: profile.status === 'ready' && profile.profile.status === 'ACTIVE',
@@ -148,6 +155,8 @@ export function DriverHomeScreen({
     seatCapacity: vehicleData?.seatCapacity ?? null,
     destinationDeclared: destination !== null,
     availableSeats,
+    maxDetourMinutes,
+    maxDetourDistance,
   });
 
   const change = async (status: 'ONLINE' | 'OFFLINE') => {
@@ -208,7 +217,13 @@ export function DriverHomeScreen({
             seatCapacity={vehicleData?.seatCapacity ?? null}
             hasJourney={destination !== null}
             availableSeats={availableSeats}
-            editable={journey.status !== 'ready' || journey.journey.status === 'DRAFT'}
+            editable={editable}
+          />
+          <DetourSection
+            hasJourney={destination !== null}
+            maxDetourMinutes={maxDetourMinutes}
+            maxDetourDistance={maxDetourDistance}
+            editable={editable}
           />
         </>
       )}

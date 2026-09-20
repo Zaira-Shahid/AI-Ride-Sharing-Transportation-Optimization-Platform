@@ -39,7 +39,10 @@ async function newDriver(prefix: string, setup: Setup = {}) {
     phone: '+44 7700 900123',
   });
   const withDestination = setup.destination !== false;
-  if (withDestination) await writeJourneyDoc(uid, PLACES.office, setup.seats ?? null);
+  // The journey already has a detour, so seats are the only thing standing in the way.
+  if (withDestination) {
+    await writeJourneyDoc(uid, PLACES.office, setup.seats ?? null, { minutes: 10, km: 5 });
+  }
   await writeDriverDoc(uid, {
     verificationStatus: 'VERIFIED',
     currentJourneyId: withDestination ? journeyId(uid) : null,

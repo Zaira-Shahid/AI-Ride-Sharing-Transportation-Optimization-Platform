@@ -21,6 +21,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'seatsSet',
   'destinationDeclared',
   'seatsOffered',
+  'detourSet',
 ] as const;
 export type GoOnlineRequirement = (typeof GO_ONLINE_REQUIREMENTS)[number];
 
@@ -33,12 +34,22 @@ export interface GoOnlineFacts {
   destinationDeclared: boolean;
   /** Seats the driver offers on their open journey. */
   availableSeats: unknown;
+  /** Extra minutes and kilometres the driver accepts on their open journey. */
+  maxDetourMinutes: unknown;
+  maxDetourDistance: unknown;
+}
+
+// The ranges are those of DETOUR_* in journeys.ts, repeated as numbers because journeys.ts imports
+// vehicles.ts, which imports this file. tests/roles-parity.test.ts checks them.
+function isWholeNumberBetween(value: unknown, min: number, max: number): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 }
 
 /**
  * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle, its
  * passenger seats set, a destination declared and seats on offer chosen (at least one, never more
- * than the vehicle has). This is the check that is enforced; the app shows the same list.
+ * than the vehicle has) and both detour limits chosen. This is the check that is enforced; the app
+ * shows the same list.
  */
 export function evaluateGoOnline(facts: GoOnlineFacts): {
   eligible: boolean;
@@ -60,6 +71,9 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
       Number.isInteger(facts.availableSeats) &&
       facts.availableSeats >= 1 &&
       facts.availableSeats <= facts.seatCapacity,
+    detourSet:
+      isWholeNumberBetween(facts.maxDetourMinutes, 1, 60) &&
+      isWholeNumberBetween(facts.maxDetourDistance, 1, 30),
   };
   const unmet = GO_ONLINE_REQUIREMENTS.filter((requirement) => !met[requirement]);
   return { eligible: unmet.length === 0, unmet };
@@ -108,20 +122,18 @@ export async function setAvailability(
     if (driver.get('availabilityStatus') === status) return { status: 'unchanged' };
 
     if (status === 'ONLINE') {
+      // Only the driver's own journey counts, never one the pointer happens to lead to.
+      const ownJourney =
+        journey?.exists === true && journey.get('driverId') === caller.uid ? journey : undefined;
       const { eligible, unmet } = evaluateGoOnline({
         accountActive: user.get('status') === 'ACTIVE',
         driverStatus: driver.get('verificationStatus'),
         vehicleStatus: vehicle.exists ? vehicle.get('verificationStatus') : null,
         seatCapacity: vehicle.exists ? vehicle.get('seatCapacity') : null,
-        // The journey must be this driver's own and have a destination.
-        destinationDeclared:
-          journey?.exists === true &&
-          journey.get('driverId') === caller.uid &&
-          journey.get('destination') != null,
-        availableSeats:
-          journey?.exists === true && journey.get('driverId') === caller.uid
-            ? journey.get('availableSeats')
-            : null,
+        destinationDeclared: ownJourney?.get('destination') != null,
+        availableSeats: ownJourney?.get('availableSeats') ?? null,
+        maxDetourMinutes: ownJourney?.get('maxDetourMinutes') ?? null,
+        maxDetourDistance: ownJourney?.get('maxDetourDistance') ?? null,
       });
       if (!eligible) {
         throw new HttpsError('failed-precondition', 'You cannot go online yet.', { unmet });
