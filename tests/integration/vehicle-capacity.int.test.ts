@@ -2,8 +2,10 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import {
+  declareDestination,
   describeAuthError,
   saveVehicle,
+  setJourneySeats,
   setVehicleCapacity,
   subscribeToVehicle,
   type VehicleSnapshot,
@@ -11,6 +13,12 @@ import {
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
 
 const DETAILS = { type: 'CAR', make: 'Toyota', model: 'Corolla' } as const;
+const OFFICE = {
+  latitude: 51.5049,
+  longitude: -0.0195,
+  formattedAddress: '1 Canada Square, London E14 5AB, UK',
+  placeId: 'place-office',
+};
 let plateCounter = 0;
 const uniquePlate = () => `CAP-${Date.now() % 100000}-${plateCounter++}`;
 
@@ -185,6 +193,37 @@ describe('setVehicleCapacity: verification and seats on offer', () => {
 
     await setVehicleCapacity(client, 5);
     expect((await stored(uid))?.availableSeats).toBe(2);
+  });
+
+  it('lowers the seats on the journey when the vehicle gets fewer seats', async () => {
+    const { client, uid } = await driverWithVehicle('cap-journey');
+    await setVehicleCapacity(client, 6);
+    await declareDestination(client, OFFICE);
+    await setJourneySeats(client, 5);
+    const journeyId = (await admin().firestore.doc(`drivers/${uid}`).get()).get('currentJourneyId');
+    const journeySeats = async () =>
+      (await admin().firestore.doc(`driverJourneys/${journeyId}`).get()).get('availableSeats');
+
+    await setVehicleCapacity(client, 3);
+    expect(await journeySeats()).toBe(3);
+
+    // Fewer seats than are offered is never touched, and raising the capacity gives nothing back.
+    await setJourneySeats(client, 2);
+    await setVehicleCapacity(client, 2);
+    expect(await journeySeats()).toBe(2);
+    await setVehicleCapacity(client, 6);
+    expect(await journeySeats()).toBe(2);
+  });
+
+  it('leaves a journey with no seats chosen yet alone', async () => {
+    const { client, uid } = await driverWithVehicle('cap-journey-none');
+    await setVehicleCapacity(client, 4);
+    await declareDestination(client, OFFICE);
+    const journeyId = (await admin().firestore.doc(`drivers/${uid}`).get()).get('currentJourneyId');
+
+    await setVehicleCapacity(client, 2);
+    const journey = await admin().firestore.doc(`driverJourneys/${journeyId}`).get();
+    expect(journey.get('availableSeats')).toBeNull();
   });
 
   it('is not undone by editing the vehicle details', async () => {

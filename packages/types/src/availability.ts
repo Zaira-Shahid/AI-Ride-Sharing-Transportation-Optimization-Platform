@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { DriverVerificationStatus } from './driver';
-import type { VehicleVerificationStatus } from './vehicle';
+import { SEAT_CAPACITY_MIN, type VehicleVerificationStatus } from './vehicle';
 
 export const AVAILABILITY_TARGETS = ['ONLINE', 'OFFLINE'] as const;
 
@@ -19,6 +19,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'vehicleVerified',
   'seatsSet',
   'destinationDeclared',
+  'seatsOffered',
 ] as const;
 export type GoOnlineRequirement = (typeof GO_ONLINE_REQUIREMENTS)[number];
 
@@ -31,6 +32,8 @@ export interface GoOnlineFacts {
   seatCapacity: number | null;
   /** The driver's open journey has a destination. */
   destinationDeclared: boolean;
+  /** Seats the driver offers on their open journey; null until they choose. */
+  availableSeats: number | null;
 }
 
 export interface GoOnlineCheck {
@@ -40,7 +43,8 @@ export interface GoOnlineCheck {
 
 /**
  * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle, its
- * passenger seats set and a destination declared. Mirrored in functions/src/availability.ts, which is what enforces it;
+ * passenger seats set, a destination declared and seats on offer chosen (at least one, never more
+ * than the vehicle has). Mirrored in functions/src/availability.ts, which is what enforces it;
  * tests/roles-parity.test.ts fails if the two diverge. This copy drives the Home checklist.
  */
 export function evaluateGoOnline(facts: GoOnlineFacts): {
@@ -54,6 +58,13 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
     vehicleVerified: facts.vehicleStatus === 'VERIFIED',
     seatsSet: facts.vehicleStatus !== null && typeof facts.seatCapacity === 'number',
     destinationDeclared: facts.destinationDeclared,
+    seatsOffered:
+      facts.vehicleStatus !== null &&
+      typeof facts.seatCapacity === 'number' &&
+      typeof facts.availableSeats === 'number' &&
+      Number.isInteger(facts.availableSeats) &&
+      facts.availableSeats >= SEAT_CAPACITY_MIN &&
+      facts.availableSeats <= facts.seatCapacity,
   };
   const checks = GO_ONLINE_REQUIREMENTS.map((requirement) => ({
     requirement,

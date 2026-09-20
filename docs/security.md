@@ -1,6 +1,6 @@
 # Roles, access and security
 
-Status: through Module 2.6 (destination). Module 1.1 defined the role system and Firestore
+Status: through Module 2.7 (seat availability). Module 1.1 defined the role system and Firestore
 rules; registration, login, logout, password reset, profile editing, the driver profile and the
 vehicle are built on top of it.
 
@@ -246,6 +246,14 @@ run unless the Auth and Firestore emulators are configured.
   journey. A journey that has moved past draft, or a pointer to someone else's journey, is refused.
 - **Going online needs a destination** that belongs to the driver; someone else's journey, or one
   without a destination, does not count.
+- **Seats on offer are checked on the server.** `setJourneySeats` accepts a whole number from 1 to
+  6 and refuses more than the vehicle's `seatCapacity`, reading both in one transaction; the
+  rules cannot compare two documents, so a client write of `availableSeats` is denied outright. It
+  ignores every other field in the request, needs a verified DRIVER with an ACTIVE account and
+  changes only the driver's own `DRAFT` journey. Going online counts seats only when they are
+  within 1 and the vehicle's capacity, and only on the driver's own journey. Lowering the vehicle's
+  seats lowers the journey's in the same transaction, so a journey can never offer more seats than
+  the vehicle holds. Seat changes are not audited.
 - **The Maps key is public.** Expo bundles `EXPO_PUBLIC_*` values into the app, so anyone can read
   it. Treat it as identifying the app, not as a secret: restrict it to the Places API (New) and to
   the driver app (bundle ID / package name / web origin), set a quota and a budget alert in Google

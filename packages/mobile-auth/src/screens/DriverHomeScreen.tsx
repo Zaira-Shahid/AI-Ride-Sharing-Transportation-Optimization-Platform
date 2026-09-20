@@ -27,6 +27,7 @@ import {
   useAuthTheme,
 } from '../components';
 import { DestinationSection } from './DestinationSection';
+import { SeatsOfferSection } from './SeatsOfferSection';
 
 const DESCRIPTION = 'Your destination, available seats and matching settings will appear here.';
 
@@ -35,6 +36,7 @@ interface Facts {
   driver: DriverProfileData | undefined;
   vehicle: VehicleData | undefined;
   destination: StoredDestination | null;
+  availableSeats: number | null;
 }
 
 /** What each requirement means to the driver: what is done, or what is left to do. */
@@ -62,6 +64,8 @@ function describeRequirement(requirement: GoOnlineRequirement, met: boolean, fac
       return met ? 'Passenger seats set' : 'Set your passenger seats in the Profile tab.';
     case 'destinationDeclared':
       return met ? 'Destination set' : 'Set your destination below.';
+    case 'seatsOffered':
+      return met ? 'Seats on offer set' : 'Choose how many seats you offer below.';
   }
 }
 
@@ -128,12 +132,14 @@ export function DriverHomeScreen({
   useEffect(() => {
     lastDestination.current = destination;
   }, [destination]);
+  const availableSeats = journey.status === 'ready' ? journey.journey.availableSeats : null;
 
   const facts: Facts = {
     accountActive: profile.status === 'ready' && profile.profile.status === 'ACTIVE',
     driver: driverData,
     vehicle: vehicleData,
     destination,
+    availableSeats,
   };
   const { eligible, checks } = evaluateGoOnline({
     accountActive: facts.accountActive,
@@ -141,6 +147,7 @@ export function DriverHomeScreen({
     vehicleStatus: vehicleData?.verificationStatus ?? null,
     seatCapacity: vehicleData?.seatCapacity ?? null,
     destinationDeclared: destination !== null,
+    availableSeats,
   });
 
   const change = async (status: 'ONLINE' | 'OFFLINE') => {
@@ -196,6 +203,12 @@ export function DriverHomeScreen({
             placesApiKey={placesApiKey}
             destination={destination}
             vehicleAdded={vehicleData !== undefined}
+          />
+          <SeatsOfferSection
+            seatCapacity={vehicleData?.seatCapacity ?? null}
+            hasJourney={destination !== null}
+            availableSeats={availableSeats}
+            editable={journey.status !== 'ready' || journey.journey.status === 'DRAFT'}
           />
         </>
       )}

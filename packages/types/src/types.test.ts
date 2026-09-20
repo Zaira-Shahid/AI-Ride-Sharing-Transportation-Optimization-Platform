@@ -7,6 +7,7 @@ import {
   NEW_JOURNEY_DEFAULTS,
   declareDestinationInputSchema,
   destinationSchema,
+  setJourneySeatsInputSchema,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
   setAvailabilityInputSchema,
@@ -276,6 +277,7 @@ describe('going online', () => {
     vehicleStatus: 'VERIFIED',
     seatCapacity: 4,
     destinationDeclared: true,
+    availableSeats: 3,
   } as const;
 
   it('lists the requirements in the order the driver sees them', () => {
@@ -286,6 +288,7 @@ describe('going online', () => {
       'vehicleVerified',
       'seatsSet',
       'destinationDeclared',
+      'seatsOffered',
     ]);
   });
 
@@ -304,6 +307,10 @@ describe('going online', () => {
     ['a rejected vehicle', { vehicleStatus: 'REJECTED' }, 'vehicleVerified'],
     ['no seats set', { seatCapacity: null }, 'seatsSet'],
     ['no destination', { destinationDeclared: false }, 'destinationDeclared'],
+    ['no seats on offer', { availableSeats: null }, 'seatsOffered'],
+    ['zero seats on offer', { availableSeats: 0 }, 'seatsOffered'],
+    ['a fraction of a seat on offer', { availableSeats: 2.5 }, 'seatsOffered'],
+    ['more seats than the vehicle has', { availableSeats: 5 }, 'seatsOffered'],
   ] as const)('does not let a driver with %s go online', (_label, change, requirement) => {
     const result = evaluateGoOnline({ ...ready, ...change });
     expect(result.eligible).toBe(false);
@@ -313,7 +320,7 @@ describe('going online', () => {
   it('reports no vehicle as missing, with no seats and no verification', () => {
     const result = evaluateGoOnline({ ...ready, vehicleStatus: null, seatCapacity: 4 });
     const unmet = result.checks.filter((check) => !check.met).map((check) => check.requirement);
-    expect(unmet).toEqual(['vehicleAdded', 'vehicleVerified', 'seatsSet']);
+    expect(unmet).toEqual(['vehicleAdded', 'vehicleVerified', 'seatsSet', 'seatsOffered']);
   });
 
   it('only accepts ONLINE and OFFLINE', () => {
@@ -381,5 +388,24 @@ describe('journeys and destinations', () => {
     expect(declareDestinationInputSchema.safeParse({ destination: office }).success).toBe(true);
     expect(declareDestinationInputSchema.safeParse({}).success).toBe(false);
     expect(declareDestinationInputSchema.safeParse(office).success).toBe(false);
+  });
+});
+
+describe('seats on offer', () => {
+  it('accepts whole seats from one to the largest vehicle', () => {
+    for (let availableSeats = 1; availableSeats <= SEAT_CAPACITY_MAX; availableSeats += 1) {
+      expect(setJourneySeatsInputSchema.safeParse({ availableSeats }).success).toBe(true);
+    }
+  });
+
+  it.each([0, -1, SEAT_CAPACITY_MAX + 1, 2.5, '3', null, undefined, Number.NaN])(
+    'refuses %s',
+    (availableSeats) => {
+      expect(setJourneySeatsInputSchema.safeParse({ availableSeats }).success).toBe(false);
+    },
+  );
+
+  it('needs the seats to be given', () => {
+    expect(setJourneySeatsInputSchema.safeParse({}).success).toBe(false);
   });
 });

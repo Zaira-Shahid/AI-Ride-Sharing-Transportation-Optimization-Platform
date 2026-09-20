@@ -20,6 +20,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'vehicleVerified',
   'seatsSet',
   'destinationDeclared',
+  'seatsOffered',
 ] as const;
 export type GoOnlineRequirement = (typeof GO_ONLINE_REQUIREMENTS)[number];
 
@@ -30,11 +31,14 @@ export interface GoOnlineFacts {
   vehicleStatus: unknown;
   seatCapacity: unknown;
   destinationDeclared: boolean;
+  /** Seats the driver offers on their open journey. */
+  availableSeats: unknown;
 }
 
 /**
  * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle, its
- * passenger seats set and a destination declared. This is the check that is enforced; the app shows the same list.
+ * passenger seats set, a destination declared and seats on offer chosen (at least one, never more
+ * than the vehicle has). This is the check that is enforced; the app shows the same list.
  */
 export function evaluateGoOnline(facts: GoOnlineFacts): {
   eligible: boolean;
@@ -48,6 +52,14 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
     vehicleVerified: facts.vehicleStatus === 'VERIFIED',
     seatsSet: hasVehicle && typeof facts.seatCapacity === 'number',
     destinationDeclared: facts.destinationDeclared,
+    // 1 is SEAT_CAPACITY_MIN; vehicles.ts imports this file, so it is not imported back here.
+    seatsOffered:
+      hasVehicle &&
+      typeof facts.seatCapacity === 'number' &&
+      typeof facts.availableSeats === 'number' &&
+      Number.isInteger(facts.availableSeats) &&
+      facts.availableSeats >= 1 &&
+      facts.availableSeats <= facts.seatCapacity,
   };
   const unmet = GO_ONLINE_REQUIREMENTS.filter((requirement) => !met[requirement]);
   return { eligible: unmet.length === 0, unmet };
@@ -106,6 +118,10 @@ export async function setAvailability(
           journey?.exists === true &&
           journey.get('driverId') === caller.uid &&
           journey.get('destination') != null,
+        availableSeats:
+          journey?.exists === true && journey.get('driverId') === caller.uid
+            ? journey.get('availableSeats')
+            : null,
       });
       if (!eligible) {
         throw new HttpsError('failed-precondition', 'You cannot go online yet.', { unmet });
