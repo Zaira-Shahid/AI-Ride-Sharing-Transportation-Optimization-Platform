@@ -1,5 +1,10 @@
 import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
-import { currentLocationPlace, isSamePlace, type StoredDestination } from '@ridemesh/types';
+import {
+  checkChosenPlace,
+  currentLocationPlace,
+  type ChosenPlaceProblem,
+  type StoredDestination,
+} from '@ridemesh/types';
 import { radius, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
@@ -22,12 +27,19 @@ const LOCATION_PROBLEMS: Partial<Record<LocationStatus, string>> = {
   unavailable: 'We could not find your location. Check your signal and try again.',
 };
 
-// A trip from a place to the same place is no trip, so it is refused, whichever of the two is being
-// chosen. "The same place" is decided by isSamePlace in @ridemesh/types.
+// A place that cannot be used, or that is the same place as the other one (a trip from a place to
+// the same place is no trip), is refused, whichever of the two is being chosen. Both are decided by
+// checkChosenPlace in @ridemesh/types.
+const UNUSABLE_PLACE = 'That place cannot be used for a trip. Please choose another.';
 const PICKUP_IS_DESTINATION =
   'Your pickup is the same place as your destination. Choose a different pickup.';
 const DESTINATION_IS_PICKUP =
   'Your destination is the same place as your pickup. Choose a different destination.';
+
+function refusal(problem: ChosenPlaceProblem, choosing: 'pickup' | 'destination'): string {
+  if (problem === 'UNUSABLE') return UNUSABLE_PLACE;
+  return choosing === 'pickup' ? PICKUP_IS_DESTINATION : DESTINATION_IS_PICKUP;
+}
 
 function LocateButton({
   status,
@@ -84,15 +96,15 @@ export function PassengerHomeScreen({
   const [bottomCover, setBottomCover] = useState(0);
 
   const choosePickup = (place: StoredDestination) => {
-    if (destination && isSamePlace(place, destination)) {
-      throw new PlaceRejectedError(PICKUP_IS_DESTINATION);
-    }
+    const problem = checkChosenPlace(place, destination);
+    if (problem) throw new PlaceRejectedError(refusal(problem, 'pickup'));
     setPickupProblem(null);
     setPickup(place);
   };
 
   const chooseDestination = (place: StoredDestination) => {
-    if (pickup && isSamePlace(place, pickup)) throw new PlaceRejectedError(DESTINATION_IS_PICKUP);
+    const problem = checkChosenPlace(place, pickup);
+    if (problem) throw new PlaceRejectedError(refusal(problem, 'destination'));
     setDestination(place);
   };
 
@@ -114,7 +126,8 @@ export function PassengerHomeScreen({
     if (location.status === 'ready' && location.point) {
       setPickupFromLocation(false);
       const here = currentLocationPlace(location.point);
-      if (destination && isSamePlace(here, destination)) setPickupProblem(PICKUP_IS_DESTINATION);
+      const problem = checkChosenPlace(here, destination);
+      if (problem) setPickupProblem(refusal(problem, 'pickup'));
       else setPickup(here);
     } else if (location.status === 'denied' || location.status === 'unavailable') {
       setPickupFromLocation(false);
