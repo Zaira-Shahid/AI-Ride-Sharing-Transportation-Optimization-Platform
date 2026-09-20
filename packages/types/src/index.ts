@@ -5,6 +5,7 @@ export * from './journey';
 export * from './location';
 export * from './roles';
 export * from './states';
+export * from './trip';
 export * from './user';
 export * from './verification';
 export * from './vehicle';

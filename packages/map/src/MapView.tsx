@@ -1,13 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import NativeMap, { Marker, UrlTile } from 'react-native-maps';
-import { DESTINATION_MARKER, LOCATION_MARKER } from './markers';
+import { DESTINATION_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
 import { TILE_ATTRIBUTION_TEXT, TILE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles';
 import type { MapViewProps } from './types';
 import { WORLD_CENTER, WORLD_ZOOM, frameMap } from './view';
 
 // A region this many degrees across is about a street; a whole world is about 360 wide.
 const POINT_SPAN = 0.01;
+const NO_INSETS = { top: 0, bottom: 0 };
+const FRAME_MARGIN = 32;
 const WORLD_SPAN = 360 / 2 ** (WORLD_ZOOM - 1);
 
 /**
@@ -15,26 +17,61 @@ const WORLD_SPAN = 360 / 2 ** (WORLD_ZOOM - 1);
  * fills its parent, and shows the destination and the device's location when there are any, framed
  * so both can be seen. The web build has its own file (MapView.web.tsx).
  */
-export function MapView({ destination, currentLocation }: MapViewProps) {
+export function MapView({
+  pickup,
+  destination,
+  currentLocation,
+  insets = NO_INSETS,
+}: MapViewProps) {
   const map = useRef<NativeMap | null>(null);
+  const height = useRef(0);
+  // Read when places change, so that a card growing does not move the map by itself.
+  const latestInsets = useRef(insets);
+  latestInsets.current = insets;
 
   useEffect(() => {
     const instance = map.current;
     if (!instance) return;
-    const framing = frameMap([destination, currentLocation]);
+    const framing = frameMap([pickup, destination, currentLocation]);
     if (framing.kind === 'bounds') {
+      const { top, bottom } = latestInsets.current;
       instance.fitToCoordinates([framing.southWest, framing.northEast], {
-        edgePadding: { top: 64, right: 64, bottom: 64, left: 64 },
+        edgePadding: {
+          top: top + FRAME_MARGIN,
+          right: FRAME_MARGIN,
+          bottom: bottom + FRAME_MARGIN,
+          left: FRAME_MARGIN,
+        },
         animated: true,
       });
+    } else if (framing.kind === 'point') {
+      // Put the place in the middle of the part that is not covered: move the centre of the map
+      // north by half the difference of the covers, in degrees.
+      const { top, bottom } = latestInsets.current;
+      const shift = height.current > 0 ? ((top - bottom) / 2 / height.current) * POINT_SPAN : 0;
+      instance.animateToRegion({
+        latitude: framing.center.latitude + shift,
+        longitude: framing.center.longitude,
+        latitudeDelta: POINT_SPAN,
+        longitudeDelta: POINT_SPAN,
+      });
     } else {
-      const span = framing.kind === 'point' ? POINT_SPAN : WORLD_SPAN;
-      instance.animateToRegion({ ...framing.center, latitudeDelta: span, longitudeDelta: span });
+      instance.animateToRegion({
+        ...framing.center,
+        latitudeDelta: WORLD_SPAN,
+        longitudeDelta: WORLD_SPAN,
+      });
     }
-  }, [destination, currentLocation]);
+  }, [pickup, destination, currentLocation]);
 
   return (
-    <View style={styles.fill} accessibilityLabel="Map">
+    <View
+      style={styles.fill}
+      accessibilityLabel="Map"
+      onLayout={(event) => {
+        height.current = event.nativeEvent.layout.height;
+      }}
+    >
       <NativeMap
         ref={map}
         style={styles.fill}
@@ -51,6 +88,9 @@ export function MapView({ destination, currentLocation }: MapViewProps) {
         showsUserLocation={false}
       >
         <UrlTile urlTemplate={TILE_URL_TEMPLATE} maximumZ={TILE_MAX_ZOOM} shouldReplaceMapContent />
+        {pickup ? (
+          <Marker coordinate={pickup} title={PICKUP_MARKER.label} pinColor={PICKUP_MARKER.color} />
+        ) : null}
         {destination ? (
           <Marker
             coordinate={destination}
