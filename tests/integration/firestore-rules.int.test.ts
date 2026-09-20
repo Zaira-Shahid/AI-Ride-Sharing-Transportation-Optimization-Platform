@@ -441,3 +441,89 @@ describe('vehicles', () => {
     await assertFails(deleteDoc(doc(staff, path)));
   });
 });
+
+describe('driverJourneys', () => {
+  const journey = (driverId: string, overrides: Record<string, unknown> = {}) => ({
+    driverId,
+    vehicleId: driverId,
+    origin: null,
+    destination: {
+      latitude: 51.5,
+      longitude: -0.02,
+      formattedAddress: 'Office',
+      placeId: null,
+    },
+    departureTime: null,
+    availableSeats: null,
+    maxDetourMinutes: null,
+    maxDetourDistance: null,
+    status: 'DRAFT',
+    currentLocation: null,
+    currentRoute: null,
+    createdAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+    updatedAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+    ...overrides,
+  });
+  const asDriver = (uid = 'driver-1', claims = verified('DRIVER')) =>
+    env.authenticatedContext(uid, claims).firestore();
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'driverJourneys/journey-1'), journey('driver-1'));
+      await setDoc(doc(db, 'driverJourneys/journey-2'), journey('driver-2'));
+    });
+  });
+
+  it('lets a verified driver read their own journey', async () => {
+    const snapshot = await assertSucceeds(getDoc(doc(asDriver(), 'driverJourneys/journey-1')));
+    expect(snapshot.get('status')).toBe('DRAFT');
+  });
+
+  it('keeps journeys apart, whatever their IDs', async () => {
+    await assertFails(getDoc(doc(asDriver(), 'driverJourneys/journey-2')));
+    await assertFails(getDoc(doc(asDriver('driver-2'), 'driverJourneys/journey-1')));
+  });
+
+  it('does not let a passenger read a journey, even one that names them', async () => {
+    const passenger = env.authenticatedContext('passenger-1', verified('PASSENGER')).firestore();
+    await assertFails(getDoc(doc(passenger, 'driverJourneys/journey-1')));
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'driverJourneys/journey-p'), journey('passenger-1'));
+    });
+    await assertFails(getDoc(doc(passenger, 'driverJourneys/journey-p')));
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = asDriver('driver-1', { email_verified: false, role: 'DRIVER' });
+    await assertFails(getDoc(doc(unverified, 'driverJourneys/journey-1')));
+    await assertFails(
+      getDoc(doc(env.unauthenticatedContext().firestore(), 'driverJourneys/journey-1')),
+    );
+  });
+
+  it('lets verified staff read any journey', async () => {
+    for (const role of ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      const db = env.authenticatedContext('staff-1', verified(role)).firestore();
+      await assertSucceeds(getDoc(doc(db, 'driverJourneys/journey-1')));
+    }
+  });
+
+  it('does not trust a role stored in a document', async () => {
+    const forger = env.authenticatedContext('forger-1', verified('PASSENGER')).firestore();
+    await assertFails(getDoc(doc(forger, 'driverJourneys/journey-1')));
+  });
+
+  it('denies every client write, so a driver cannot change or invent a journey', async () => {
+    const db = asDriver();
+    const path = 'driverJourneys/journey-1';
+    await assertFails(updateDoc(doc(db, path), { status: 'ACTIVE' }));
+    await assertFails(updateDoc(doc(db, path), { availableSeats: 6, maxDetourMinutes: 90 }));
+    await assertFails(setDoc(doc(db, path), journey('driver-1', { status: 'ACTIVE' })));
+    await assertFails(setDoc(doc(db, 'driverJourneys/new-one'), journey('driver-1')));
+    await assertFails(deleteDoc(doc(db, path)));
+    const staff = env.authenticatedContext('staff-1', verified('SUPER_ADMIN')).firestore();
+    await assertFails(updateDoc(doc(staff, path), { status: 'ACTIVE' }));
+    await assertFails(deleteDoc(doc(staff, path)));
+  });
+});

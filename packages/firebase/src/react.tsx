@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { FirebaseClient } from './client';
 import { subscribeToDriverProfile, type DriverProfileSnapshot } from './driver';
+import { subscribeToJourney, type JourneySnapshot } from './journey';
 import { subscribeToProfile, type ProfileSnapshot } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
 import { subscribeToVehicle, type VehicleSnapshot } from './vehicle';
@@ -116,32 +117,40 @@ export function useAuth(): AuthContextValue {
 type LiveState<Snapshot> = { status: 'loading' } | Snapshot | { status: 'error' };
 
 /** Follows one document of the signed-in person, keeping it up to date, with a retry. */
-function useLiveDocument<Snapshot>(
-  subscribe: (
-    client: Client,
-    uid: string,
-    onChange: (snapshot: Snapshot) => void,
-    onError: (error: unknown) => void,
-  ) => () => void,
+type Subscribe<Snapshot> = (
+  client: Client,
+  id: string,
+  onChange: (snapshot: Snapshot) => void,
+  onError: (error: unknown) => void,
+) => () => void;
+
+function useLiveSubscription<Snapshot>(
+  subscribe: Subscribe<Snapshot>,
+  id: string | undefined,
 ): LiveState<Snapshot> & { retry: () => void } {
-  const { client, user } = useAuth();
-  const uid = user?.uid;
+  const { client } = useAuth();
   const [state, setState] = useState<LiveState<Snapshot>>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setState({ status: 'loading' });
-    if (!uid) return undefined;
+    if (!id) return undefined;
     return subscribe(
       client,
-      uid,
+      id,
       (snapshot) => setState(snapshot),
       () => setState({ status: 'error' }),
     );
-  }, [client, uid, attempt, subscribe]);
+  }, [client, id, attempt, subscribe]);
 
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
   return { ...state, retry };
+}
+
+/** Follows a document keyed by the signed-in person's uid. */
+function useLiveDocument<Snapshot>(subscribe: Subscribe<Snapshot>) {
+  const { user } = useAuth();
+  return useLiveSubscription(subscribe, user?.uid);
 }
 
 export type ProfileState = LiveState<ProfileSnapshot>;
@@ -163,4 +172,12 @@ export type VehicleState = LiveState<VehicleSnapshot>;
 /** The signed-in driver's vehicles/{uid} document, kept up to date. Use it in driver screens only. */
 export function useVehicle() {
   return useLiveDocument(subscribeToVehicle);
+}
+
+export type JourneyState = LiveState<JourneySnapshot>;
+
+/** The driver's journey (driverJourneys/{id}), kept up to date. Missing when there is none. */
+export function useJourney(journeyId: string | null): JourneyState & { retry: () => void } {
+  const live = useLiveSubscription(subscribeToJourney, journeyId ?? undefined);
+  return journeyId ? live : { status: 'missing', retry: live.retry };
 }

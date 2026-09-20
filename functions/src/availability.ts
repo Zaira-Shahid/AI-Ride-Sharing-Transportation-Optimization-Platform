@@ -19,6 +19,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'vehicleAdded',
   'vehicleVerified',
   'seatsSet',
+  'destinationDeclared',
 ] as const;
 export type GoOnlineRequirement = (typeof GO_ONLINE_REQUIREMENTS)[number];
 
@@ -28,11 +29,12 @@ export interface GoOnlineFacts {
   /** Null when the driver has not added a vehicle. */
   vehicleStatus: unknown;
   seatCapacity: unknown;
+  destinationDeclared: boolean;
 }
 
 /**
- * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle and its
- * passenger seats set. This is the check that is enforced; the app shows the same list.
+ * Whether a driver may go online: an ACTIVE account, a VERIFIED driver, a VERIFIED vehicle, its
+ * passenger seats set and a destination declared. This is the check that is enforced; the app shows the same list.
  */
 export function evaluateGoOnline(facts: GoOnlineFacts): {
   eligible: boolean;
@@ -45,6 +47,7 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
     vehicleAdded: hasVehicle,
     vehicleVerified: facts.vehicleStatus === 'VERIFIED',
     seatsSet: hasVehicle && typeof facts.seatCapacity === 'number',
+    destinationDeclared: facts.destinationDeclared,
   };
   const unmet = GO_ONLINE_REQUIREMENTS.filter((requirement) => !met[requirement]);
   return { eligible: unmet.length === 0, unmet };
@@ -82,6 +85,11 @@ export async function setAvailability(
       tx.get(driverRef),
       tx.get(vehicleRef),
     ]);
+    const journeyId: unknown = driver.get('currentJourneyId');
+    const journey =
+      typeof journeyId === 'string' && journeyId
+        ? await tx.get(firestore.collection('driverJourneys').doc(journeyId))
+        : undefined;
     if (!user.exists || !driver.exists) {
       throw new HttpsError('failed-precondition', 'This account cannot change availability.');
     }
@@ -93,6 +101,11 @@ export async function setAvailability(
         driverStatus: driver.get('verificationStatus'),
         vehicleStatus: vehicle.exists ? vehicle.get('verificationStatus') : null,
         seatCapacity: vehicle.exists ? vehicle.get('seatCapacity') : null,
+        // The journey must be this driver's own and have a destination.
+        destinationDeclared:
+          journey?.exists === true &&
+          journey.get('driverId') === caller.uid &&
+          journey.get('destination') != null,
       });
       if (!eligible) {
         throw new HttpsError('failed-precondition', 'You cannot go online yet.', { unmet });

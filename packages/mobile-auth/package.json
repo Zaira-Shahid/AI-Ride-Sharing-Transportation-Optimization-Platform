@@ -14,6 +14,7 @@
   "dependencies": {
     "@ridemesh/config": "*",
     "@ridemesh/firebase": "*",
+    "@ridemesh/maps": "*",
     "@ridemesh/types": "*",
     "@ridemesh/ui": "*",
     "firebase": "^12.19.0"

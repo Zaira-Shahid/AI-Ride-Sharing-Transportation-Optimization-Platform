@@ -16,6 +16,9 @@ const clientEnv = {
   EXPO_PUBLIC_FIREBASE_EMULATOR_HOST: '127.0.0.1',
 };
 
+// A fake Maps key. The tests answer Google's Places requests themselves, so nothing reaches Google.
+const driverEnv = { ...clientEnv, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'e2e-places-key' };
+
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 90_000,
@@ -43,7 +46,7 @@ export default defineConfig({
       url: 'http://localhost:8082',
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
-      env: clientEnv,
+      env: driverEnv,
     },
   ],
 });

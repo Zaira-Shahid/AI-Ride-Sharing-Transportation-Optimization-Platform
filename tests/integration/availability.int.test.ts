@@ -3,6 +3,7 @@ import { httpsCallable } from 'firebase/functions';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   describeAuthError,
+  declareDestination,
   saveVehicle,
   setAvailability,
   setVehicleCapacity,
@@ -11,6 +12,12 @@ import {
 } from '../../packages/firebase/src';
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
 
+const OFFICE = {
+  latitude: 51.5049,
+  longitude: -0.0195,
+  formattedAddress: '1 Canada Square, London E14 5AB, UK',
+  placeId: 'place-office',
+};
 let plateCounter = 0;
 const uniquePlate = () => `AVL-${Date.now() % 100000}-${plateCounter++}`;
 
@@ -65,6 +72,7 @@ async function eligibleDriver(prefix: string) {
   const driver = await driverWithVehicle(prefix);
   await driverRef(driver.uid).update({ verificationStatus: 'VERIFIED' });
   await vehicleRef(driver.uid).update({ verificationStatus: 'VERIFIED' });
+  await declareDestination(driver.client, OFFICE);
   return driver;
 }
 
@@ -151,7 +159,15 @@ describe('setAvailability: going online and offline (functions + firestore emula
       call(driver.client, 'setAvailability', { status: 'ONLINE' }),
     ).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['driverVerified', 'vehicleAdded', 'vehicleVerified', 'seatsSet'] },
+      details: {
+        unmet: [
+          'driverVerified',
+          'vehicleAdded',
+          'vehicleVerified',
+          'seatsSet',
+          'destinationDeclared',
+        ],
+      },
     });
   });
 
