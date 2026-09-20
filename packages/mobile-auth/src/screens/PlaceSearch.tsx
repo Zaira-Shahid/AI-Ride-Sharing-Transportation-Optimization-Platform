@@ -32,6 +32,18 @@ export function placesMessage(error: unknown): string {
   }
 }
 
+/**
+ * Thrown by an onPick that does not want the place it was given (for example a pickup that is the
+ * same place as the destination). Its message is shown to the person as it is, so it must already be
+ * written for them.
+ */
+export class PlaceRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlaceRejectedError';
+  }
+}
+
 interface Props {
   /** The Maps Platform key for this build, if one was configured. */
   placesApiKey: string | undefined;
@@ -40,7 +52,8 @@ interface Props {
   /**
    * Called with the place the person picked: coordinates and address from Google, never typed by
    * the person. What happens to it (saving it, keeping it in the app) is up to the caller; if this
-   * throws, the search shows why and stays open so the person can pick again.
+   * throws, the search shows why and stays open so the person can pick again (a PlaceRejectedError
+   * is shown with its own message; anything else gets a general one).
    */
   onPick: (place: StoredDestination) => Promise<void> | void;
   /** Describes the wait after a suggestion is picked, for screen readers. */
@@ -107,7 +120,11 @@ export function PlaceSearch({ placesApiKey, label, onPick, busyLabel }: Props) {
       setSession(createSessionToken());
     } catch (error) {
       setPickFailure(
-        error instanceof PlacesError ? placesMessage(error) : describeAuthError(error).message,
+        error instanceof PlaceRejectedError
+          ? error.message
+          : error instanceof PlacesError
+            ? placesMessage(error)
+            : describeAuthError(error).message,
       );
     } finally {
       setBusy(false);

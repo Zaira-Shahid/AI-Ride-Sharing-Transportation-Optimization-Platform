@@ -276,6 +276,11 @@ run unless the Auth and Firestore emulators are configured.
   (an e2e test checks that no function is called and that it is gone after a reload). The browser or
   phone shows its own permission prompt, and a refusal is handled with a plain message. Phones use
   the "while using the app" permission only, never background location.
+- **A pickup taken from the device's location is still only in the app.** It is one reading, kept
+  in memory with the destination, and sent to no server until the trip request is submitted
+  (Module 3.7). That module will store exact coordinates of a private person's position on
+  `tripRequests`, so it must decide who can read them, and how long they are kept, before it is
+  built (spec section 56).
 - **The map tile provider sees where the map is looking.** Every tile request carries the tile's
   zoom and position, which is roughly the area the passenger is viewing (including around their
   own location), plus their IP address and the app's referrer. That is a disclosure to

@@ -5,10 +5,23 @@ export interface MapPoint {
 }
 
 export interface MapViewProps {
+  /** Where the person will be picked up, when it has been chosen. */
+  pickup: MapPoint | null;
   /** The place the person is heading to, when one has been picked. */
   destination: MapPoint | null;
   /** Where the device is, when the person has allowed it and it has been found. */
   currentLocation: MapPoint | null;
+  /**
+   * How much of the map, in pixels, is covered at the top and the bottom by things drawn over it
+   * (the search and the buttons). Places are framed in the part that is left, and the zoom buttons
+   * are kept out of the covered part. Defaults to nothing covered.
+   */
+  insets?: MapInsets;
+}
+
+export interface MapInsets {
+  top: number;
+  bottom: number;
 }
 
 /**

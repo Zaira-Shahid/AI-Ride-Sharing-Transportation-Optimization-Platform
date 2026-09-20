@@ -1,6 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
-  PASSWORD,
   PLACES,
   apps,
   createAccount,
@@ -8,67 +7,12 @@ import {
   openLogin,
   submitLogin,
   uniqueEmail,
+  PASSWORD,
 } from './helpers';
+import { countLocationRequests, newPassenger, overlaps, watchMap } from './map-helpers';
 
-const [passenger, driver] = apps;
+const [, driver] = apps;
 const { office, station } = PLACES;
-
-// A one-pixel PNG, so the map has a tile to draw without reaching OpenStreetMap.
-const TILE_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-  'base64',
-);
-
-interface Watch {
-  tiles: string[];
-  otherMapServers: string[];
-  serverCalls: string[];
-}
-
-/** Answers OpenStreetMap's tile requests itself, and records who the page talks to. */
-async function watchMap(page: Page): Promise<Watch> {
-  const watch: Watch = { tiles: [], otherMapServers: [], serverCalls: [] };
-  await page.route('https://tile.openstreetmap.org/**', (route) => {
-    watch.tiles.push(route.request().url());
-    return route.fulfill({ contentType: 'image/png', body: TILE_PNG });
-  });
-  page.on('request', (request) => {
-    const url = request.url();
-    if (/maps\.googleapis\.com|maps\.gstatic\.com|mt\d?\.google\.com/.test(url)) {
-      watch.otherMapServers.push(url);
-    }
-    if (url.includes(':5001/')) watch.serverCalls.push(url);
-  });
-  return watch;
-}
-
-/** Counts how often the page asks the browser for its location. */
-async function countLocationRequests(page: Page) {
-  // Written as text because it runs in the browser, and these tests are not typed for the DOM.
-  await page.addInitScript(`
-    (() => {
-      const geolocation = navigator.geolocation;
-      const original = geolocation.getCurrentPosition.bind(geolocation);
-      window.__locationRequests = 0;
-      geolocation.getCurrentPosition = (...args) => {
-        window.__locationRequests += 1;
-        return original(...args);
-      };
-    })();
-  `);
-  return () => page.evaluate<number>('window.__locationRequests');
-}
-
-async function newPassenger(page: Page, prefix: string) {
-  const email = uniqueEmail(prefix);
-  await createAccount(email, passenger.role, true, 'Pat Passenger', {
-    name: 'Pat Passenger',
-    phone: null,
-  });
-  await openLogin(page, passenger.url, passenger.title);
-  await submitLogin(page, email, PASSWORD);
-  await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeVisible();
-}
 
 const map = (page: Page) => page.getByRole('region', { name: 'Map' });
 const destinationMarker = (page: Page) => map(page).getByTitle('Destination');
@@ -78,18 +22,6 @@ const suggestion = (page: Page, text: string) =>
   page.getByLabel('Where to', { exact: true }).getByRole('button', { name: text });
 const locate = (page: Page, label = 'Show my location') =>
   page.getByRole('button', { name: label, exact: true });
-
-interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-function overlaps(a: Box | null, b: Box | null): boolean {
-  if (!a || !b) return false;
-  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-}
 
 /** A Bristol position, for the device's location. */
 const BRISTOL = { latitude: station.latitude, longitude: station.longitude };
@@ -109,6 +41,7 @@ test.describe('passenger app: map', () => {
     const zoomOut = page.getByRole('button', { name: 'Zoom out' });
     const cards = [
       page.getByLabel('Where to', { exact: true }),
+      page.getByLabel('Pickup', { exact: true }),
       page.getByLabel('Your location', { exact: true }),
     ];
     for (const control of [zoomIn, zoomOut]) {
