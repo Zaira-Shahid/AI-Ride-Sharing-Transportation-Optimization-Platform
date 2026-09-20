@@ -1,6 +1,6 @@
 # Roles, access and security
 
-Status: through Module 2.7 (seat availability). Module 1.1 defined the role system and Firestore
+Status: through Module 2.8 (maximum detour). Module 1.1 defined the role system and Firestore
 rules; registration, login, logout, password reset, profile editing, the driver profile and the
 vehicle are built on top of it.
 
@@ -117,7 +117,7 @@ when the person verifies.
   Verification below), not by writing the document. Later Phase 2 modules open only the specific
   fields each one owns.
 - A new driver starts `PENDING` and `OFFLINE`, with rating `null`, 0 trips and no verification
-  reason; detour settings stay `null` until the driver sets them.
+  reason; its own detour fields stay `null` and unused (the detour limits live on the journey).
 - Creation writes a `DRIVER_PROFILE_CREATED` audit entry.
 - Nothing about a driver's verification is enforced elsewhere yet. Access to journeys and matching
   will check it in the modules that own them. Going online (Module 2.5) already requires it.
@@ -254,6 +254,12 @@ run unless the Auth and Firestore emulators are configured.
   within 1 and the vehicle's capacity, and only on the driver's own journey. Lowering the vehicle's
   seats lowers the journey's in the same transaction, so a journey can never offer more seats than
   the vehicle holds. Seat changes are not audited.
+- **The detour limits are checked on the server too.** `setJourneyDetour` accepts whole minutes
+  from 1 to 60 and whole kilometres from 1 to 30, both required, on the driver's own `DRAFT`
+  journey only; a client write of `maxDetourMinutes` or `maxDetourDistance` is denied by the rules,
+  and every other field in the request is ignored. Going online counts the limits only when both
+  are in range and on the driver's own journey. The limits are the driver's own claim and are not
+  audited; matching must treat them as a constraint the driver set, not as verified data.
 - **The Maps key is public.** Expo bundles `EXPO_PUBLIC_*` values into the app, so anyone can read
   it. Treat it as identifying the app, not as a secret: restrict it to the Places API (New) and to
   the driver app (bundle ID / package name / web origin), set a quota and a budget alert in Google

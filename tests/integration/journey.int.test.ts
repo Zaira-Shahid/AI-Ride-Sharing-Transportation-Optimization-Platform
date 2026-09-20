@@ -6,6 +6,7 @@ import {
   describeAuthError,
   saveVehicle,
   setAvailability,
+  setJourneyDetour,
   setJourneySeats,
   setVehicleCapacity,
   subscribeToJourney,
@@ -487,7 +488,13 @@ describe('setJourneySeats: seats on offer (functions + firestore emulators)', ()
         .poll(() => snapshots.at(-1))
         .toEqual({
           status: 'ready',
-          journey: { status: 'DRAFT', destination: OFFICE, availableSeats: 3 },
+          journey: {
+            status: 'DRAFT',
+            destination: OFFICE,
+            availableSeats: 3,
+            maxDetourMinutes: null,
+            maxDetourDistance: null,
+          },
         });
     } finally {
       unsubscribe();
@@ -514,7 +521,10 @@ describe('seats on offer and going online', () => {
   }
 
   it('is needed to go online, and then allows it', async () => {
-    const { client } = await readyDriver('seats-online');
+    const { client, id } = await readyDriver('seats-online');
+    await admin()
+      .firestore.doc(`driverJourneys/${id}`)
+      .update({ maxDetourMinutes: 10, maxDetourDistance: 5 });
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
       details: { unmet: ['seatsOffered'] },
@@ -526,6 +536,9 @@ describe('seats on offer and going online', () => {
 
   it('does not count seats the vehicle cannot hold, or none at all', async () => {
     const { client, id } = await readyDriver('seats-online-bad');
+    await admin()
+      .firestore.doc(`driverJourneys/${id}`)
+      .update({ maxDetourMinutes: 10, maxDetourDistance: 5 });
     for (const availableSeats of [5, 0, null, 2.5]) {
       await admin().firestore.doc(`driverJourneys/${id}`).update({ availableSeats });
       await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
@@ -537,10 +550,271 @@ describe('seats on offer and going online', () => {
 
   it('can be changed while the driver is online, and the driver stays online', async () => {
     const { client, uid } = await readyDriver('seats-online-change');
+    await setJourneyDetour(client, 10, 5);
     await setJourneySeats(client, 2);
     await setAvailability(client, 'ONLINE');
 
     expect(await setJourneySeats(client, 3)).toBe('updated');
+    expect((await driverDoc(uid))?.availabilityStatus).toBe('ONLINE');
+  });
+});
+
+describe('setJourneyDetour: maximum detour (functions + firestore emulators)', () => {
+  /** A driver with a vehicle and a destination, so a journey exists to put limits on. */
+  async function driverWithJourney(prefix: string) {
+    const { client, uid } = await driver(prefix);
+    await declareDestination(client, OFFICE);
+    return { client, uid, id: await currentJourneyId(uid) };
+  }
+  const detourCall = (client: Client, input: unknown) => call(client, 'setJourneyDetour', input);
+
+  it('sets both limits on the journey and does nothing when they are unchanged', async () => {
+    const { client, id } = await driverWithJourney('detour-set');
+    expect(await journeyDoc(id)).toMatchObject({ maxDetourMinutes: null, maxDetourDistance: null });
+
+    expect(await setJourneyDetour(client, 10, 5)).toBe('updated');
+    expect(await journeyDoc(id)).toMatchObject({ maxDetourMinutes: 10, maxDetourDistance: 5 });
+
+    expect(await setJourneyDetour(client, 10, 5)).toBe('unchanged');
+    expect(await setJourneyDetour(client, 10, 8)).toBe('updated');
+    expect(await setJourneyDetour(client, 15, 8)).toBe('updated');
+    expect(await journeyDoc(id)).toMatchObject({ maxDetourMinutes: 15, maxDetourDistance: 8 });
+  });
+
+  it('accepts the edges of both ranges', async () => {
+    const { client, id } = await driverWithJourney('detour-edges');
+    for (const [minutes, km] of [
+      [1, 1],
+      [60, 30],
+    ] as const) {
+      await setJourneyDetour(client, minutes, km);
+      expect(await journeyDoc(id)).toMatchObject({
+        maxDetourMinutes: minutes,
+        maxDetourDistance: km,
+      });
+    }
+  });
+
+  it('keeps the rest of the journey, and leaves the driver profile fields alone', async () => {
+    const { client, uid, id } = await driverWithJourney('detour-rest');
+    await setJourneyDetour(client, 20, 10);
+
+    expect(await journeyDoc(id)).toMatchObject({
+      driverId: uid,
+      destination: OFFICE,
+      status: 'DRAFT',
+      availableSeats: null,
+    });
+    expect(await driverDoc(uid)).toMatchObject({ maxDetourMinutes: null, maxDetourDistance: null });
+    expect(await createdAudit(id)).toHaveLength(1);
+  });
+
+  it('keeps the limits when the destination changes, and does not touch the seats', async () => {
+    const { client, id } = await driverWithJourney('detour-dest');
+    await setJourneyDetour(client, 10, 5);
+    await declareDestination(client, HOME);
+    expect(await journeyDoc(id)).toMatchObject({
+      maxDetourMinutes: 10,
+      maxDetourDistance: 5,
+      availableSeats: null,
+    });
+  });
+
+  it.each([
+    ['zero minutes', { maxDetourMinutes: 0, maxDetourDistance: 5 }],
+    ['more than 60 minutes', { maxDetourMinutes: 61, maxDetourDistance: 5 }],
+    ['zero kilometres', { maxDetourMinutes: 10, maxDetourDistance: 0 }],
+    ['more than 30 kilometres', { maxDetourMinutes: 10, maxDetourDistance: 31 }],
+    ['fractions', { maxDetourMinutes: 7.5, maxDetourDistance: 2.5 }],
+    ['negative numbers', { maxDetourMinutes: -5, maxDetourDistance: -1 }],
+    ['text', { maxDetourMinutes: '10', maxDetourDistance: '5' }],
+    ['only the minutes', { maxDetourMinutes: 10 }],
+    ['only the kilometres', { maxDetourDistance: 5 }],
+    ['nothing', {}],
+  ])('rejects %s', async (_label, input) => {
+    const { client, id } = await driverWithJourney('detour-invalid');
+    await expect(detourCall(client, input)).rejects.toMatchObject({
+      code: 'functions/invalid-argument',
+    });
+    expect(await journeyDoc(id)).toMatchObject({ maxDetourMinutes: null, maxDetourDistance: null });
+  });
+
+  it('ignores anything else in the request', async () => {
+    const { client, uid, id } = await driverWithJourney('detour-extra');
+    await detourCall(client, {
+      maxDetourMinutes: 10,
+      maxDetourDistance: 5,
+      driverId: 'someone-else',
+      status: 'ACTIVE',
+      availableSeats: 6,
+      destination: HOME,
+    });
+    expect(await journeyDoc(id)).toMatchObject({
+      driverId: uid,
+      status: 'DRAFT',
+      destination: OFFICE,
+      availableSeats: null,
+      maxDetourMinutes: 10,
+      maxDetourDistance: 5,
+    });
+  });
+
+  it('needs a destination first', async () => {
+    const noJourney = await driver('detour-nojourney');
+    await expect(
+      detourCall(noJourney.client, { maxDetourMinutes: 10, maxDetourDistance: 5 }),
+    ).rejects.toMatchObject({ code: 'functions/failed-precondition' });
+    let failure;
+    try {
+      await setJourneyDetour(noJourney.client, 10, 5);
+    } catch (error) {
+      failure = describeAuthError(error);
+    }
+    expect(failure?.kind).toBe('permission');
+    expect(await journeysOf(noJourney.uid)).toHaveLength(0);
+  });
+
+  it('refuses to change a journey that has moved past draft', async () => {
+    const { client, id } = await driverWithJourney('detour-active');
+    await setJourneyDetour(client, 10, 5);
+    await admin().firestore.doc(`driverJourneys/${id}`).update({ status: 'ACTIVE' });
+
+    await expect(
+      detourCall(client, { maxDetourMinutes: 20, maxDetourDistance: 10 }),
+    ).rejects.toMatchObject({ code: 'functions/failed-precondition' });
+    expect(await journeyDoc(id)).toMatchObject({ maxDetourMinutes: 10, maxDetourDistance: 5 });
+  });
+
+  it("refuses when the driver points at someone else's journey, and a suspended driver", async () => {
+    const mine = await driverWithJourney('detour-mine');
+    const theirs = await driverWithJourney('detour-theirs');
+    await admin().firestore.doc(`drivers/${mine.uid}`).update({ currentJourneyId: theirs.id });
+    await expect(
+      detourCall(mine.client, { maxDetourMinutes: 10, maxDetourDistance: 5 }),
+    ).rejects.toMatchObject({ code: 'functions/failed-precondition' });
+    expect(await journeyDoc(theirs.id)).toMatchObject({ maxDetourMinutes: null });
+
+    const suspended = await driverWithJourney('detour-suspended');
+    await admin().firestore.doc(`users/${suspended.uid}`).update({ status: 'SUSPENDED' });
+    await expect(
+      detourCall(suspended.client, { maxDetourMinutes: 10, maxDetourDistance: 5 }),
+    ).rejects.toMatchObject({ code: 'functions/failed-precondition' });
+  });
+
+  it('refuses callers who are not verified drivers', async () => {
+    const input = { maxDetourMinutes: 10, maxDetourDistance: 5 };
+    await expect(detourCall(createClient(), input)).rejects.toMatchObject({
+      code: 'functions/unauthenticated',
+    });
+    const callers = [
+      await person('PASSENGER', 'detour-pass'),
+      await person('DRIVER', 'detour-unv', false),
+    ];
+    for (const caller of callers) {
+      await expect(detourCall(caller.client, input)).rejects.toMatchObject({
+        code: 'functions/permission-denied',
+      });
+    }
+  });
+
+  it('follows the limits live', async () => {
+    const { client, id } = await driverWithJourney('detour-live');
+    const snapshots: JourneySnapshot[] = [];
+    const unsubscribe = subscribeToJourney(
+      client,
+      id,
+      (snapshot) => snapshots.push(snapshot),
+      (error) => {
+        throw error;
+      },
+    );
+    try {
+      await setJourneyDetour(client, 15, 10);
+      await expect
+        .poll(() => snapshots.at(-1))
+        .toEqual({
+          status: 'ready',
+          journey: {
+            status: 'DRAFT',
+            destination: OFFICE,
+            availableSeats: null,
+            maxDetourMinutes: 15,
+            maxDetourDistance: 10,
+          },
+        });
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('refuses a direct client write of the limits', async () => {
+    const { client, id } = await driverWithJourney('detour-direct');
+    await expect(
+      updateDoc(doc(client.db, `driverJourneys/${id}`), { maxDetourMinutes: 10 }),
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+    expect((await journeyDoc(id))?.maxDetourMinutes).toBeNull();
+  });
+});
+
+describe('the maximum detour and going online', () => {
+  async function readyDriver(prefix: string) {
+    const { client, uid } = await driver(prefix);
+    await setVehicleCapacity(client, 4);
+    await admin().firestore.doc(`drivers/${uid}`).update({ verificationStatus: 'VERIFIED' });
+    await admin().firestore.doc(`vehicles/${uid}`).update({ verificationStatus: 'VERIFIED' });
+    await declareDestination(client, OFFICE);
+    await setJourneySeats(client, 2);
+    return { client, uid, id: await currentJourneyId(uid) };
+  }
+
+  it('is needed to go online, and then allows it', async () => {
+    const { client } = await readyDriver('detour-online');
+    await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+      details: { unmet: ['detourSet'] },
+    });
+
+    await setJourneyDetour(client, 10, 5);
+    expect(await setAvailability(client, 'ONLINE')).toBe('updated');
+  });
+
+  it('needs both limits, each within its range', async () => {
+    const { client, id } = await readyDriver('detour-online-bad');
+    const journey = admin().firestore.doc(`driverJourneys/${id}`);
+    for (const [maxDetourMinutes, maxDetourDistance] of [
+      [10, null],
+      [null, 5],
+      [0, 5],
+      [61, 5],
+      [10, 0],
+      [10, 31],
+      [7.5, 5],
+      [10, 2.5],
+    ]) {
+      await journey.update({ maxDetourMinutes, maxDetourDistance });
+      await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
+        code: 'functions/failed-precondition',
+        details: { unmet: ['detourSet'] },
+      });
+    }
+  });
+
+  it("does not count someone else's journey", async () => {
+    const { client, id } = await readyDriver('detour-online-other');
+    await setJourneyDetour(client, 10, 5);
+    await admin().firestore.doc(`driverJourneys/${id}`).update({ driverId: 'other' });
+    await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
+      code: 'functions/failed-precondition',
+      details: { unmet: ['destinationDeclared', 'seatsOffered', 'detourSet'] },
+    });
+  });
+
+  it('can be changed while the driver is online, and the driver stays online', async () => {
+    const { client, uid } = await readyDriver('detour-online-change');
+    await setJourneyDetour(client, 10, 5);
+    await setAvailability(client, 'ONLINE');
+
+    expect(await setJourneyDetour(client, 20, 10)).toBe('updated');
     expect((await driverDoc(uid))?.availabilityStatus).toBe('ONLINE');
   });
 });
@@ -558,12 +832,13 @@ describe('the destination and going online', () => {
     const { client, uid } = await readyExceptDestination('jny-online');
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared', 'seatsOffered'] },
+      details: { unmet: ['destinationDeclared', 'seatsOffered', 'detourSet'] },
     });
     expect((await driverDoc(uid))?.availabilityStatus).toBe('OFFLINE');
 
     await declareDestination(client, OFFICE);
     await setJourneySeats(client, 2);
+    await setJourneyDetour(client, 10, 5);
     expect(await setAvailability(client, 'ONLINE')).toBe('updated');
   });
 
@@ -571,6 +846,7 @@ describe('the destination and going online', () => {
     const { client, uid } = await readyExceptDestination('jny-online-change');
     await declareDestination(client, OFFICE);
     await setJourneySeats(client, 2);
+    await setJourneyDetour(client, 10, 5);
     await setAvailability(client, 'ONLINE');
 
     expect(await declareDestination(client, HOME)).toBe('updated');
@@ -581,6 +857,7 @@ describe('the destination and going online', () => {
     const { client, uid } = await readyExceptDestination('jny-online-bad');
     await declareDestination(client, OFFICE);
     await setJourneySeats(client, 2);
+    await setJourneyDetour(client, 10, 5);
     const id = await currentJourneyId(uid);
 
     await admin().firestore.doc(`driverJourneys/${id}`).update({ destination: null });
@@ -594,7 +871,7 @@ describe('the destination and going online', () => {
       .update({ destination: OFFICE, driverId: 'other' });
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared', 'seatsOffered'] },
+      details: { unmet: ['destinationDeclared', 'seatsOffered', 'detourSet'] },
     });
   });
 });
@@ -619,7 +896,13 @@ describe('reading a journey as the driver (real auth tokens)', () => {
         .poll(() => snapshots.at(-1))
         .toEqual({
           status: 'ready',
-          journey: { status: 'DRAFT', destination: OFFICE, availableSeats: null },
+          journey: {
+            status: 'DRAFT',
+            destination: OFFICE,
+            availableSeats: null,
+            maxDetourMinutes: null,
+            maxDetourDistance: null,
+          },
         });
 
       await declareDestination(client, HOME);
@@ -627,7 +910,13 @@ describe('reading a journey as the driver (real auth tokens)', () => {
         .poll(() => snapshots.at(-1))
         .toEqual({
           status: 'ready',
-          journey: { status: 'DRAFT', destination: HOME, availableSeats: null },
+          journey: {
+            status: 'DRAFT',
+            destination: HOME,
+            availableSeats: null,
+            maxDetourMinutes: null,
+            maxDetourDistance: null,
+          },
         });
     } finally {
       unsubscribe();

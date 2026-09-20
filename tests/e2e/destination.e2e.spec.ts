@@ -152,11 +152,14 @@ test.describe('driver app: destination', () => {
     await search(page).fill('canary');
     await suggestion(page, office.text).click();
 
-    // The destination is not the last thing: seats on offer still have to be chosen.
+    // The destination is not the last thing: seats on offer and the detour still have to be chosen.
     await expect(checklist(page).getByText('Destination set')).toBeVisible();
     await expect(goOnline(page)).toBeDisabled();
     await page.getByRole('radio', { name: '2', exact: true }).click();
     await page.getByRole('button', { name: 'Save seats' }).click();
+    await page.getByRole('radio', { name: '10 min', exact: true }).click();
+    await page.getByRole('radio', { name: '5 km', exact: true }).click();
+    await page.getByRole('button', { name: 'Save detour' }).click();
 
     await expect(goOnline(page)).toBeEnabled();
     await expect(checklist(page)).toHaveCount(0);

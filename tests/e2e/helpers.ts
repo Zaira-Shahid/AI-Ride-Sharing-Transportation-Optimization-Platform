@@ -369,6 +369,8 @@ export async function writeJourneyDoc(
   uid: string,
   place: Place = PLACES.office,
   availableSeats: number | null = null,
+  /** Extra minutes and kilometres the driver accepts; null (the default) means not chosen yet. */
+  detour: { minutes: number; km: number } | null = null,
 ) {
   const now = new Date().toISOString();
   const response = await fetch(`${firestoreDocs}/driverJourneys/${journeyIdOf(uid)}`, {
@@ -392,8 +394,10 @@ export async function writeJourneyDoc(
         departureTime: { nullValue: null },
         availableSeats:
           availableSeats === null ? { nullValue: null } : { integerValue: String(availableSeats) },
-        maxDetourMinutes: { nullValue: null },
-        maxDetourDistance: { nullValue: null },
+        maxDetourMinutes:
+          detour === null ? { nullValue: null } : { integerValue: String(detour.minutes) },
+        maxDetourDistance:
+          detour === null ? { nullValue: null } : { integerValue: String(detour.km) },
         status: { stringValue: 'DRAFT' },
         currentLocation: { nullValue: null },
         currentRoute: { nullValue: null },
@@ -433,6 +437,14 @@ export async function readDriverJourney(uid: string) {
       fields.availableSeats?.integerValue === undefined
         ? null
         : Number(fields.availableSeats.integerValue),
+    maxDetourMinutes:
+      fields.maxDetourMinutes?.integerValue === undefined
+        ? null
+        : Number(fields.maxDetourMinutes.integerValue),
+    maxDetourDistance:
+      fields.maxDetourDistance?.integerValue === undefined
+        ? null
+        : Number(fields.maxDetourDistance.integerValue),
     address: place?.formattedAddress?.stringValue,
     latitude: place?.latitude?.doubleValue,
     longitude: place?.longitude?.doubleValue,
