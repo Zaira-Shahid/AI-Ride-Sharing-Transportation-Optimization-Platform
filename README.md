@@ -11,7 +11,7 @@ the single source of truth for scope, sequencing and the definition of done.
 
 ## Status
 
-Phase 3, Module 3.5 (time preferences). Phase 2 (driver and vehicle) is complete. Phase 0 and Phase 1 (roles, registration, login, logout,
+Phase 3, Module 3.6 (flexibility settings). Phase 2 (driver and vehicle) is complete. Phase 0 and Phase 1 (roles, registration, login, logout,
 password reset and profile editing) are complete. Passengers and drivers can register, verify their email, sign in, stay signed
 in, reset a forgotten password, edit their name and phone number, and sign out from the Profile
 tab. Drivers also get a driver profile that shows their verification status, completed trips and
@@ -22,7 +22,7 @@ how many seats they offer, set how far they will go out of their way (minutes an
 and go online or offline from the Home tab. Passengers get a map on their Home (OpenStreetMap, no key) with a search for where they are going
 and where they will be picked up (the searches need the Maps key), a way to use their current
 location as the pickup, a choice of leaving now or at a time up to 7 days ahead with an optional arrival
-time, and a button to show where they are; a place that cannot be used, or a pickup that is
+time, and how flexible they are (Strict, Balanced or Flexible, and whether they will share), and a button to show where they are; a place that cannot be used, or a pickup that is
 the same place as the destination, is refused. The rest of the trip request is not built yet. The admin dashboard is not built
 yet, and the other signed-in screens are still empty states.
 

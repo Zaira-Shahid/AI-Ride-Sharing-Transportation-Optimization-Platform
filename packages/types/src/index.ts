@@ -1,6 +1,7 @@
 export * from './auth';
 export * from './availability';
 export * from './driver';
+export * from './flexibility';
 export * from './journey';
 export * from './location';
 export * from './roles';
