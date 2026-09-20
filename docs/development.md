@@ -114,6 +114,29 @@ End-to-end tests in `tests/e2e` use Playwright with Chromium (`npx playwright in
 once). `npm run test:e2e` starts the emulators and both Expo web builds with fake demo-project
 configuration, so it needs no real credentials, and drives the real registration screens.
 
+### The "stuck on Loading" start-up failure (fixed)
+
+Until this was fixed a few percent of Playwright tests (about 4 in 120 start-ups, on either app, always
+passing when rerun alone) failed at `getByRole('heading', { name: 'RideMesh Driver' })` with the
+page sitting on the loading spinner. The cause was not the app's own code or the emulators:
+
+- The web build created Firebase Auth with `getAuth`, which includes the popup and redirect sign-in
+  support. On mobile browsers and Safari (Playwright's `Pixel 7` profile is one) Auth then loads
+  Google's script `https://apis.google.com/js/api.js` and **waits for it before it reports the first
+  sign-in state** (`_shouldInitProactively` in `@firebase/auth`). The app shows its spinner until
+  that first state arrives, so any slow request to Google (this is the real internet, not an
+  emulator) kept the app on the spinner, for up to the SDK's own timeout.
+- Evidence: in every captured failure the only request still pending was `apis.google.com/js/api.js`;
+  blocking that host reproduces the failure every time.
+- Fix: the web build now names its persistence (`indexedDBLocalPersistence`,
+  `browserLocalPersistence` in `packages/mobile-auth/src/firebase-client.ts`), which initialises Auth
+  without the popup and redirect support. The apps only use email and password, so nothing is lost,
+  and no script is loaded from Google at start-up. `tests/e2e/startup.e2e.spec.ts` keeps it fixed:
+  it never answers requests to Google's hosts and expects the first screen anyway, and that no such
+  request was made. After the fix the same 120 start-ups passed.
+- The same reasoning applies to the admin dashboard when it gets sign-in: initialise Auth with
+  `initializeAuth` and a named persistence, not `getAuth`, unless popup sign-in is really needed.
+
 Integration tests live in `tests/integration` and run against the local Auth, Functions and
 Firestore emulators (`npm run test:integration`, needs Java 21). They use the real rules file, the
 real functions and the real admin script. Playwright end-to-end tests are added with the modules
