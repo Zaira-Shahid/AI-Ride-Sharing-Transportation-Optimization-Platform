@@ -59,15 +59,3 @@ export async function newPassenger(page: Page, prefix: string) {
   await submitLogin(page, email, PASSWORD);
   await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeVisible();
 }
-
-export interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export function overlaps(a: Box | null, b: Box | null): boolean {
-  if (!a || !b) return false;
-  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-}
