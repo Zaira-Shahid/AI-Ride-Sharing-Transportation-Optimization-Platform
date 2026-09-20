@@ -21,7 +21,7 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.3)
+## What exists now (through Module 3.4)
 
 | Area            | Location                                  | State                                                                                                                                                                                  |
 | --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -398,6 +398,20 @@ status (3.8).
   enforced in the app only for now; **Module 3.7 must repeat it on the server** when it creates the
   request (functions cannot import the types package, so it will be mirrored and covered by the
   parity test).
+- **Destination check (Module 3.4).** The destination itself is chosen in 3.1; 3.4 is the check that
+  a place can be a trip's place at all, and it is deliberately small. `checkChosenPlace(place, other)`
+  (`packages/types/src/trip.ts`) is the one check both the pickup and the destination go through
+  when the passenger chooses them: the place must be usable (`findPlaceProblem`), and not the same
+  place as the other (3.3's rule). A place is usable when its coordinates are numbers within the
+  earth's range, **not exactly 0, 0** (no real place is there; it is what a position that was never
+  filled in looks like, and it passes the search's shape rules), its address is not blank or over 300
+  characters, and a place ID, if there is one, is not blank or over 300 characters. An unusable place
+  is refused with "That place cannot be used for a trip. Please choose another.", the search stays
+  open, and anything already chosen is left alone.
+- **There is no service area and no recent or saved destinations** (decided for 3.1 and confirmed for
+  3.4): a trip may start and end anywhere, and Home offers no shortcuts. Whether a route exists
+  between two places is Phase 4's question, and saved places (Home, Work) are the spec's separate
+  "Quick destinations" feature. Module 3.7 must repeat `checkChosenPlace` on the server.
 - `PlaceSearch` lets its caller refuse a place by throwing `PlaceRejectedError`; its message is
   shown as it is. The two cards live in `TripPlaceCards.tsx`; `PassengerHomeScreen` holds the state
   (pickup, destination, the device's location) and the rules.
