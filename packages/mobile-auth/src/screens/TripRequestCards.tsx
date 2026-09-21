@@ -1,4 +1,10 @@
-import type { FlexibilityLevel, TripRequestStatus } from '@ridemesh/types';
+import {
+  ESTIMATE_CAVEAT,
+  describeEstimate,
+  type FlexibilityLevel,
+  type TripEstimate,
+  type TripRequestStatus,
+} from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { StyleSheet, Text, View } from 'react-native';
 import { Notice, PrimaryButton, SecondaryButton, useAuthTheme } from '../components';
@@ -55,6 +61,38 @@ function TripSummary({ summary, now }: { summary: TripSummaryData; now: number }
   );
 }
 
+/** Where the estimate of a trip stands, for the card that shows it. */
+export type EstimateView =
+  { state: 'loading' } | { state: 'ready'; estimate: TripEstimate } | { state: 'unavailable' };
+
+/**
+ * The estimated time and distance of the trip (Modules 4.4 and 4.5), or a line saying it is being
+ * worked out or could not be. It always says the estimate has no live traffic, and it is only ever a
+ * note: nothing about the request depends on it.
+ */
+function EstimateNote({ view }: { view: EstimateView }) {
+  const theme = useAuthTheme();
+  return (
+    <View style={styles.line} accessibilityLabel="Estimated trip">
+      {view.state === 'ready' ? (
+        <>
+          <Text style={[styles.caption, { color: theme.textSecondary }]}>Estimated trip</Text>
+          <Text style={[styles.value, { color: theme.textPrimary }]}>
+            {describeEstimate(view.estimate)}
+          </Text>
+          <Text style={[styles.caption, { color: theme.textSecondary }]}>{ESTIMATE_CAVEAT}</Text>
+        </>
+      ) : (
+        <Text style={[styles.caption, { color: theme.textSecondary }]}>
+          {view.state === 'loading'
+            ? 'Estimating the trip time.'
+            : 'We could not estimate the trip time. You can still request the ride.'}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 function useCardStyle() {
   const theme = useAuthTheme();
   return [styles.card, { backgroundColor: theme.surface, borderColor: theme.border }];
@@ -64,6 +102,8 @@ function useCardStyle() {
 export function ReviewCard({
   summary,
   now,
+  estimate,
+  arrivalWarning,
   sending,
   problem,
   onConfirm,
@@ -71,6 +111,10 @@ export function ReviewCard({
 }: {
   summary: TripSummaryData;
   now: number;
+  /** The estimated time and distance of the trip, as far as it is known. */
+  estimate: EstimateView;
+  /** Said when the arrival time leaves less than the estimated trip; a warning, never a refusal. */
+  arrivalWarning: string | null;
   sending: boolean;
   /** Why the request was not accepted, if it was not. */
   problem: string | null;
@@ -84,6 +128,8 @@ export function ReviewCard({
         Review your ride request
       </Text>
       <TripSummary summary={summary} now={now} />
+      <EstimateNote view={estimate} />
+      {arrivalWarning ? <Notice tone="info">{arrivalWarning}</Notice> : null}
       {problem ? <Notice tone="error">{problem}</Notice> : null}
       <PrimaryButton label="Confirm ride request" onPress={onConfirm} loading={sending} />
       <SecondaryButton label="Back" onPress={onBack} disabled={sending} />
@@ -99,6 +145,7 @@ export function RequestedCard({
   status,
   summary,
   now,
+  estimate,
   cancellable,
   problem,
   onCancel,
@@ -106,6 +153,8 @@ export function RequestedCard({
   status: TripRequestStatus;
   summary: TripSummaryData;
   now: number;
+  /** The estimated time and distance of the trip, as far as it is known. */
+  estimate: EstimateView;
   /** Whether the passenger may cancel from this status (canPassengerCancel). */
   cancellable: boolean;
   problem: string | null;
@@ -121,6 +170,7 @@ export function RequestedCard({
         {TRIP_STATUS_TEXT[status].detail}
       </Text>
       <TripSummary summary={summary} now={now} />
+      <EstimateNote view={estimate} />
       {problem ? <Notice tone="error">{problem}</Notice> : null}
       {cancellable ? <SecondaryButton label="Cancel ride request" onPress={onCancel} /> : null}
     </View>
