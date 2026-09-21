@@ -47,15 +47,20 @@ export function isSamePlace(a: StoredDestination, b: StoredDestination): boolean
   return distanceMeters(a, b) < SAME_PLACE_DISTANCE_METERS;
 }
 
-/** A pickup from the device's location: its coordinates, with no place ID and no address. */
-export function currentLocationPlace(point: {
-  latitude: number;
-  longitude: number;
-}): StoredDestination {
+/**
+ * A pickup from the device's location: its coordinates and no place ID. Its address is the one
+ * found for the position (reverse geocoding, Module 4.2) when there is one, and otherwise it says
+ * what it is, CURRENT_LOCATION_ADDRESS.
+ */
+export function currentLocationPlace(
+  point: { latitude: number; longitude: number },
+  address?: string | null,
+): StoredDestination {
+  const found = address?.trim().slice(0, DESTINATION_ADDRESS_MAX_LENGTH);
   return {
     latitude: point.latitude,
     longitude: point.longitude,
-    formattedAddress: CURRENT_LOCATION_ADDRESS,
+    formattedAddress: found ? found : CURRENT_LOCATION_ADDRESS,
     placeId: null,
   };
 }

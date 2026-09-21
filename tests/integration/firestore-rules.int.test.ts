@@ -330,7 +330,13 @@ describe('users: a person editing their own contact details', () => {
 });
 
 describe('other collections stay closed', () => {
-  it.each(['auditLogs/log-1', 'payments/pay-1'])('denies %s to every role', async (path) => {
+  it.each([
+    'auditLogs/log-1',
+    'payments/pay-1',
+    'geocodeCache/51.4494_-2.5813',
+    'geocodeLimits/passenger-1',
+    'geocodeGlobal/lookups',
+  ])('denies %s to every role', async (path) => {
     for (const role of ['PASSENGER', 'DRIVER', 'ADMIN', 'SUPER_ADMIN']) {
       const db = env.authenticatedContext('passenger-1', verified(role)).firestore();
       await assertFails(getDoc(doc(db, path)));

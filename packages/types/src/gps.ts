@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DESTINATION_ADDRESS_MAX_LENGTH } from './journey';
 import { distanceMeters } from './trip';
 
 // The driver's position (Module 4.1). Two things are stored, both on the driver's journey and both
@@ -42,9 +43,14 @@ const coordinateSchema = z.object({
 const isRealPosition = (point: { latitude: number; longitude: number }) =>
   !(point.latitude === 0 && point.longitude === 0);
 
-/** The driver's journey start: the device's position, saved once by the driver. */
+/**
+ * The driver's journey start: the device's position, saved once by the driver, with the address
+ * the server found for it (reverse geocoding, Module 4.2) when it found one. Without an address the
+ * start is called ORIGIN_ADDRESS. The address is the app's claim, like a destination's.
+ */
 export const setJourneyOriginInputSchema = z.object({
   origin: coordinateSchema.refine(isRealPosition),
+  address: z.string().trim().min(1).max(DESTINATION_ADDRESS_MAX_LENGTH).nullish(),
 });
 export type SetJourneyOriginInput = z.infer<typeof setJourneyOriginInputSchema>;
 

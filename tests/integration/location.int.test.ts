@@ -101,6 +101,42 @@ describe('setJourneyOrigin (functions + firestore emulators)', () => {
     expect((await journeyOf(driver.uid)).data?.origin).toMatchObject(MOVED);
   });
 
+  it('keeps the address the app found for the position, when there is one', async () => {
+    const driver = await driverWithDestination('org-address');
+
+    expect(await setJourneyOrigin(driver.client, START, '12 Test Street, Bristol, BS1 6QS')).toBe(
+      'updated',
+    );
+
+    expect((await journeyOf(driver.uid)).data?.origin).toEqual({
+      ...START,
+      formattedAddress: '12 Test Street, Bristol, BS1 6QS',
+      placeId: null,
+    });
+    // The same start with the same address changes nothing; a new address is a change.
+    expect(await setJourneyOrigin(driver.client, START, '12 Test Street, Bristol, BS1 6QS')).toBe(
+      'unchanged',
+    );
+    expect(await setJourneyOrigin(driver.client, START, '14 Test Street, Bristol')).toBe('updated');
+    // Without an address it goes back to what it says when nothing better is known.
+    expect(await setJourneyOrigin(driver.client, START)).toBe('updated');
+    expect((await journeyOf(driver.uid)).data?.origin?.formattedAddress).toBe('Current location');
+  });
+
+  it.each([
+    ['a blank address', '   '],
+    ['an address over 300 characters', 'x'.repeat(301)],
+    ['an address that is not text', 5],
+  ])('refuses %s and stores nothing', async (_label, address) => {
+    const driver = await driverWithDestination('org-badaddress');
+
+    await expect(
+      call(driver.client, 'setJourneyOrigin', { origin: START, address }),
+    ).rejects.toMatchObject({ code: 'functions/invalid-argument' });
+
+    expect((await journeyOf(driver.uid)).data?.origin).toBeNull();
+  });
+
   it('needs a destination first', async () => {
     const driver = await person('DRIVER', 'org-nojourney');
 

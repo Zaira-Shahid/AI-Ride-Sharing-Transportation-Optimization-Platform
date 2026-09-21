@@ -8,6 +8,7 @@ import {
   emulatorPorts,
   parsePortOffset,
 } from '../packages/config/src';
+import { FAKE_NOMINATIM_PORT } from './fake-nominatim';
 import { TEST_PORTS } from './test-ports';
 
 const root = resolve(__dirname, '..');
@@ -111,5 +112,33 @@ describe('firebase.test.json', () => {
 
   it('does not reload the functions when they are rebuilt during a run', () => {
     for (const entry of test.functions) expect(entry.ignore).toContain('lib');
+  });
+});
+
+describe('the fake geocoder the tests use', () => {
+  const env = readFileSync(join(root, 'functions/.env.demo-ridemesh'), 'utf8');
+  const setting = (name: string) => new RegExp(`^${name}=(.*)$`, 'm').exec(env)?.[1]?.trim();
+
+  it("is where the tests' emulators are told Nominatim is, never the real server", () => {
+    expect(setting('NOMINATIM_BASE_URL')).toBe(`http://127.0.0.1:${FAKE_NOMINATIM_PORT}`);
+    expect(env).not.toContain('openstreetmap.org');
+  });
+
+  it('does not use a port anything else in the tests uses', () => {
+    const used = [
+      ...Object.values(TEST_PORTS),
+      ...portsOf(readJson('firebase.test.json')),
+      ...portsOf(readJson('firebase.json')),
+    ];
+    expect(used).not.toContain(FAKE_NOMINATIM_PORT);
+  });
+
+  it('turns the spacing between lookups off, so tests side by side cannot make each other busy', () => {
+    expect(setting('GEOCODING_MIN_SPACING_MS')).toBe('0');
+  });
+
+  it('holds no address of a person or a secret, only settings for the tests', () => {
+    expect(env).not.toMatch(/@/);
+    expect(env).not.toMatch(/key|secret|token|password/i);
   });
 });

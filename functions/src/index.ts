@@ -12,6 +12,7 @@ import {
   setJourneyOrigin as setDriverJourneyOrigin,
   setJourneySeats as setDriverJourneySeats,
 } from './journeys.js';
+import { nominatimFromEnvironment, reverseGeocode as reverseGeocodePosition } from './geocoding.js';
 import { updateDriverLocation as updateDriverJourneyLocation } from './locations.js';
 import {
   cancelTripRequest as cancelPassengerTripRequest,
@@ -126,4 +127,12 @@ export const setJourneyOrigin = onCall((request) =>
 
 export const updateDriverLocation = onCall((request) =>
   updateDriverJourneyLocation({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const reverseGeocode = onCall((request) =>
+  reverseGeocodePosition(
+    { firestore: getFirestore(), provider: nominatimFromEnvironment() },
+    callerOf(request),
+    request.data,
+  ),
 );
