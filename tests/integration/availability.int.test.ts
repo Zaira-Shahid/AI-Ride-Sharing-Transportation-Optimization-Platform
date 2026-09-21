@@ -7,6 +7,7 @@ import {
   saveVehicle,
   setAvailability,
   setJourneyDetour,
+  setJourneyOrigin,
   setJourneySeats,
   setVehicleCapacity,
   subscribeToDriverProfile,
@@ -20,6 +21,7 @@ const OFFICE = {
   formattedAddress: '1 Canada Square, London E14 5AB, UK',
   placeId: 'place-office',
 };
+const ORIGIN = { latitude: 51.4545, longitude: -2.5879 };
 let plateCounter = 0;
 const uniquePlate = () => `AVL-${Date.now() % 100000}-${plateCounter++}`;
 
@@ -75,6 +77,7 @@ async function eligibleDriver(prefix: string) {
   await driverRef(driver.uid).update({ verificationStatus: 'VERIFIED' });
   await vehicleRef(driver.uid).update({ verificationStatus: 'VERIFIED' });
   await declareDestination(driver.client, OFFICE);
+  await setJourneyOrigin(driver.client, ORIGIN);
   await setJourneySeats(driver.client, 3);
   await setJourneyDetour(driver.client, 10, 5);
   return driver;
@@ -210,6 +213,7 @@ describe('setAvailability: going online and offline (functions + firestore emula
           'vehicleVerified',
           'seatsSet',
           'destinationDeclared',
+          'originSet',
           'seatsOffered',
           'detourSet',
         ],

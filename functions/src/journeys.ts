@@ -28,6 +28,18 @@ export const setJourneyDetourInputSchema = z.object({
   maxDetourDistance: z.number().int().min(DETOUR_DISTANCE_KM_MIN).max(DETOUR_DISTANCE_KM_MAX),
 });
 
+// Where the journey starts (Module 4.1): one reading from the driver's device, saved on purpose.
+// Mirrors gps.ts in @ridemesh/types; tests/roles-parity.test.ts fails if they diverge.
+export const ORIGIN_ADDRESS = 'Current location';
+export const setJourneyOriginInputSchema = z.object({
+  origin: z
+    .object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+    })
+    .refine((point) => !(point.latitude === 0 && point.longitude === 0)),
+});
+
 export const NEW_JOURNEY_DEFAULTS = {
   origin: null,
   departureTime: null,
@@ -42,6 +54,7 @@ export const NEW_JOURNEY_DEFAULTS = {
 export type DeclareDestinationResult = { status: 'created' | 'updated' | 'unchanged' };
 export type SetJourneySeatsResult = { status: 'updated' | 'unchanged' };
 export type SetJourneyDetourResult = { status: 'updated' | 'unchanged' };
+export type SetJourneyOriginResult = { status: 'updated' | 'unchanged' };
 
 interface StoredDestination {
   latitude: number;
@@ -269,6 +282,62 @@ export async function setJourneyDetour(
       maxDetourDistance,
       updatedAt: FieldValue.serverTimestamp(),
     });
+    return { status: 'updated' };
+  });
+}
+
+/**
+ * Saves where the calling driver's journey starts: the position of their device, read once by the
+ * app when the driver asks for it. There is no address for a position (that is reverse geocoding,
+ * later in Phase 4), so it is stored as "Current location" with its coordinates and no place ID,
+ * the same shape as a destination. Like the other parts of a journey it can only be changed while
+ * the journey is a DRAFT and needs a journey (so a destination first). It is the driver's own claim,
+ * checked only for shape and range. The position is not written to the audit log.
+ */
+export async function setJourneyOrigin(
+  deps: { firestore: Firestore },
+  caller: DriverCaller,
+  rawInput: unknown,
+): Promise<SetJourneyOriginResult> {
+  requireVerifiedDriver(caller);
+
+  const parsed = setJourneyOriginInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new HttpsError('invalid-argument', 'The start of the journey is not valid.');
+  }
+  const { latitude, longitude } = parsed.data.origin;
+  const origin: StoredDestination = {
+    latitude,
+    longitude,
+    formattedAddress: ORIGIN_ADDRESS,
+    placeId: null,
+  };
+
+  const { firestore } = deps;
+  const userRef = firestore.collection('users').doc(caller.uid);
+  const driverRef = firestore.collection('drivers').doc(caller.uid);
+
+  return firestore.runTransaction(async (tx): Promise<SetJourneyOriginResult> => {
+    const [user, driver] = await Promise.all([tx.get(userRef), tx.get(driverRef)]);
+    if (!user.exists || user.get('status') !== 'ACTIVE' || !driver.exists) {
+      throw new HttpsError('failed-precondition', 'This account cannot set a start right now.');
+    }
+
+    const currentId: unknown = driver.get('currentJourneyId');
+    const journeyRef =
+      typeof currentId === 'string' && currentId
+        ? firestore.collection('driverJourneys').doc(currentId)
+        : null;
+    const journey = journeyRef ? await tx.get(journeyRef) : undefined;
+    if (!journeyRef || !journey?.exists || journey.get('driverId') !== caller.uid) {
+      throw new HttpsError('failed-precondition', 'Set your destination before you set a start.');
+    }
+    if (journey.get('status') !== 'DRAFT') {
+      throw new HttpsError('failed-precondition', 'The start cannot be changed for this journey.');
+    }
+
+    if (sameDestination(journey.get('origin'), origin)) return { status: 'unchanged' };
+    tx.update(journeyRef, { origin, updatedAt: FieldValue.serverTimestamp() });
     return { status: 'updated' };
   });
 }

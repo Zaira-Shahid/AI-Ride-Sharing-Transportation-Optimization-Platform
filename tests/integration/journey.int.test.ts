@@ -7,6 +7,7 @@ import {
   saveVehicle,
   setAvailability,
   setJourneyDetour,
+  setJourneyOrigin,
   setJourneySeats,
   setVehicleCapacity,
   subscribeToJourney,
@@ -20,6 +21,7 @@ const OFFICE = {
   formattedAddress: '1 Canada Square, London E14 5AB, UK',
   placeId: 'place-office',
 };
+const ORIGIN = { latitude: 51.4545, longitude: -2.5879 };
 const HOME = {
   latitude: 51.4545,
   longitude: -2.5879,
@@ -348,6 +350,7 @@ describe('setJourneySeats: seats on offer (functions + firestore emulators)', ()
     expect(await journeyDoc(id)).toMatchObject({
       driverId: uid,
       destination: OFFICE,
+      origin: null,
       status: 'DRAFT',
       maxDetourMinutes: null,
     });
@@ -394,12 +397,14 @@ describe('setJourneySeats: seats on offer (functions + firestore emulators)', ()
       driverId: 'someone-else',
       status: 'ACTIVE',
       destination: HOME,
+      origin: null,
       maxDetourMinutes: 99,
     });
     expect(await journeyDoc(id)).toMatchObject({
       driverId: uid,
       status: 'DRAFT',
       destination: OFFICE,
+      origin: null,
       maxDetourMinutes: null,
       availableSeats: 2,
     });
@@ -491,6 +496,7 @@ describe('setJourneySeats: seats on offer (functions + firestore emulators)', ()
           journey: {
             status: 'DRAFT',
             destination: OFFICE,
+            origin: null,
             availableSeats: 3,
             maxDetourMinutes: null,
             maxDetourDistance: null,
@@ -517,6 +523,7 @@ describe('seats on offer and going online', () => {
     await admin().firestore.doc(`drivers/${uid}`).update({ verificationStatus: 'VERIFIED' });
     await admin().firestore.doc(`vehicles/${uid}`).update({ verificationStatus: 'VERIFIED' });
     await declareDestination(client, OFFICE);
+    await setJourneyOrigin(client, ORIGIN);
     return { client, uid, id: await currentJourneyId(uid) };
   }
 
@@ -602,6 +609,7 @@ describe('setJourneyDetour: maximum detour (functions + firestore emulators)', (
     expect(await journeyDoc(id)).toMatchObject({
       driverId: uid,
       destination: OFFICE,
+      origin: null,
       status: 'DRAFT',
       availableSeats: null,
     });
@@ -648,11 +656,13 @@ describe('setJourneyDetour: maximum detour (functions + firestore emulators)', (
       status: 'ACTIVE',
       availableSeats: 6,
       destination: HOME,
+      origin: null,
     });
     expect(await journeyDoc(id)).toMatchObject({
       driverId: uid,
       status: 'DRAFT',
       destination: OFFICE,
+      origin: null,
       availableSeats: null,
       maxDetourMinutes: 10,
       maxDetourDistance: 5,
@@ -737,6 +747,7 @@ describe('setJourneyDetour: maximum detour (functions + firestore emulators)', (
           journey: {
             status: 'DRAFT',
             destination: OFFICE,
+            origin: null,
             availableSeats: null,
             maxDetourMinutes: 15,
             maxDetourDistance: 10,
@@ -763,6 +774,7 @@ describe('the maximum detour and going online', () => {
     await admin().firestore.doc(`drivers/${uid}`).update({ verificationStatus: 'VERIFIED' });
     await admin().firestore.doc(`vehicles/${uid}`).update({ verificationStatus: 'VERIFIED' });
     await declareDestination(client, OFFICE);
+    await setJourneyOrigin(client, ORIGIN);
     await setJourneySeats(client, 2);
     return { client, uid, id: await currentJourneyId(uid) };
   }
@@ -805,7 +817,7 @@ describe('the maximum detour and going online', () => {
     await admin().firestore.doc(`driverJourneys/${id}`).update({ driverId: 'other' });
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared', 'seatsOffered', 'detourSet'] },
+      details: { unmet: ['destinationDeclared', 'originSet', 'seatsOffered', 'detourSet'] },
     });
   });
 
@@ -832,11 +844,12 @@ describe('the destination and going online', () => {
     const { client, uid } = await readyExceptDestination('jny-online');
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared', 'seatsOffered', 'detourSet'] },
+      details: { unmet: ['destinationDeclared', 'originSet', 'seatsOffered', 'detourSet'] },
     });
     expect((await driverDoc(uid))?.availabilityStatus).toBe('OFFLINE');
 
     await declareDestination(client, OFFICE);
+    await setJourneyOrigin(client, ORIGIN);
     await setJourneySeats(client, 2);
     await setJourneyDetour(client, 10, 5);
     expect(await setAvailability(client, 'ONLINE')).toBe('updated');
@@ -845,6 +858,7 @@ describe('the destination and going online', () => {
   it('can be changed while online, and the driver stays online', async () => {
     const { client, uid } = await readyExceptDestination('jny-online-change');
     await declareDestination(client, OFFICE);
+    await setJourneyOrigin(client, ORIGIN);
     await setJourneySeats(client, 2);
     await setJourneyDetour(client, 10, 5);
     await setAvailability(client, 'ONLINE');
@@ -856,6 +870,7 @@ describe('the destination and going online', () => {
   it("does not count a journey without a destination, or someone else's journey", async () => {
     const { client, uid } = await readyExceptDestination('jny-online-bad');
     await declareDestination(client, OFFICE);
+    await setJourneyOrigin(client, ORIGIN);
     await setJourneySeats(client, 2);
     await setJourneyDetour(client, 10, 5);
     const id = await currentJourneyId(uid);
@@ -871,7 +886,7 @@ describe('the destination and going online', () => {
       .update({ destination: OFFICE, driverId: 'other' });
     await expect(call(client, 'setAvailability', { status: 'ONLINE' })).rejects.toMatchObject({
       code: 'functions/failed-precondition',
-      details: { unmet: ['destinationDeclared', 'seatsOffered', 'detourSet'] },
+      details: { unmet: ['destinationDeclared', 'originSet', 'seatsOffered', 'detourSet'] },
     });
   });
 });
@@ -899,6 +914,7 @@ describe('reading a journey as the driver (real auth tokens)', () => {
           journey: {
             status: 'DRAFT',
             destination: OFFICE,
+            origin: null,
             availableSeats: null,
             maxDetourMinutes: null,
             maxDetourDistance: null,
@@ -913,6 +929,7 @@ describe('reading a journey as the driver (real auth tokens)', () => {
           journey: {
             status: 'DRAFT',
             destination: HOME,
+            origin: null,
             availableSeats: null,
             maxDetourMinutes: null,
             maxDetourDistance: null,
@@ -950,6 +967,7 @@ describe('reading a journey as the driver (real auth tokens)', () => {
       setDoc(doc(first.client.db, 'driverJourneys/made-up'), {
         driverId: first.uid,
         destination: HOME,
+        origin: null,
       }),
     ).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(

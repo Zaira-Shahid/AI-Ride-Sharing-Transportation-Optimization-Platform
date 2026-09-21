@@ -399,6 +399,9 @@ export const PLACES = {
   },
 } satisfies Record<string, Place>;
 
+/** Where a journey written by writeJourneyDoc starts, unless it is told otherwise (Bristol). */
+export const ORIGIN_POSITION = { latitude: 51.4494, longitude: -2.5813 };
+
 const journeyIdOf = (uid: string) => `journey-${uid}`;
 export { journeyIdOf as journeyId };
 
@@ -412,6 +415,8 @@ export async function writeJourneyDoc(
   availableSeats: number | null = null,
   /** Extra minutes and kilometres the driver accepts; null (the default) means not chosen yet. */
   detour: { minutes: number; km: number } | null = null,
+  /** Where the journey starts, as saved from the device (Module 4.1); null means not saved yet. */
+  origin: { latitude: number; longitude: number } | null = ORIGIN_POSITION,
 ) {
   const now = new Date().toISOString();
   const response = await fetch(`${firestoreDocs}/driverJourneys/${journeyIdOf(uid)}`, {
@@ -421,7 +426,19 @@ export async function writeJourneyDoc(
       fields: {
         driverId: { stringValue: uid },
         vehicleId: { stringValue: uid },
-        origin: { nullValue: null },
+        origin:
+          origin === null
+            ? { nullValue: null }
+            : {
+                mapValue: {
+                  fields: {
+                    latitude: { doubleValue: origin.latitude },
+                    longitude: { doubleValue: origin.longitude },
+                    formattedAddress: { stringValue: 'Current location' },
+                    placeId: { nullValue: null },
+                  },
+                },
+              },
         destination: {
           mapValue: {
             fields: {
@@ -470,6 +487,11 @@ export async function readDriverJourney(uid: string) {
   if (journeyResponse.status === 404) return undefined;
   const { fields } = (await journeyResponse.json()) as { fields: Record<string, FirestoreValue> };
   const place = fields.destination?.mapValue?.fields;
+  const originFields = fields.origin?.mapValue?.fields;
+  const locationFields = fields.currentLocation?.mapValue?.fields;
+  const numberOf = (value: FirestoreValue | undefined) =>
+    value?.doubleValue ??
+    (value?.integerValue === undefined ? undefined : Number(value.integerValue));
   return {
     id: journeyId,
     driverId: fields.driverId?.stringValue,
@@ -486,6 +508,21 @@ export async function readDriverJourney(uid: string) {
       fields.maxDetourDistance?.integerValue === undefined
         ? null
         : Number(fields.maxDetourDistance.integerValue),
+    /** Where the journey starts (Module 4.1), or null when it has not been saved. */
+    origin: originFields
+      ? {
+          latitude: numberOf(originFields.latitude),
+          longitude: numberOf(originFields.longitude),
+          address: originFields.formattedAddress?.stringValue,
+        }
+      : null,
+    /** The last position shared while online, or null when there is none. */
+    currentLocation: locationFields
+      ? {
+          latitude: numberOf(locationFields.latitude),
+          longitude: numberOf(locationFields.longitude),
+        }
+      : null,
     address: place?.formattedAddress?.stringValue,
     latitude: place?.latitude?.doubleValue,
     longitude: place?.longitude?.doubleValue,
