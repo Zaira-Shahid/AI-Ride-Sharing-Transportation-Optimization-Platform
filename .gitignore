@@ -20,6 +20,8 @@ coverage/
 .firebase/
 firebase-debug.log*
 firestore-debug.log
+# saved emulator data (npm run emulators:persist)
+emulator-data/
 ui-debug.log
 *.local
 

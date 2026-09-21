@@ -19,6 +19,7 @@
 | `npm run dev:passenger` / `dev:driver`                 | Expo dev servers                                        |
 | `npm run build:functions`                              | Compile Cloud Functions to `functions/lib`              |
 | `npm run emulators`                                    | Build functions and start Firebase emulators            |
+| `npm run emulators:persist`                            | Same, but keeps accounts and data between runs          |
 | `npm run verify:firebase`                              | Live check against the real Firebase project            |
 | `npm run test:integration`                             | Emulator tests: rules, functions, admin script          |
 | `npm run test:e2e`                                     | Playwright: real app UI against the emulators           |
@@ -41,6 +42,30 @@ To develop a mobile app against the local emulators instead of the real project,
 `10.0.2.2` for an Android emulator, or your computer's LAN address for a physical device) and run
 `npm run emulators`. Cloud Functions are not deployed to the real project yet, so registration only
 works against the emulators.
+
+### Keeping your test accounts between emulator runs
+
+`npm run emulators` starts empty every time: the accounts and data you made are gone once the emulators
+stop. To keep them, start the emulators with `npm run emulators:persist` instead. It loads what was
+saved last time from `emulator-data/` (Auth accounts, their verified state and Firestore data) and
+saves everything back to it when the emulators stop.
+
+- **Stop them with Ctrl+C, once, and wait for "Export complete".** That is what saves. Closing the
+  terminal window also started a save when tried on Windows, but do not rely on it; killing the
+  process (Task Manager, `kill -9`) or a crash saves nothing, and you lose what happened since the
+  last save. On Windows, npm may ask "Terminate batch job (Y/N)?": the export has already started,
+  so either answer is fine, but do not close the window until it says "Export complete".
+- The first run has nothing to load and prints "Could not find import/export metadata file, skipping
+  data import". That is expected; the folder is created and filled when you stop.
+- `emulator-data/` is git-ignored. To start from nothing again, stop the emulators and delete the
+  folder.
+- Use one or the other for a given account. Data made in a plain `npm run emulators` session is not
+  saved, and each `emulators:persist` run replaces the folder's contents with its own state.
+- Saved data belongs to the code that made it. If a later change alters how accounts or documents are
+  stored, delete the folder and register again.
+- The automated tests are not affected: they use ports of their own (see below), so you can run
+  `npm run test:e2e` and `npm run test:integration` while `emulators:persist` is running, and none of
+  their accounts end up in `emulator-data/`.
 
 `.env` and `.env.*` files are git-ignored; only `.env.example` files are committed. Anything
 prefixed `NEXT_PUBLIC_` or `EXPO_PUBLIC_` is shipped to the client, so never put a secret in one.
