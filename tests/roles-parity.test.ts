@@ -17,6 +17,13 @@ import {
   setJourneyOriginInputSchema as functionsOriginSchema,
 } from '../functions/src/journeys';
 import {
+  GEOCODE_DECIMALS as functionsGeocodeDecimals,
+  GEOCODE_LIMITS as functionsGeocodeLimits,
+  geocodeCacheKey as functionsCacheKey,
+  reverseGeocodeInputSchema as functionsGeocodeSchema,
+  roundForGeocoding as functionsRound,
+} from '../functions/src/geocoding';
+import {
   LOCATION_THROTTLE as functionsThrottle,
   isUsableAccuracy as functionsIsUsableAccuracy,
   updateDriverLocationInputSchema as functionsLocationSchema,
@@ -54,6 +61,11 @@ import {
   DETOUR_DISTANCE_KM_MIN,
   DETOUR_MINUTES_MAX,
   DETOUR_MINUTES_MIN,
+  GEOCODE_DECIMALS,
+  GEOCODE_LIMITS,
+  geocodeCacheKey,
+  reverseGeocodeInputSchema as sharedGeocodeSchema,
+  roundForGeocoding,
   LOCATION_THROTTLE,
   ORIGIN_ADDRESS,
   isUsableAccuracy,
@@ -618,6 +630,12 @@ describe('driver location: functions and shared types stay aligned', () => {
   it('validates the journey origin identically', () => {
     const inputs: unknown[] = [
       { origin: { latitude: 51.5, longitude: -0.1 } },
+      { origin: { latitude: 51.5, longitude: -0.1 }, address: '1 Test Street, Bristol' },
+      { origin: { latitude: 51.5, longitude: -0.1 }, address: null },
+      { origin: { latitude: 51.5, longitude: -0.1 }, address: '   ' },
+      { origin: { latitude: 51.5, longitude: -0.1 }, address: 'x'.repeat(300) },
+      { origin: { latitude: 51.5, longitude: -0.1 }, address: 'x'.repeat(301) },
+      { origin: { latitude: 51.5, longitude: -0.1 }, address: 5 },
       { origin: { latitude: 0, longitude: 0 } },
       { origin: { latitude: 0, longitude: 5 } },
       { origin: { latitude: 5, longitude: 0 } },
@@ -674,6 +692,49 @@ describe('driver location: functions and shared types stay aligned', () => {
       undefined,
     ]) {
       expect(functionsIsUsableAccuracy(accuracy)).toBe(isUsableAccuracy(accuracy));
+    }
+  });
+});
+
+describe('reverse geocoding: functions and shared types stay aligned', () => {
+  it('uses the same rounding and limits', () => {
+    expect(functionsGeocodeDecimals).toBe(GEOCODE_DECIMALS);
+    expect(functionsGeocodeLimits).toEqual(GEOCODE_LIMITS);
+  });
+
+  it('rounds and keys positions identically, including the awkward ones', () => {
+    const values = [
+      0, -0, 0.00001, -0.00001, 0.00005, -0.00005, 51.44941, 51.44945, 51.44946, -2.58135, -2.58136,
+      89.99995, -89.99995, 179.99996, -179.99996, 12.3456789, 1e-9,
+    ];
+    for (const latitude of values) {
+      for (const longitude of values) {
+        const point = { latitude, longitude };
+        expect(functionsRound(point)).toEqual(roundForGeocoding(point));
+        expect(functionsCacheKey(point)).toBe(geocodeCacheKey(point));
+      }
+    }
+  });
+
+  it('validates a position identically', () => {
+    const inputs: unknown[] = [
+      { latitude: 51.5, longitude: -0.1 },
+      { latitude: 0, longitude: 0 },
+      { latitude: 0, longitude: 5 },
+      { latitude: 90, longitude: 180 },
+      { latitude: 90.0001, longitude: 0 },
+      { latitude: 0, longitude: -180.0001 },
+      { latitude: '51', longitude: 0 },
+      { latitude: Number.NaN, longitude: 0 },
+      { latitude: Infinity, longitude: 0 },
+      { latitude: 51 },
+      null,
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsGeocodeSchema.safeParse(input).success).toBe(
+        sharedGeocodeSchema.safeParse(input).success,
+      );
     }
   });
 });

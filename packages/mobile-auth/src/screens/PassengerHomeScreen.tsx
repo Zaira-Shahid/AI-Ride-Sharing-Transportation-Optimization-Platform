@@ -1,4 +1,9 @@
-import { cancelTripRequest, createTripRequest, describeAuthError } from '@ridemesh/firebase';
+import {
+  cancelTripRequest,
+  createTripRequest,
+  describeAuthError,
+  reverseGeocode,
+} from '@ridemesh/firebase';
 import { useAuth, useCurrentTripRequest } from '@ridemesh/firebase/react';
 import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
 import {
@@ -15,7 +20,7 @@ import {
   type TripTimes,
 } from '@ridemesh/types';
 import { radius, spacing } from '@ridemesh/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { AuthScreenProps } from '../app-info';
 import {
@@ -126,6 +131,10 @@ export function PassengerHomeScreen({
   // is shown next to that button and not twice.
   const [askedBy, setAskedBy] = useState<'map' | 'pickup' | null>(null);
   const [pickupFromLocation, setPickupFromLocation] = useState(false);
+  // Looking up the address of the device's position, for a pickup taken from it. The token says which
+  // lookup still counts: choosing or clearing a pickup meanwhile makes an older one stale.
+  const [lookingUpPickup, setLookingUpPickup] = useState(false);
+  const pickupLookup = useRef(0);
   const [pickupProblem, setPickupProblem] = useState<string | null>(null);
   // How much of the map the cards at the top and the button at the bottom cover.
   const [topCover, setTopCover] = useState(0);
@@ -142,6 +151,8 @@ export function PassengerHomeScreen({
   const choosePickup = (place: StoredDestination) => {
     const problem = checkChosenPlace(place, destination);
     if (problem) throw new PlaceRejectedError(refusal(problem, 'pickup'));
+    pickupLookup.current += 1;
+    setLookingUpPickup(false);
     setPickupProblem(null);
     setPickup(place);
   };
@@ -165,18 +176,31 @@ export function PassengerHomeScreen({
   };
 
   // When the device's location arrives for a pickup, that is the pickup (unless it is the destination).
+  const { status: locationStatus, point: locationPoint } = location;
   useEffect(() => {
     if (!pickupFromLocation) return;
-    if (location.status === 'ready' && location.point) {
+    if (locationStatus === 'ready' && locationPoint) {
       setPickupFromLocation(false);
-      const here = currentLocationPlace(location.point);
-      const problem = checkChosenPlace(here, destination);
-      if (problem) setPickupProblem(refusal(problem, 'pickup'));
-      else setPickup(here);
-    } else if (location.status === 'denied' || location.status === 'unavailable') {
+      const point = locationPoint;
+      const problem = checkChosenPlace(currentLocationPlace(point), destination);
+      if (problem) {
+        setPickupProblem(refusal(problem, 'pickup'));
+      } else {
+        // The pickup is the exact position; only its address is looked up (from the position rounded
+        // to about 11 m), and it is never required: without one it stays "Current location".
+        pickupLookup.current += 1;
+        const lookup = pickupLookup.current;
+        setLookingUpPickup(true);
+        void reverseGeocode(client, point).then((address) => {
+          if (pickupLookup.current !== lookup) return;
+          setLookingUpPickup(false);
+          setPickup(currentLocationPlace(point, address));
+        });
+      }
+    } else if (locationStatus === 'denied' || locationStatus === 'unavailable') {
       setPickupFromLocation(false);
     }
-  }, [pickupFromLocation, location.status, location.point, destination]);
+  }, [pickupFromLocation, locationStatus, locationPoint, destination, client]);
 
   const locationProblem = LOCATION_PROBLEMS[location.status];
 
@@ -297,13 +321,17 @@ export function PassengerHomeScreen({
                 <PickupCard
                   placesApiKey={placesApiKey}
                   pickup={pickup}
-                  locating={pickupFromLocation && location.status === 'locating'}
+                  locating={
+                    (pickupFromLocation && location.status === 'locating') || lookingUpPickup
+                  }
                   problem={
                     pickupProblem ?? (askedBy === 'pickup' ? (locationProblem ?? null) : null)
                   }
                   onUseCurrentLocation={usePickupHere}
                   onPick={choosePickup}
                   onClear={() => {
+                    pickupLookup.current += 1;
+                    setLookingUpPickup(false);
                     setPickup(null);
                     setAskedBy((asked) => (asked === 'pickup' ? null : asked));
                   }}

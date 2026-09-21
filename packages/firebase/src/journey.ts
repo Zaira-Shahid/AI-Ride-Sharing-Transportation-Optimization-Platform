@@ -179,12 +179,17 @@ export async function setJourneyDetour(
 export async function setJourneyOrigin(
   client: Pick<FirebaseClient, 'functions'>,
   origin: SetJourneyOriginInput['origin'],
+  /** The address found for the position (reverseGeocode), when there is one. */
+  address?: string | null,
 ): Promise<SetJourneyOriginResult['status']> {
   try {
     const result = await httpsCallable<SetJourneyOriginInput, SetJourneyOriginResult>(
       client.functions,
       'setJourneyOrigin',
-    )({ origin: { latitude: origin.latitude, longitude: origin.longitude } });
+    )({
+      origin: { latitude: origin.latitude, longitude: origin.longitude },
+      address: address ?? null,
+    });
     return result.data.status;
   } catch (error) {
     const code = getErrorCode(error);

@@ -4,6 +4,7 @@ export * from './availability';
 export * from './client';
 export * from './config';
 export * from './driver';
+export * from './geocoding';
 export * from './journey';
 export * from './password-reset';
 export * from './profile';

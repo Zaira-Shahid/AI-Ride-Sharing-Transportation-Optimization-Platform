@@ -38,6 +38,7 @@ export const setJourneyOriginInputSchema = z.object({
       longitude: z.number().min(-180).max(180),
     })
     .refine((point) => !(point.latitude === 0 && point.longitude === 0)),
+  address: z.string().trim().min(1).max(300).nullish(),
 });
 
 export const NEW_JOURNEY_DEFAULTS = {
@@ -288,9 +289,9 @@ export async function setJourneyDetour(
 
 /**
  * Saves where the calling driver's journey starts: the position of their device, read once by the
- * app when the driver asks for it. There is no address for a position (that is reverse geocoding,
- * later in Phase 4), so it is stored as "Current location" with its coordinates and no place ID,
- * the same shape as a destination. Like the other parts of a journey it can only be changed while
+ * app when the driver asks for it. Its address is the one the app found for the position (reverse
+ * geocoding, Module 4.2: the app's claim, like a destination's) or, when there is none, "Current
+ * location"; it has its coordinates and no place ID, the same shape as a destination. Like the other parts of a journey it can only be changed while
  * the journey is a DRAFT and needs a journey (so a destination first). It is the driver's own claim,
  * checked only for shape and range. The position is not written to the audit log.
  */
@@ -309,7 +310,7 @@ export async function setJourneyOrigin(
   const origin: StoredDestination = {
     latitude,
     longitude,
-    formattedAddress: ORIGIN_ADDRESS,
+    formattedAddress: parsed.data.address ?? ORIGIN_ADDRESS,
     placeId: null,
   };
 

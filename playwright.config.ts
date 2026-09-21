@@ -25,6 +25,8 @@ const placesEnv = { ...clientEnv, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'e2e-places-k
 
 export default defineConfig({
   testDir: 'tests/e2e',
+  // Starts the fake geocoder the tests' emulators use (functions/.env.demo-ridemesh).
+  globalSetup: './tests/e2e/global-setup.ts',
   timeout: 90_000,
   expect: { timeout: 15_000 },
   workers: 1,
