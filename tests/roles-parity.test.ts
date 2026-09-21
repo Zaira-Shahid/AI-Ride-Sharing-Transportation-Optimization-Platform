@@ -13,7 +13,14 @@ import {
   DETOUR_DISTANCE_KM_MIN as functionsDetourKmMin,
   DETOUR_MINUTES_MAX as functionsDetourMinutesMax,
   DETOUR_MINUTES_MIN as functionsDetourMinutesMin,
+  ORIGIN_ADDRESS as functionsOriginAddress,
+  setJourneyOriginInputSchema as functionsOriginSchema,
 } from '../functions/src/journeys';
+import {
+  LOCATION_THROTTLE as functionsThrottle,
+  isUsableAccuracy as functionsIsUsableAccuracy,
+  updateDriverLocationInputSchema as functionsLocationSchema,
+} from '../functions/src/locations';
 import {
   AVAILABILITY_TARGETS as functionsAvailabilityTargets,
   GO_ONLINE_REQUIREMENTS as functionsRequirements,
@@ -47,6 +54,11 @@ import {
   DETOUR_DISTANCE_KM_MIN,
   DETOUR_MINUTES_MAX,
   DETOUR_MINUTES_MIN,
+  LOCATION_THROTTLE,
+  ORIGIN_ADDRESS,
+  isUsableAccuracy,
+  setJourneyOriginInputSchema as sharedOriginSchema,
+  updateDriverLocationInputSchema as sharedLocationSchema,
   AVAILABILITY_TARGETS,
   GO_ONLINE_REQUIREMENTS,
   evaluateGoOnline,
@@ -282,25 +294,30 @@ describe('functions and shared types stay aligned', () => {
         for (const vehicleStatus of statuses) {
           for (const seatCapacity of [null, 1, 4]) {
             for (const destinationDeclared of [true, false]) {
-              for (const availableSeats of [null, 0, 1, 2.5, 4, 5]) {
-                for (const maxDetourMinutes of [null, 0, 1, 7.5, 60, 61]) {
-                  for (const maxDetourDistance of [null, 0, 1, 2.5, 30, 31]) {
-                    const facts = {
-                      accountActive,
-                      driverStatus,
-                      vehicleStatus,
-                      seatCapacity,
-                      destinationDeclared,
-                      availableSeats,
-                      maxDetourMinutes,
-                      maxDetourDistance,
-                    };
-                    const shared = evaluateGoOnline(facts);
-                    const server = functionsEvaluate(facts);
-                    expect(server.eligible).toBe(shared.eligible);
-                    expect(server.unmet).toEqual(
-                      shared.checks.filter((check) => !check.met).map((check) => check.requirement),
-                    );
+              for (const originSet of [true, false]) {
+                for (const availableSeats of [null, 0, 1, 2.5, 4, 5]) {
+                  for (const maxDetourMinutes of [null, 0, 1, 7.5, 60, 61]) {
+                    for (const maxDetourDistance of [null, 0, 1, 2.5, 30, 31]) {
+                      const facts = {
+                        accountActive,
+                        driverStatus,
+                        vehicleStatus,
+                        seatCapacity,
+                        destinationDeclared,
+                        originSet,
+                        availableSeats,
+                        maxDetourMinutes,
+                        maxDetourDistance,
+                      };
+                      const shared = evaluateGoOnline(facts);
+                      const server = functionsEvaluate(facts);
+                      expect(server.eligible).toBe(shared.eligible);
+                      expect(server.unmet).toEqual(
+                        shared.checks
+                          .filter((check) => !check.met)
+                          .map((check) => check.requirement),
+                      );
+                    }
                   }
                 }
               }
@@ -586,6 +603,77 @@ describe('trip requests: functions and shared types stay aligned', () => {
     expect([...PASSENGER_CANCELLABLE_STATUSES]).toEqual(['REQUESTED', 'SEARCHING']);
     for (const status of TRIP_REQUEST_STATUSES) {
       expect(canPassengerCancel(status)).toBe(status === 'REQUESTED' || status === 'SEARCHING');
+    }
+  });
+});
+
+describe('driver location: functions and shared types stay aligned', () => {
+  it('uses the same throttle numbers and origin label', () => {
+    expect(functionsThrottle).toEqual(LOCATION_THROTTLE);
+    expect(functionsOriginAddress).toBe(ORIGIN_ADDRESS);
+    // The server's safety net is looser than the app's own rule.
+    expect(functionsThrottle.serverMinIntervalMs).toBeLessThan(functionsThrottle.minIntervalMs);
+  });
+
+  it('validates the journey origin identically', () => {
+    const inputs: unknown[] = [
+      { origin: { latitude: 51.5, longitude: -0.1 } },
+      { origin: { latitude: 0, longitude: 0 } },
+      { origin: { latitude: 0, longitude: 5 } },
+      { origin: { latitude: 5, longitude: 0 } },
+      { origin: { latitude: 90, longitude: 180 } },
+      { origin: { latitude: -90.1, longitude: 0 } },
+      { origin: { latitude: 0, longitude: 180.1 } },
+      { origin: { latitude: '51', longitude: 0 } },
+      { origin: { latitude: Number.NaN, longitude: 0 } },
+      { origin: { latitude: 51.5 } },
+      { origin: null },
+      { latitude: 51.5, longitude: -0.1 },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsOriginSchema.safeParse(input).success).toBe(
+        sharedOriginSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('validates a location reading and its accuracy identically', () => {
+    const readings: unknown[] = [
+      { latitude: 51.5, longitude: -0.1 },
+      { latitude: 51.5, longitude: -0.1, accuracy: 0 },
+      { latitude: 51.5, longitude: -0.1, accuracy: 100 },
+      { latitude: 51.5, longitude: -0.1, accuracy: 100.5 },
+      { latitude: 51.5, longitude: -0.1, accuracy: 1_000_000 },
+      { latitude: 51.5, longitude: -0.1, accuracy: 1_000_001 },
+      { latitude: 51.5, longitude: -0.1, accuracy: -1 },
+      { latitude: 51.5, longitude: -0.1, accuracy: null },
+      { latitude: 51.5, longitude: -0.1, accuracy: '5' },
+      { latitude: 0, longitude: 0, accuracy: 5 },
+      { latitude: 91, longitude: 0 },
+      { latitude: 0 },
+      null,
+      {},
+    ];
+    for (const reading of readings) {
+      expect(functionsLocationSchema.safeParse(reading).success).toBe(
+        sharedLocationSchema.safeParse(reading).success,
+      );
+    }
+    for (const accuracy of [
+      0,
+      1,
+      99.9,
+      100,
+      100.1,
+      500,
+      -1,
+      Number.NaN,
+      Infinity,
+      null,
+      undefined,
+    ]) {
+      expect(functionsIsUsableAccuracy(accuracy)).toBe(isUsableAccuracy(accuracy));
     }
   });
 });

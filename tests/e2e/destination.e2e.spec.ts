@@ -141,6 +141,8 @@ test.describe('driver app: destination', () => {
     page,
   }) => {
     await mockPlaces(page);
+    await page.context().grantPermissions(['geolocation']);
+    await page.context().setGeolocation({ latitude: 51.4494, longitude: -2.5813 });
     const { email, uid } = await newDriver('dst-online', { ready: true });
     await signIn(page, driver, email);
 
@@ -152,9 +154,13 @@ test.describe('driver app: destination', () => {
     await search(page).fill('canary');
     await suggestion(page, office.text).click();
 
-    // The destination is not the last thing: seats on offer and the detour still have to be chosen.
+    // The destination is not the last thing: the start, the seats on offer and the detour still have
+    // to be chosen.
     await expect(checklist(page).getByText('Destination set')).toBeVisible();
     await expect(goOnline(page)).toBeDisabled();
+    await expect(checklist(page).getByText('Save where you are starting below.')).toBeVisible();
+    await page.getByRole('button', { name: 'Use my current location as the start' }).click();
+    await expect(checklist(page).getByText('Start of journey saved')).toBeVisible();
     await page.getByRole('radio', { name: '2', exact: true }).click();
     await page.getByRole('button', { name: 'Save seats' }).click();
     await page.getByRole('radio', { name: '10 min', exact: true }).click();

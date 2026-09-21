@@ -282,6 +282,7 @@ describe('going online', () => {
     vehicleStatus: 'VERIFIED',
     seatCapacity: 4,
     destinationDeclared: true,
+    originSet: true,
     availableSeats: 3,
     maxDetourMinutes: 10,
     maxDetourDistance: 5,
@@ -295,6 +296,7 @@ describe('going online', () => {
       'vehicleVerified',
       'seatsSet',
       'destinationDeclared',
+      'originSet',
       'seatsOffered',
       'detourSet',
     ]);
@@ -315,6 +317,7 @@ describe('going online', () => {
     ['a rejected vehicle', { vehicleStatus: 'REJECTED' }, 'vehicleVerified'],
     ['no seats set', { seatCapacity: null }, 'seatsSet'],
     ['no destination', { destinationDeclared: false }, 'destinationDeclared'],
+    ['no journey start', { originSet: false }, 'originSet'],
     ['no seats on offer', { availableSeats: null }, 'seatsOffered'],
     ['zero seats on offer', { availableSeats: 0 }, 'seatsOffered'],
     ['a fraction of a seat on offer', { availableSeats: 2.5 }, 'seatsOffered'],

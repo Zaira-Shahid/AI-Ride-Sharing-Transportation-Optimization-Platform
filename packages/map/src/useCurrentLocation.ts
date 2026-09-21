@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CurrentLocation, LocationStatus, MapPoint } from './types';
+import type { CurrentLocation, LocateOptions, LocationStatus, MapPoint } from './types';
 
 /**
  * The device's location on phones, through expo-location. It asks for permission only when the
@@ -8,7 +8,8 @@ import type { CurrentLocation, LocationStatus, MapPoint } from './types';
  * stores anything: one reading, kept in memory. The web build has its own file
  * (useCurrentLocation.web.ts).
  */
-export function useCurrentLocation(): CurrentLocation {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- phones always take a fresh reading
+export function useCurrentLocation(_options: LocateOptions = {}): CurrentLocation {
   const [status, setStatus] = useState<LocationStatus>('idle');
   const [point, setPoint] = useState<MapPoint | null>(null);
   const mounted = useRef(true);

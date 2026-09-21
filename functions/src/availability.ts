@@ -20,6 +20,7 @@ export const GO_ONLINE_REQUIREMENTS = [
   'vehicleVerified',
   'seatsSet',
   'destinationDeclared',
+  'originSet',
   'seatsOffered',
   'detourSet',
 ] as const;
@@ -32,6 +33,8 @@ export interface GoOnlineFacts {
   vehicleStatus: unknown;
   seatCapacity: unknown;
   destinationDeclared: boolean;
+  /** The driver has saved where the journey starts (Module 4.1). */
+  originSet: boolean;
   /** Seats the driver offers on their open journey. */
   availableSeats: unknown;
   /** Extra minutes and kilometres the driver accepts on their open journey. */
@@ -63,6 +66,7 @@ export function evaluateGoOnline(facts: GoOnlineFacts): {
     vehicleVerified: facts.vehicleStatus === 'VERIFIED',
     seatsSet: hasVehicle && typeof facts.seatCapacity === 'number',
     destinationDeclared: facts.destinationDeclared,
+    originSet: facts.originSet,
     // 1 is SEAT_CAPACITY_MIN; vehicles.ts imports this file, so it is not imported back here.
     seatsOffered:
       hasVehicle &&
@@ -131,12 +135,27 @@ export async function setAvailability(
         vehicleStatus: vehicle.exists ? vehicle.get('verificationStatus') : null,
         seatCapacity: vehicle.exists ? vehicle.get('seatCapacity') : null,
         destinationDeclared: ownJourney?.get('destination') != null,
+        originSet: ownJourney?.get('origin') != null,
         availableSeats: ownJourney?.get('availableSeats') ?? null,
         maxDetourMinutes: ownJourney?.get('maxDetourMinutes') ?? null,
         maxDetourDistance: ownJourney?.get('maxDetourDistance') ?? null,
       });
       if (!eligible) {
         throw new HttpsError('failed-precondition', 'You cannot go online yet.', { unmet });
+      }
+    }
+
+    // Going offline ends the sharing of the driver's position: the last one is removed, so it does
+    // not sit on the journey as if it were current. (When the system takes a driver offline, see
+    // offlineFields, the last position stays until the driver next goes online; only the driver
+    // and verified staff can read it, and docs/security.md lists this.)
+    if (
+      status === 'OFFLINE' &&
+      journey?.exists === true &&
+      journey.get('driverId') === caller.uid
+    ) {
+      if (journey.get('currentLocation') != null) {
+        tx.update(journey.ref, { currentLocation: null, updatedAt: FieldValue.serverTimestamp() });
       }
     }
 

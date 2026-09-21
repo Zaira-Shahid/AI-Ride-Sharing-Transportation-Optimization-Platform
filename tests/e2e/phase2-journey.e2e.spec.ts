@@ -30,6 +30,7 @@ const vehicleSeat = (page: Page, count: number) =>
   vehicleCard(page).getByRole('radio', { name: String(count), exact: true });
 
 const destinationCard = (page: Page) => page.getByLabel('Destination', { exact: true });
+const startCard = (page: Page) => page.getByLabel('Start of journey', { exact: true });
 const seatsCard = (page: Page) => page.getByLabel('Seats on offer', { exact: true });
 const detourCard = (page: Page) => page.getByLabel('Maximum detour', { exact: true });
 
@@ -49,6 +50,9 @@ async function newDriver(prefix: string) {
  */
 async function createJourneyAndGoOnline(page: Page, email: string, uid: string) {
   await mockPlaces(page);
+  // The device's position, for the start of the journey (Module 4.1).
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 51.4494, longitude: -2.5813 });
   await openLogin(page, driver.url, driver.title);
   await submitLogin(page, email, PASSWORD);
 
@@ -59,6 +63,7 @@ async function createJourneyAndGoOnline(page: Page, email: string, uid: string) 
     'Your driver profile is waiting to be verified.',
     'Add your vehicle in the Profile tab.',
     'Set your destination below.',
+    'Save where you are starting below.',
     'Choose how many seats you offer below.',
     'Choose how far you will go out of your way below.',
   ]) {
@@ -92,6 +97,12 @@ async function createJourneyAndGoOnline(page: Page, email: string, uid: string) 
   await destinationCard(page).getByLabel('Search for a destination').fill('canary');
   await destinationCard(page).getByRole('button', { name: office.text }).click();
   await expect(page.getByText('Your destination has been saved.')).toBeVisible();
+
+  await startCard(page)
+    .getByRole('button', { name: 'Use my current location as the start' })
+    .click();
+  await expect(page.getByText('Your start has been saved.')).toBeVisible();
+  await expect(goOnline(page)).toBeDisabled();
 
   await seatsCard(page).getByRole('radio', { name: '3', exact: true }).click();
   await seatsCard(page).getByRole('button', { name: 'Save seats' }).click();
@@ -129,6 +140,7 @@ test.describe('phase 2: a driver creates a valid journey', () => {
       availableSeats: 3,
       maxDetourMinutes: 10,
       maxDetourDistance: 5,
+      origin: { latitude: 51.4494, longitude: -2.5813, address: 'Current location' },
     });
     // The seats on offer can never be more than the vehicle holds.
     const vehicle = await readVehicleDoc(uid);
@@ -144,7 +156,10 @@ test.describe('phase 2: a driver creates a valid journey', () => {
       detourCard(page).getByRole('radio', { name: '10 min', exact: true }),
     ).toBeChecked();
     await expect(detourCard(page).getByRole('radio', { name: '5 km', exact: true })).toBeChecked();
-    expect(await readDriverJourney(uid)).toEqual(journey);
+    // (The position shared while online, Module 4.1, arrives after the first read: it is not part
+    // of the journey being compared.)
+    const withoutPosition = (value: typeof journey) => ({ ...value, currentLocation: null });
+    expect(withoutPosition(await readDriverJourney(uid))).toEqual(withoutPosition(journey));
   });
 
   test('the vehicle and the journey keep each other consistent', async ({ page }) => {

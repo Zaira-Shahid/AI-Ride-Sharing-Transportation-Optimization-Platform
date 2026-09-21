@@ -28,7 +28,9 @@ import {
 } from '../components';
 import { DestinationSection } from './DestinationSection';
 import { DetourSection } from './DetourSection';
+import { OriginSection } from './OriginSection';
 import { SeatsOfferSection } from './SeatsOfferSection';
+import { useShareDriverLocation } from './useShareDriverLocation';
 
 const DESCRIPTION = 'Your destination, available seats and matching settings will appear here.';
 
@@ -37,6 +39,7 @@ interface Facts {
   driver: DriverProfileData | undefined;
   vehicle: VehicleData | undefined;
   destination: StoredDestination | null;
+  origin: StoredDestination | null;
   availableSeats: number | null;
 }
 
@@ -65,6 +68,8 @@ function describeRequirement(requirement: GoOnlineRequirement, met: boolean, fac
       return met ? 'Passenger seats set' : 'Set your passenger seats in the Profile tab.';
     case 'destinationDeclared':
       return met ? 'Destination set' : 'Set your destination below.';
+    case 'originSet':
+      return met ? 'Start of journey saved' : 'Save where you are starting below.';
     case 'seatsOffered':
       return met ? 'Seats on offer set' : 'Choose how many seats you offer below.';
     case 'detourSet':
@@ -135,6 +140,7 @@ export function DriverHomeScreen({
   useEffect(() => {
     lastDestination.current = destination;
   }, [destination]);
+  const origin = journey.status === 'ready' ? journey.journey.origin : null;
   const availableSeats = journey.status === 'ready' ? journey.journey.availableSeats : null;
   const maxDetourMinutes = journey.status === 'ready' ? journey.journey.maxDetourMinutes : null;
   const maxDetourDistance = journey.status === 'ready' ? journey.journey.maxDetourDistance : null;
@@ -146,6 +152,7 @@ export function DriverHomeScreen({
     driver: driverData,
     vehicle: vehicleData,
     destination,
+    origin,
     availableSeats,
   };
   const { eligible, checks } = evaluateGoOnline({
@@ -154,10 +161,14 @@ export function DriverHomeScreen({
     vehicleStatus: vehicleData?.verificationStatus ?? null,
     seatCapacity: vehicleData?.seatCapacity ?? null,
     destinationDeclared: destination !== null,
+    originSet: origin !== null,
     availableSeats,
     maxDetourMinutes,
     maxDetourDistance,
   });
+
+  // While the driver is online their position is followed and shared, sparingly. Offline, nothing is.
+  const sharing = useShareDriverLocation(online);
 
   const change = async (status: 'ONLINE' | 'OFFLINE') => {
     setFailure(null);
@@ -191,6 +202,16 @@ export function DriverHomeScreen({
         <>
           <Heading title={online ? 'You are online' : 'You are offline'} subtitle={DESCRIPTION} />
           {failure ? <Notice tone="error">{failure.message}</Notice> : null}
+          {online && (sharing.status === 'denied' || sharing.status === 'unavailable') ? (
+            <Notice tone="error">
+              {sharing.status === 'denied'
+                ? 'Your location is not being shared because location is turned off for this app. Turn it on in your browser or phone settings.'
+                : 'Your location could not be found, so it is not being shared. Check your signal.'}
+            </Notice>
+          ) : null}
+          {online && sharing.status === 'watching' ? (
+            <Notice tone="info">Sharing your location while online.</Notice>
+          ) : null}
           {online ? (
             <SecondaryButton
               label={busy ? 'Going offline' : 'Go offline'}
@@ -213,6 +234,7 @@ export function DriverHomeScreen({
             destination={destination}
             vehicleAdded={vehicleData !== undefined}
           />
+          <OriginSection hasJourney={destination !== null} origin={origin} editable={editable} />
           <SeatsOfferSection
             seatCapacity={vehicleData?.seatCapacity ?? null}
             hasJourney={destination !== null}
