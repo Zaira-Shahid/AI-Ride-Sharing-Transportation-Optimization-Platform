@@ -1,4 +1,9 @@
-import { describeAuthError, setJourneyOrigin, type AuthFailure } from '@ridemesh/firebase';
+import {
+  describeAuthError,
+  reverseGeocode,
+  setJourneyOrigin,
+  type AuthFailure,
+} from '@ridemesh/firebase';
 import { useAuth } from '@ridemesh/firebase/react';
 import { useCurrentLocation } from '@ridemesh/map';
 import type { StoredDestination } from '@ridemesh/types';
@@ -24,9 +29,9 @@ const LOCATION_PROBLEMS = {
 
 /**
  * Where the driver's journey starts. The driver taps a button and the device's position is read
- * once (never before, and nothing is watched here) and saved on the journey as "Current location";
- * there is no address for it yet. It is needed before going online. Turning the driver's position
- * into an address is reverse geocoding, later in Phase 4.
+ * once (never before, and nothing is watched here) and saved on the journey with the address the
+ * server finds for it (reverse geocoding, Module 4.2, on a position rounded to about 11 m), or
+ * "Current location" when no address can be found. It is needed before going online.
  */
 export function OriginSection({ hasJourney, origin, editable }: Props) {
   const theme = useAuthTheme();
@@ -39,20 +44,23 @@ export function OriginSection({ hasJourney, origin, editable }: Props) {
   const [failure, setFailure] = useState<AuthFailure | null>(null);
 
   // When the device's position arrives for a start the driver asked for, that is what is saved.
+  const { status, point } = location;
   useEffect(() => {
     if (!asking) return;
-    if (location.status === 'denied' || location.status === 'unavailable') {
+    if (status === 'denied' || status === 'unavailable') {
       setAsking(false);
       return;
     }
-    if (location.status !== 'ready' || !location.point) return;
+    if (status !== 'ready' || !point) return;
     setAsking(false);
     setSaving(true);
-    void setJourneyOrigin(client, location.point)
+    // The address is a nicety: when it cannot be found the start is saved as "Current location".
+    void reverseGeocode(client, point)
+      .then((address) => setJourneyOrigin(client, point, address))
       .then(() => setJustSaved(true))
       .catch((error: unknown) => setFailure(describeAuthError(error)))
       .finally(() => setSaving(false));
-  }, [asking, location.status, location.point, client]);
+  }, [asking, status, point, client]);
 
   const card = [styles.card, { backgroundColor: theme.surface, borderColor: theme.border }];
   const caption = [styles.caption, { color: theme.textSecondary }];

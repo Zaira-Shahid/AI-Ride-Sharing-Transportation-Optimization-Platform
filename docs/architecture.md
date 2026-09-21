@@ -21,22 +21,22 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 4.1)
+## What exists now (through Module 4.2)
 
-| Area            | Location                                  | State                                                                                                                                                                                                                                                                           |
-| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride, and its status), Trips (upcoming and past requests), Wallet, Profile.                                                              |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online, share location while online), Current Journey, Earnings, History, Profile tabs.                                                                                                                                                           |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                                                                                                                     |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour`, `createTripRequest`, `cancelTripRequest`, `setJourneyOrigin` and `updateDriverLocation` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                                                                                                            |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                                                                                                               |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                                                                                                           |
-| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                                                                                                                       |
-| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                                                                                                      |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                                                                                                                      |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                                                                                                                       |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                                                                                                             |
+| Area            | Location                                  | State                                                                                                                                                                                                                                                                                             |
+| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride, and its status), Trips (upcoming and past requests), Wallet, Profile.                                                                                |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online, share location while online), Current Journey, Earnings, History, Profile tabs.                                                                                                                                                                             |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                                                                                                                                       |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour`, `createTripRequest`, `cancelTripRequest`, `setJourneyOrigin`, `updateDriverLocation` and `reverseGeocode` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                                                                                                                              |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                                                                                                                                 |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                                                                                                                             |
+| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                                                                                                                                         |
+| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                                                                                                                        |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                                                                                                                                        |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                                                                                                                                         |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                                                                                                                               |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -557,8 +557,41 @@ self-hosted provider before launch); route calculation runs **server-side** in a
 - **Where it is stored.** `driverJourneys.origin` and `driverJourneys.currentLocation` (latitude,
   longitude, accuracy, server `updatedAt`). Journeys stay DRAFT while a driver is online (a known
   Phase 2 gap), so "active" here means the driver is ONLINE, not a journey status.
-- **Not yet:** turning positions into addresses (4.2), routes and distances (4.3 onwards), any use of
-  the position for matching, and showing a driver's position to a passenger.
+- **Not yet:** routes and distances (4.3 onwards), any use of the position for matching, and
+  showing a driver's position to a passenger.
+
+### Reverse geocoding (Module 4.2)
+
+- **What it does.** `reverseGeocode` (callable, `functions/src/geocoding.ts`) turns a device position
+  into an address, for the driver's start (`OriginSection`) and a passenger's "Use my current
+  location" pickup (`PassengerHomeScreen`). The apps call `reverseGeocode` (`packages/firebase`),
+  which never throws and returns the address or null, and pass the address on:
+  `setJourneyOrigin(client, point, address)` and `currentLocationPlace(point, address)`. The stored
+  place keeps the exact coordinates; only the address came from the rounded position. With no
+  address it says "Current location", as before.
+- **One provider interface.** `GeocodingProvider.reverse(point)` returns an address, null (none) or
+  throws (failed). `createNominatimProvider` is the only implementation (`/reverse`, jsonv2, English,
+  a User-Agent, a 5 s timeout); `formatNominatimAddress` writes "12 Test Street, Bristol, BS1 6QS"
+  from its parts (a house number is used only with a street), falling back to its long name. Google
+  or a self-hosted server replaces it without touching the rest. Forward search is not part of
+  this module: place search stays Google's.
+- **The function's steps.** Check the caller (verified driver or passenger) and the position; round
+  it (4 decimals); answer from `geocodeCache` if the rounded position is there; otherwise claim a
+  place in line (global 1.1 s spacing and 10 per caller per minute, in Firestore, so it holds across
+  instances); ask the provider; cache the answer (an address, or none) and return it. The result is
+  `{status: 'found' | 'none' | 'unavailable' | 'busy', address}`; a failure or a busy answer is a normal
+  result and is not cached. Privacy and the pre-launch items are in docs/security.md, "Reverse
+  geocoding".
+- **In the tests.** The functions emulator the tests start (project `demo-ridemesh`) reads
+  `functions/.env.demo-ridemesh`, which points `NOMINATIM_BASE_URL` at a fake Nominatim on port
+  18889 (`tests/fake-nominatim.ts`) and turns the spacing off, so nothing can reach OpenStreetMap
+  (`tests/ports.test.ts` checks the file). Integration tests start the fake themselves and also call
+  `reverseGeocode` directly with a stand-in provider and a controlled clock, for the cache, the
+  rounding and the limits; the end-to-end tests share one fake started by `tests/e2e/global-setup.ts`
+  that answers by position (`E2E_GEOCODING`), so tests running side by side cannot disturb each other
+  and the ones that do not care see "Current location" as before.
+- **Not yet:** an address for a place the driver or passenger did not pick with GPS (they already
+  have Google's), cleaning up old cache entries (needs Blaze), and turning routes into distances (4.3).
 
 ## Design tokens
 

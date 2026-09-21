@@ -366,9 +366,9 @@ no client can write them.
 
 - **The start of the journey (`origin`).** One reading of the device, taken only when the driver
   presses "Use my current location as the start" (never on start-up; a test checks the browser is not
-  asked before the press) and saved by `setJourneyOrigin`. It is stored as "Current location" with
-  its coordinates and no place ID, because turning a position into an address is reverse geocoding
-  (a later Phase 4 module). It needs a verified driver with an ACTIVE account and a journey (so a
+  asked before the press) and saved by `setJourneyOrigin`. It is stored with its coordinates and no
+  place ID, and with the address found for it (see "Reverse geocoding" below) or, when none is
+  found, "Current location". It needs a verified driver with an ACTIVE account and a journey (so a
   destination first), and can only change while the journey is a DRAFT. It is **required to go
   online** (`originSet`, after `destinationDeclared`). 0, 0 and out-of-range positions are refused.
 - **The current position (`currentLocation`).** Written by `updateDriverLocation` **only while the
@@ -400,6 +400,64 @@ no client can write them.
   deletion needs a scheduled function, so the Blaze plan.
 - **Passengers' positions are not shared.** A passenger's own device position is still only used on
   demand, in memory, for the pickup or the map (Modules 3.2 and 3.3).
+
+## Reverse geocoding (Module 4.2)
+
+A position from a device gets an address, so the driver's start and a passenger's current-location
+pickup can say where they are and not only "Current location". The address comes from **Nominatim
+(OpenStreetMap)**, asked by the `reverseGeocode` function, which is a disclosure of a private
+person's location to a third party.
+
+- **Only a rounded position leaves the device.** The position is rounded to 4 decimals (about 11 m)
+  by the app before it calls our function (`roundForGeocoding`, an end-to-end test checks the request
+  body), and again by the function before it is sent to Nominatim or cached (mirrored in
+  `functions/src/geocoding.ts` and parity-tested, because the server does not trust the app); the exact
+  position stays in our own database, on the trip request or the journey. A test checks what the
+  provider actually receives, and that no exact coordinate or user ID reaches the cache. The
+  price is an address that is right to the street and often the building, not always the door.
+- **Who and what.** Only a verified driver or passenger (from the signed token) can ask; staff cannot,
+  and 0, 0 and out-of-range positions are refused. The address is the app's own claim once it is
+  passed on (a journey start or a trip place), like a destination from Google.
+- **Cached by rounded position alone.** Answers, including "there is no address here", are stored in
+  `geocodeCache/{lat}_{lon}` (rounded): the address, the rounded coordinates and a time, nothing
+  about who asked. Nominatim's usage policy asks for caching, and it keeps repeat lookups off a
+  public server. **Nothing expires the cache yet** (that needs a scheduled function, so the Blaze
+  plan): add it to the retention items above and below. A failure is never cached.
+- **Limits.** The public server allows at most one request a second, so the function claims a place
+  in line in Firestore (`geocodeGlobal/lookups`: at least 1.1 s between lookups from everybody) and
+  each caller may cause 10 lookups a minute (`geocodeLimits/{uid}`); a lookup answered from the cache
+  costs neither. Over a limit, or if the counters cannot be updated, the answer is `busy`. The
+  provider is asked with a 5 s timeout. `GEOCODE_LIMITS` holds the numbers, mirrored and
+  parity-tested; the tests turn the spacing off in `functions/.env.demo-ridemesh` so that tests
+  running side by side cannot make each other busy, and the limits are tested directly with a
+  controlled clock.
+- **Never required, never an error.** If the lookup fails, times out, is refused or is busy, the app
+  keeps "Current location" and everything else works as before (tests: a failing and a no-address
+  position for both apps). The client function returns null and never throws, waits at most 8 s, and
+  the provider's failure text is not returned. A lookup that finishes after the passenger has
+  chosen another pickup is ignored (an end-to-end test holds the lookup back to prove it).
+- **The three collections** (`geocodeCache`, `geocodeLimits`, `geocodeGlobal`) are not in the rules,
+  so they are closed to every client (a rules test checks each); only the function reads and writes
+  them.
+- **Before launch (owner's action).**
+  1. Nominatim's policy needs a `User-Agent` that identifies the app **and a way to contact us**. That
+     is configuration and not code (`GEOCODING_USER_AGENT`, docs/development.md). It is set to the
+     owner's own address, by the owner's decision, in the git-ignored
+     `functions/.env.ai-ride-sharing-system-a6743` (the repository is public, so it is never in a
+     tracked file). **Replace it with a dedicated support contact when there is one**, and do not
+     commit the file. Without it the function sends "RideMesh (contact not configured)", which the
+     public server may block.
+  2. The public server is for light use only and has no service guarantee. Move to a paid or
+     self-hosted Nominatim (or Google) before real traffic: it is one variable (`NOMINATIM_BASE_URL`)
+     for another Nominatim, or one new provider for Google, because everything goes through
+     `GeocodingProvider`.
+  3. The privacy notice (spec section 56) must say that a rounded position is sent to Nominatim
+     (OpenStreetMap Foundation infrastructure), and the addresses are OpenStreetMap data
+     (© OpenStreetMap contributors, ODbL): show that attribution where they are shown, as the map
+     already does for its tiles.
+- Calls from the functions emulator to the real Nominatim are possible in development
+  (`npm run emulators`, no `.env` for the real project); the deployed function needs the Blaze plan
+  for outbound network access, like other external calls.
 
 ## Staff roles
 

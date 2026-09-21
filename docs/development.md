@@ -81,6 +81,28 @@ the local env files and network access, so it is not part of `npm run verify` or
 printing any values. Build the raw object from literal `process.env.X` references; bundlers only
 inline variables referenced literally.
 
+### Reverse geocoding (Nominatim)
+
+The `reverseGeocode` function turns a device position into an address by asking Nominatim
+(OpenStreetMap). No account or key is needed. Settings, read from the function's environment:
+
+| Variable                   | Meaning                                                                                                                                                           | Default                                                  |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `NOMINATIM_BASE_URL`       | Where Nominatim is (a server of our own later; a path is allowed)                                                                                                 | the public server, `https://nominatim.openstreetmap.org` |
+| `GEOCODING_USER_AGENT`     | What the function calls itself. **The public server's policy needs an application name and a way to reach you**, for example `RideMesh (you@your-domain.example)` | `RideMesh (contact not configured)` (may be blocked)     |
+| `GEOCODING_MIN_SPACING_MS` | Least time between lookups from everybody together (the public server allows one a second)                                                                        | 1100                                                     |
+
+Set them for the deployed function in `functions/.env.<project id>` (git-ignored, like every `.env`
+file) when you deploy. The real project's file, `functions/.env.ai-ride-sharing-system-a6743`, exists on
+the owner's machine with the User-Agent set to the owner's own contact address until there is a
+dedicated support contact; `npm run emulators` reads it too, because that is the default project; **do this before real use**, and never put a personal address you do not
+want a public server operator to see. For local development with `npm run emulators` nothing is
+needed, and lookups go to the real server lightly (rounded positions, cached, one a second).
+
+Tests never reach it. The emulators the tests start (project `demo-ridemesh`) read
+`functions/.env.demo-ridemesh` (the one `.env` file that is committed: no secrets, only a fake local
+address and a spacing of 0), which points at a fake Nominatim that the tests run themselves.
+
 ### Google Maps key (place search)
 
 The driver app (destination) and the passenger app (where are you going) search places with Google

@@ -227,7 +227,9 @@ test.describe('passenger app: pickup', () => {
     await expect(pickupCard(page).getByText(station.address)).toBeVisible();
   });
 
-  test('keeps the places in the app, sending nothing to the server', async ({ page }) => {
+  test('keeps the places in the app: the only thing sent is the address lookup for the device position', async ({
+    page,
+  }) => {
     await allowLocation(page);
     await mockPlaces(page);
     const watch = await watchMap(page);
@@ -238,7 +240,11 @@ test.describe('passenger app: pickup', () => {
     await useCurrentLocation(page).click();
     await expect(pickupMarker(page)).toBeVisible();
 
-    expect(watch.serverCalls).toEqual([]);
+    // A pickup from the device asks the server for its address (Module 4.2), and that is all: nothing
+    // that creates or stores a request, a place or a position (the request is built only in the app
+    // until it is confirmed).
+    expect(watch.serverCalls).toHaveLength(1);
+    expect(watch.serverCalls[0]).toContain('/reverseGeocode');
     await page.reload();
     await expect(map(page)).toBeVisible();
     await expect(pickupMarker(page)).toHaveCount(0);
