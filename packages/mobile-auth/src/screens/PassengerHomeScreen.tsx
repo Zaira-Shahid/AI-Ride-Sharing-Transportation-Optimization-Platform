@@ -3,6 +3,7 @@ import { useAuth, useCurrentTripRequest } from '@ridemesh/firebase/react';
 import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
 import {
   checkChosenPlace,
+  canPassengerCancel,
   checkTripTimes,
   DEFAULT_FLEXIBILITY,
   DEFAULT_TRIP_TIMES,
@@ -259,6 +260,7 @@ export function PassengerHomeScreen({
             ) : null}
             {openTrip ? (
               <RequestedCard
+                status={openTrip.status}
                 summary={{
                   pickup: openTrip.origin.formattedAddress,
                   destination: openTrip.destination.formattedAddress,
@@ -268,7 +270,7 @@ export function PassengerHomeScreen({
                   allowSharedRide: openTrip.allowSharedRide,
                 }}
                 now={now}
-                cancellable={openTrip.status === 'REQUESTED'}
+                cancellable={canPassengerCancel(openTrip.status)}
                 problem={cancelProblem}
                 onCancel={() => {
                   setCancelProblem(null);
