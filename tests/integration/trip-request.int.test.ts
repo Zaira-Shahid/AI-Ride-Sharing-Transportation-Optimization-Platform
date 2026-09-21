@@ -88,6 +88,9 @@ describe('createTripRequest (functions + firestore emulators)', () => {
       status: 'REQUESTED',
       passengerPreferences: BALANCED,
       estimatedFare: null,
+      // The distance and time are filled in a moment after creation by the estimate trigger (Modules
+      // 4.4 and 4.5), from a routing server. None is reachable in this file, so they stay empty here;
+      // tests/integration/estimate.int.test.ts is where they are filled.
       estimatedDistance: null,
       estimatedDuration: null,
       assignedPlanId: null,

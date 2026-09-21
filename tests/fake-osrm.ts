@@ -1,4 +1,9 @@
-import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import type { Socket } from 'node:net';
 
 /**
@@ -26,7 +31,14 @@ export type FakeRouteReply =
   | { kind: 'route'; body: unknown }
   | { kind: 'status'; status: number; body?: unknown }
   | { kind: 'text'; text: string }
-  | { kind: 'hang' };
+  | { kind: 'hang' }
+  /** Answers with `then` after `ms`, for a route that takes a while. */
+  | { kind: 'delay'; ms: number; then: FakeRouteReply }
+  /**
+   * Holds the answer until `until` settles, then gives `then`: a route that takes exactly as long as
+   * a test needs, so that a race can be decided by the test and not by how fast things happen to run.
+   */
+  | { kind: 'wait'; until: Promise<unknown>; then: FakeRouteReply };
 
 export interface FakeOsrm {
   /** Every route request received, in order. */
@@ -111,11 +123,61 @@ export function defaultRouteBody(
   };
 }
 
-/** Starts an OSRM stand-in on FAKE_OSRM_PORT. Stop it with close(). */
-export async function startFakeOsrm(): Promise<FakeOsrm> {
+/**
+ * The positions the end-to-end tests use to choose what the fake route server does, because the tests
+ * run side by side and share one fake (as for geocoding). Every route is answered normally, except
+ * one with a stop near `failing`, which fails (a 500).
+ */
+export const E2E_ROUTING = {
+  failing: { latitude: 43, longitude: 10 },
+} as const;
+
+/** The answer the end-to-end tests' shared fake gives: a normal route, or a failure near E2E_ROUTING.failing. */
+export function positionalRouteReply(request: FakeRouteRequest): FakeRouteReply {
+  const failing = request.stops.some(
+    (stop) =>
+      Math.abs(stop.latitude - E2E_ROUTING.failing.latitude) < 0.001 &&
+      Math.abs(stop.longitude - E2E_ROUTING.failing.longitude) < 0.001,
+  );
+  return failing
+    ? { kind: 'status', status: 500 }
+    : { kind: 'route', body: defaultRouteBody(request) };
+}
+
+/**
+ * Starts an OSRM stand-in on FAKE_OSRM_PORT. By default it answers every request with a route built
+ * from the stops; `defaultReply` changes that. Stop it with close().
+ */
+export async function startFakeOsrm(
+  options: { defaultReply?: (request: FakeRouteRequest) => FakeRouteReply } = {},
+): Promise<FakeOsrm> {
   const requests: FakeRouteRequest[] = [];
-  let current: FakeRouteReply | ((request: FakeRouteRequest) => FakeRouteReply) | null = null;
+  const fallback = options.defaultReply ?? null;
+  let current: FakeRouteReply | ((request: FakeRouteRequest) => FakeRouteReply) | null = fallback;
   const sockets = new Set<Socket>();
+
+  function respondWith(response: ServerResponse, reply: FakeRouteReply): void {
+    if (reply.kind === 'hang') return; // never answers: the caller's timeout has to end it
+    if (reply.kind === 'wait') {
+      void reply.until.then(() => respondWith(response, reply.then));
+      return;
+    }
+    if (reply.kind === 'delay') {
+      setTimeout(() => respondWith(response, reply.then), reply.ms);
+      return;
+    }
+    if (reply.kind === 'status') {
+      response
+        .writeHead(reply.status, { 'content-type': 'application/json' })
+        .end(reply.body === undefined ? undefined : JSON.stringify(reply.body));
+      return;
+    }
+    if (reply.kind === 'text') {
+      response.writeHead(200, { 'content-type': 'text/plain' }).end(reply.text);
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply.body));
+  }
 
   const server: Server = createServer((incoming, response) => {
     const url = new URL(incoming.url ?? '/', `http://127.0.0.1:${FAKE_OSRM_PORT}`);
@@ -141,18 +203,7 @@ export async function startFakeOsrm(): Promise<FakeOsrm> {
       typeof current === 'function'
         ? current(request)
         : (current ?? { kind: 'route', body: defaultRouteBody(request) });
-    if (reply.kind === 'hang') return; // never answers: the caller's timeout has to end it
-    if (reply.kind === 'status') {
-      response
-        .writeHead(reply.status, { 'content-type': 'application/json' })
-        .end(reply.body === undefined ? undefined : JSON.stringify(reply.body));
-      return;
-    }
-    if (reply.kind === 'text') {
-      response.writeHead(200, { 'content-type': 'text/plain' }).end(reply.text);
-      return;
-    }
-    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply.body));
+    respondWith(response, reply);
   });
   server.on('connection', (socket) => {
     sockets.add(socket);
@@ -166,7 +217,7 @@ export async function startFakeOsrm(): Promise<FakeOsrm> {
   return {
     requests,
     reply: (next) => {
-      current = next;
+      current = next ?? fallback;
     },
     close: () =>
       new Promise<void>((resolve) => {

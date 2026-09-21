@@ -10,6 +10,7 @@ export * from './roles';
 export * from './routing';
 export * from './states';
 export * from './trip';
+export * from './trip-estimate';
 export * from './trip-request';
 export * from './trip-times';
 export * from './user';

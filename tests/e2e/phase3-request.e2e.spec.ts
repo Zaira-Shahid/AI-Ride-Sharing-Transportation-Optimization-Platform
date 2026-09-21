@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { defaultRouteBody } from '../fake-osrm';
 import { PLACES, firestoreDocs, mockPlaces } from './helpers';
 import { newPassenger, watchMap } from './map-helpers';
 import {
@@ -164,12 +165,25 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
       allowRouteChange: false,
     });
 
-    // Where it stands, and what is not known yet: no fare, route, driver or plan.
+    // Where it stands, and what is not known yet: no fare, driver or plan.
     expect(trip.status).toBe('REQUESTED');
     expect(trip.estimatedFare).toBeNull();
-    expect(trip.estimatedDistance).toBeNull();
-    expect(trip.estimatedDuration).toBeNull();
     expect(trip.assignedPlanId).toBeNull();
+    // The distance and time of the trip are worked out by the server a moment after the request is
+    // made (Modules 4.4 and 4.5): metres and whole seconds, for the two places as the fake route server
+    // sees them (rounded to about 11 m).
+    await expect
+      .poll(async () => (await storedRequests(uid))[0]?.estimatedDistance, { timeout: 20_000 })
+      .not.toBeNull();
+    const [estimated] = await storedRequests(uid);
+    const expectedRoute = defaultRouteBody({
+      stops: [
+        { latitude: station.latitude, longitude: station.longitude },
+        { latitude: office.latitude, longitude: office.longitude },
+      ],
+    }).routes[0];
+    expect(estimated?.estimatedDistance).toBe(Math.round(expectedRoute?.distance ?? Number.NaN));
+    expect(estimated?.estimatedDuration).toBe(Math.round(expectedRoute?.duration ?? Number.NaN));
     expect(typeof trip.createdAt).toBe('number');
     expect(typeof trip.updatedAt).toBe('number');
     expect(Object.keys(trip).sort()).toEqual(

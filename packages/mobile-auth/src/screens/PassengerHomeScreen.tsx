@@ -1,4 +1,5 @@
 import {
+  calculateRoute,
   cancelTripRequest,
   createTripRequest,
   describeAuthError,
@@ -12,11 +13,15 @@ import {
   checkTripTimes,
   DEFAULT_FLEXIBILITY,
   DEFAULT_TRIP_TIMES,
+  arrivalShortfallMinutes,
+  estimateProgress,
+  formatDuration,
   currentLocationPlace,
   flexibilityPreferences,
   type ChosenPlaceProblem,
   type Flexibility,
   type StoredDestination,
+  type TripEstimate,
   type TripTimes,
 } from '@ridemesh/types';
 import { radius, spacing } from '@ridemesh/ui';
@@ -35,7 +40,13 @@ import {
 import { FlexibilityCard } from './FlexibilityCard';
 import { PlaceRejectedError } from './PlaceSearch';
 import { DestinationCard, PickupCard } from './TripPlaceCards';
-import { RequestedCard, ReviewCard, type TripSummaryData } from './TripRequestCards';
+import {
+  RequestedCard,
+  ReviewCard,
+  type EstimateView,
+  type TripSummaryData,
+} from './TripRequestCards';
+import { formatWhen } from './timeFormat';
 import { TripTimeCard } from './TripTimeCard';
 import { useNow } from './useNow';
 
@@ -72,6 +83,16 @@ const DESTINATION_IS_PICKUP =
 function refusal(problem: ChosenPlaceProblem, choosing: 'pickup' | 'destination'): string {
   if (problem === 'UNUSABLE') return UNUSABLE_PLACE;
   return choosing === 'pickup' ? PICKUP_IS_DESTINATION : DESTINATION_IS_PICKUP;
+}
+
+/** How the estimate of a request that has been made stands, for its card. */
+function estimateViewOf(
+  trip: { estimate: TripEstimate | null; requestedAt: number | null },
+  now: number,
+): EstimateView {
+  const progress = estimateProgress(trip, now);
+  if (progress === 'READY' && trip.estimate) return { state: 'ready', estimate: trip.estimate };
+  return progress === 'UNAVAILABLE' ? { state: 'unavailable' } : { state: 'loading' };
 }
 
 function LocateButton({
@@ -140,6 +161,9 @@ export function PassengerHomeScreen({
   const [topCover, setTopCover] = useState(0);
   const [bottomCover, setBottomCover] = useState(0);
   const [reviewing, setReviewing] = useState(false);
+  // The estimated time and distance, asked for when the review opens (Module 4.5). The server asks
+  // for the same route (the same rounded places) when the request is made, so it is one lookup.
+  const [reviewEstimate, setReviewEstimate] = useState<EstimateView>({ state: 'loading' });
   const [sending, setSending] = useState(false);
   const [sendProblem, setSendProblem] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
@@ -203,6 +227,46 @@ export function PassengerHomeScreen({
   }, [pickupFromLocation, locationStatus, locationPoint, destination, client]);
 
   const locationProblem = LOCATION_PROBLEMS[location.status];
+
+  // While the passenger looks the request over, find out how long the trip is. A route is a help and
+  // never a requirement: when it cannot be had the review says so and the request can still be sent.
+  useEffect(() => {
+    if (!reviewing || !pickup || !destination) return undefined;
+    let current = true;
+    setReviewEstimate({ state: 'loading' });
+    void calculateRoute(client, [pickup, destination]).then((route) => {
+      if (!current) return;
+      setReviewEstimate(
+        route
+          ? {
+              state: 'ready',
+              estimate: {
+                distanceMeters: route.distanceMeters,
+                durationSeconds: route.durationSeconds,
+              },
+            }
+          : { state: 'unavailable' },
+      );
+    });
+    return () => {
+      current = false;
+    };
+  }, [reviewing, pickup, destination, client]);
+
+  // An arrival time that leaves less than the estimated trip is a warning, never a refusal: the
+  // estimate has no live traffic and no detour for sharing.
+  const arrivalWarning = (() => {
+    if (reviewEstimate.state !== 'ready' || times.arriveBy === null) return null;
+    const short = arrivalShortfallMinutes({
+      departureAt: times.departure.kind === 'AT' ? times.departure.at : null,
+      now,
+      arriveBy: times.arriveBy,
+      durationSeconds: reviewEstimate.estimate.durationSeconds,
+    });
+    return short > 0
+      ? `This trip is estimated at ${formatDuration(reviewEstimate.estimate.durationSeconds)}, so you may not arrive by ${formatWhen(times.arriveBy, now)}. You can still request it.`
+      : null;
+  })();
 
   const canRequest = pickup !== null && destination !== null && checkTripTimes(times, now) === null;
 
@@ -294,6 +358,7 @@ export function PassengerHomeScreen({
                   allowSharedRide: openTrip.allowSharedRide,
                 }}
                 now={now}
+                estimate={estimateViewOf(openTrip, now)}
                 cancellable={canPassengerCancel(openTrip.status)}
                 problem={cancelProblem}
                 onCancel={() => {
@@ -305,6 +370,8 @@ export function PassengerHomeScreen({
               <ReviewCard
                 summary={reviewSummary}
                 now={now}
+                estimate={reviewEstimate}
+                arrivalWarning={arrivalWarning}
                 sending={sending}
                 problem={sendProblem}
                 onConfirm={() => void sendRequest()}

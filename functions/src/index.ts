@@ -1,8 +1,10 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
-import { setGlobalOptions } from 'firebase-functions/v2';
+import { logger, setGlobalOptions } from 'firebase-functions/v2';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import { estimateTripRequest } from './estimates.js';
 import { buildHealthResponse } from './health.js';
 import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
@@ -144,4 +146,26 @@ export const calculateRoute = onCall((request) =>
     callerOf(request),
     request.data,
   ),
+);
+
+/**
+ * Works out the road distance and time of a new trip request (Modules 4.4 and 4.5), just after it is
+ * created, so that creating a request never waits for the routing server. It never throws: a request
+ * without an estimate is normal (the app says so), and what it logs is the request's ID only, never
+ * a place.
+ */
+export const estimateTripRequestOnCreate = onDocumentCreated(
+  { document: 'tripRequests/{tripId}', timeoutSeconds: 60 },
+  async (event) => {
+    try {
+      await estimateTripRequest(
+        { firestore: getFirestore(), provider: osrmFromEnvironment() },
+        event.params.tripId,
+      );
+    } catch {
+      logger.warn('The estimate for a trip request could not be made.', {
+        tripId: event.params.tripId,
+      });
+    }
+  },
 );
