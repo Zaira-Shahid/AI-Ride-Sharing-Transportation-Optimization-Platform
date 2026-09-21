@@ -1,7 +1,8 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-import type { Caller } from './callers.js';
+import { requireVerifiedRider, type Caller } from './callers.js';
+import { claimLookup, type LookupLimits } from './lookupLimits.js';
 
 // Reverse geocoding (Module 4.2): a position from the device in, an address out. Functions deploy
 // from this directory alone, so the numbers and helpers below mirror geocoding.ts in
@@ -150,10 +151,7 @@ export function nominatimFromEnvironment(env: NodeJS.ProcessEnv = process.env): 
   });
 }
 
-export interface GeocodingLimits {
-  globalSpacingMs: number;
-  perCallerPerMinute: number;
-}
+export type GeocodingLimits = LookupLimits;
 
 /** The limits from the environment (the tests set the spacing to 0); the defaults are the policy's. */
 export function limitsFromEnvironment(env: NodeJS.ProcessEnv = process.env): GeocodingLimits {
@@ -165,41 +163,6 @@ export function limitsFromEnvironment(env: NodeJS.ProcessEnv = process.env): Geo
         : GEOCODE_LIMITS.globalSpacingMs,
     perCallerPerMinute: GEOCODE_LIMITS.perCallerPerMinute,
   };
-}
-
-const WINDOW_MS = 60_000;
-
-/**
- * Takes a place in line to ask the provider, or says there is none: the provider gets at most one
- * request every globalSpacingMs from everybody together, and one caller at most perCallerPerMinute
- * in a minute. Both counters are in Firestore, so they hold across function instances.
- */
-async function claimLookup(
-  firestore: Firestore,
-  uid: string,
-  now: number,
-  limits: GeocodingLimits,
-): Promise<boolean> {
-  const callerRef = firestore.collection('geocodeLimits').doc(uid);
-  const globalRef = firestore.collection('geocodeGlobal').doc('lookups');
-  return firestore.runTransaction(async (tx) => {
-    const [caller, global] = await Promise.all([tx.get(callerRef), tx.get(globalRef)]);
-    const lastAt = global.get('lastAt');
-    if (typeof lastAt === 'number' && now - lastAt < limits.globalSpacingMs) return false;
-
-    const windowStart = caller.get('windowStart');
-    const count = caller.get('count');
-    const sameWindow =
-      typeof windowStart === 'number' && typeof count === 'number' && now - windowStart < WINDOW_MS;
-    if (sameWindow && count >= limits.perCallerPerMinute) return false;
-
-    tx.set(
-      callerRef,
-      sameWindow ? { windowStart, count: count + 1 } : { windowStart: now, count: 1 },
-    );
-    tx.set(globalRef, { lastAt: now });
-    return true;
-  });
 }
 
 /**
@@ -223,9 +186,7 @@ export async function reverseGeocode(
   caller: Caller,
   rawInput: unknown,
 ): Promise<ReverseGeocodeResult> {
-  if (!caller.emailVerified || (caller.role !== 'DRIVER' && caller.role !== 'PASSENGER')) {
-    throw new HttpsError('permission-denied', 'Only verified drivers and passengers can do this.');
-  }
+  requireVerifiedRider(caller);
   const parsed = reverseGeocodeInputSchema.safeParse(rawInput);
   if (!parsed.success) {
     throw new HttpsError('invalid-argument', 'The position is not valid.');
@@ -247,7 +208,13 @@ export async function reverseGeocode(
   const limits = deps.limits ?? limitsFromEnvironment();
   // A lookup that cannot get its place in line (too many at once, or the counters could not be
   // updated) is simply busy: the person keeps "Current location".
-  const claimed = await claimLookup(firestore, caller.uid, now, limits).catch(() => false);
+  const claimed = await claimLookup(
+    firestore,
+    { perCaller: 'geocodeLimits', global: 'geocodeGlobal' },
+    caller.uid,
+    now,
+    limits,
+  ).catch(() => false);
   if (!claimed) return { status: 'busy', address: null };
 
   let address: string | null;

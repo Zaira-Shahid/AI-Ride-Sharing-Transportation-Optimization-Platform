@@ -336,6 +336,9 @@ describe('other collections stay closed', () => {
     'geocodeCache/51.4494_-2.5813',
     'geocodeLimits/passenger-1',
     'geocodeGlobal/lookups',
+    'routeCache/abc123',
+    'routeLimits/passenger-1',
+    'routeGlobal/lookups',
   ])('denies %s to every role', async (path) => {
     for (const role of ['PASSENGER', 'DRIVER', 'ADMIN', 'SUPER_ADMIN']) {
       const db = env.authenticatedContext('passenger-1', verified(role)).firestore();

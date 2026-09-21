@@ -14,6 +14,7 @@ import {
 } from './journeys.js';
 import { nominatimFromEnvironment, reverseGeocode as reverseGeocodePosition } from './geocoding.js';
 import { updateDriverLocation as updateDriverJourneyLocation } from './locations.js';
+import { calculateRoute as calculateRoadRoute, osrmFromEnvironment } from './routing.js';
 import {
   cancelTripRequest as cancelPassengerTripRequest,
   createTripRequest as createPassengerTripRequest,
@@ -132,6 +133,14 @@ export const updateDriverLocation = onCall((request) =>
 export const reverseGeocode = onCall((request) =>
   reverseGeocodePosition(
     { firestore: getFirestore(), provider: nominatimFromEnvironment() },
+    callerOf(request),
+    request.data,
+  ),
+);
+
+export const calculateRoute = onCall((request) =>
+  calculateRoadRoute(
+    { firestore: getFirestore(), provider: osrmFromEnvironment() },
     callerOf(request),
     request.data,
   ),

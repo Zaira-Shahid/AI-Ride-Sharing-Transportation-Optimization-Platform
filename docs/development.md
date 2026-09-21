@@ -103,6 +103,23 @@ Tests never reach it. The emulators the tests start (project `demo-ridemesh`) re
 `functions/.env.demo-ridemesh` (the one `.env` file that is committed: no secrets, only a fake local
 address and a spacing of 0), which points at a fake Nominatim that the tests run themselves.
 
+### Routes (OSRM)
+
+The `calculateRoute` function works out road routes by asking an OSRM server (by default the
+community server routing.openstreetmap.de, which has separate car, foot and bike servers). No account
+or key is needed. Settings, read from the function's environment like the geocoding ones above:
+
+| Variable                   | Meaning                                                                      | Default                                                          |
+| -------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `ROUTING_BASE_URL_DRIVING` | Where the car-profile OSRM is (a server of our own later; a path is allowed) | `https://routing.openstreetmap.de/routed-car`                    |
+| `ROUTING_USER_AGENT`       | What the function calls itself when it asks for routes                       | `GEOCODING_USER_AGENT`, else "RideMesh (contact not configured)" |
+| `ROUTING_MIN_SPACING_MS`   | Least time between routes from everybody together                            | 1100                                                             |
+
+The one contact you already set as `GEOCODING_USER_AGENT` serves both, so nothing more is needed. The
+public server is for light use only, and has no traffic data (the times are free-flow estimates).
+Tests never reach it: the emulators the tests start read `functions/.env.demo-ridemesh`, which points
+at a fake OSRM that the integration tests run themselves.
+
 ### Google Maps key (place search)
 
 The driver app (destination) and the passenger app (where are you going) search places with Google

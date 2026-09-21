@@ -17,6 +17,15 @@ import {
   setJourneyOriginInputSchema as functionsOriginSchema,
 } from '../functions/src/journeys';
 import {
+  GEOCODE_DECIMALS as functionsRouteDecimals,
+  ROUTE_LIMITS as functionsRouteLimits,
+  ROUTE_PROFILES as functionsRouteProfiles,
+  ROUTE_STOPS_MAX as functionsStopsMax,
+  ROUTE_STOPS_MIN as functionsStopsMin,
+  calculateRouteInputSchema as functionsRouteSchema,
+  roundStopsForRouting as functionsRoundStops,
+} from '../functions/src/routing';
+import {
   GEOCODE_DECIMALS as functionsGeocodeDecimals,
   GEOCODE_LIMITS as functionsGeocodeLimits,
   geocodeCacheKey as functionsCacheKey,
@@ -63,6 +72,12 @@ import {
   DETOUR_MINUTES_MIN,
   GEOCODE_DECIMALS,
   GEOCODE_LIMITS,
+  ROUTE_LIMITS,
+  ROUTE_PROFILES,
+  ROUTE_STOPS_MAX,
+  ROUTE_STOPS_MIN,
+  calculateRouteInputSchema as sharedRouteSchema,
+  roundStopsForRouting,
   geocodeCacheKey,
   reverseGeocodeInputSchema as sharedGeocodeSchema,
   roundForGeocoding,
@@ -734,6 +749,65 @@ describe('reverse geocoding: functions and shared types stay aligned', () => {
     for (const input of inputs) {
       expect(functionsGeocodeSchema.safeParse(input).success).toBe(
         sharedGeocodeSchema.safeParse(input).success,
+      );
+    }
+  });
+});
+
+describe('route calculation: functions and shared types stay aligned', () => {
+  it('uses the same numbers, profiles and rounding', () => {
+    expect(functionsRouteDecimals).toBe(GEOCODE_DECIMALS);
+    expect([functionsStopsMin, functionsStopsMax]).toEqual([ROUTE_STOPS_MIN, ROUTE_STOPS_MAX]);
+    expect([...functionsRouteProfiles]).toEqual([...ROUTE_PROFILES]);
+    expect(functionsRouteLimits).toEqual(ROUTE_LIMITS);
+    // Routes are asked for through the same rounding as addresses (about 11 m).
+    expect(functionsRouteLimits.globalSpacingMs).toBe(GEOCODE_LIMITS.globalSpacingMs);
+  });
+
+  it('rounds the stops identically, including the awkward ones', () => {
+    const values = [
+      0, -0, 0.00001, -0.00001, 51.44945, 51.44946, -2.58135, -2.58136, 89.99995, 179.99996,
+    ];
+    for (const latitude of values) {
+      for (const longitude of values) {
+        const stops = [
+          { latitude, longitude },
+          { latitude: longitude, longitude: latitude },
+        ];
+        expect(functionsRoundStops(stops)).toEqual(roundStopsForRouting(stops));
+      }
+    }
+  });
+
+  it('validates a route request identically', () => {
+    const stop = (n: number) => ({ latitude: 51 + n * 0.01, longitude: -2 + n * 0.01 });
+    const stops = (count: number) => Array.from({ length: count }, (_unused, n) => stop(n));
+    const inputs: unknown[] = [
+      { stops: stops(0) },
+      { stops: stops(1) },
+      { stops: stops(2) },
+      { stops: stops(10) },
+      { stops: stops(11) },
+      { stops: stops(2), profile: 'driving' },
+      { stops: stops(2), profile: null },
+      { stops: stops(2), profile: undefined },
+      { stops: stops(2), profile: 'walking' },
+      { stops: [stop(0), { latitude: 0, longitude: 0 }] },
+      { stops: [stop(0), { latitude: 0, longitude: 5 }] },
+      { stops: [stop(0), { latitude: 91, longitude: 0 }] },
+      { stops: [stop(0), { latitude: 0, longitude: -181 }] },
+      { stops: [stop(0), { latitude: '51', longitude: 0 }] },
+      { stops: [stop(0), { latitude: Number.NaN, longitude: 0 }] },
+      { stops: [stop(0), { latitude: Infinity, longitude: 0 }] },
+      { stops: [stop(0), null] },
+      { stops: 'abc' },
+      { stops: {} },
+      null,
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsRouteSchema.safeParse(input).success).toBe(
+        sharedRouteSchema.safeParse(input).success,
       );
     }
   });
