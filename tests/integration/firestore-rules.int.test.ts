@@ -216,7 +216,14 @@ describe('users: a person editing their own contact details', () => {
         updatedAt: Timestamp.fromDate(new Date('2030-01-01')),
       }),
     );
-    await assertFails(updateDoc(ref(db), { name: 'New Name', updatedAt: Timestamp.now() }));
+    // A client clock reading can equal the emulator's request.time to the millisecond, so use one
+    // that is clearly not the server's time.
+    await assertFails(
+      updateDoc(ref(db), {
+        name: 'New Name',
+        updatedAt: Timestamp.fromMillis(Date.now() - 60_000),
+      }),
+    );
   });
 
   it.each([
@@ -318,16 +325,13 @@ describe('users: a person editing their own contact details', () => {
 });
 
 describe('other collections stay closed', () => {
-  it.each(['auditLogs/log-1', 'tripRequests/trip-1', 'payments/pay-1'])(
-    'denies %s to every role',
-    async (path) => {
-      for (const role of ['PASSENGER', 'DRIVER', 'ADMIN', 'SUPER_ADMIN']) {
-        const db = env.authenticatedContext('passenger-1', verified(role)).firestore();
-        await assertFails(getDoc(doc(db, path)));
-        await assertFails(setDoc(doc(db, path), { any: 'thing' }));
-      }
-    },
-  );
+  it.each(['auditLogs/log-1', 'payments/pay-1'])('denies %s to every role', async (path) => {
+    for (const role of ['PASSENGER', 'DRIVER', 'ADMIN', 'SUPER_ADMIN']) {
+      const db = env.authenticatedContext('passenger-1', verified(role)).firestore();
+      await assertFails(getDoc(doc(db, path)));
+      await assertFails(setDoc(doc(db, path), { any: 'thing' }));
+    }
+  });
 });
 
 describe('drivers', () => {
@@ -531,5 +535,73 @@ describe('driverJourneys', () => {
     const staff = env.authenticatedContext('staff-1', verified('SUPER_ADMIN')).firestore();
     await assertFails(updateDoc(doc(staff, path), { status: 'ACTIVE' }));
     await assertFails(deleteDoc(doc(staff, path)));
+  });
+});
+
+describe('tripRequests', () => {
+  const trip = (passengerId: string) => ({
+    passengerId,
+    origin: { latitude: 51.5, longitude: -0.1, formattedAddress: 'A', placeId: null },
+    destination: { latitude: 51.6, longitude: -0.2, formattedAddress: 'B', placeId: null },
+    status: 'REQUESTED',
+  });
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore();
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'tripRequests/trip-1'), trip('passenger-1'));
+      await setDoc(doc(db, 'tripRequests/trip-2'), trip('passenger-2'));
+    });
+  });
+
+  it('lets a verified passenger read their own request', async () => {
+    const snapshot = await assertSucceeds(
+      getDoc(doc(as('passenger-1', verified('PASSENGER')), 'tripRequests/trip-1')),
+    );
+    expect(snapshot.get('status')).toBe('REQUESTED');
+  });
+
+  it('keeps passengers apart', async () => {
+    await assertFails(getDoc(doc(as('passenger-1', verified('PASSENGER')), 'tripRequests/trip-2')));
+    await assertFails(getDoc(doc(as('passenger-2', verified('PASSENGER')), 'tripRequests/trip-1')));
+  });
+
+  it('does not let drivers or staff read a request, even one that names them', async () => {
+    for (const role of ['DRIVER', 'SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      await assertFails(getDoc(doc(as('staff-1', verified(role)), 'tripRequests/trip-1')));
+      await assertFails(getDoc(doc(as('passenger-1', verified(role)), 'tripRequests/trip-1')));
+    }
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = as('passenger-1', { email_verified: false, role: 'PASSENGER' });
+    await assertFails(getDoc(doc(unverified, 'tripRequests/trip-1')));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'tripRequests/trip-1')));
+  });
+
+  it('denies every client write, so a passenger cannot change, invent or delete a request', async () => {
+    const db = as('passenger-1', verified('PASSENGER'));
+    const path = 'tripRequests/trip-1';
+    await assertFails(updateDoc(doc(db, path), { status: 'CANCELLED' }));
+    await assertFails(updateDoc(doc(db, path), { estimatedFare: 0 }));
+    await assertFails(setDoc(doc(db, 'tripRequests/new-one'), trip('passenger-1')));
+    await assertFails(deleteDoc(doc(db, path)));
+    const staff = as('staff-1', verified('SUPER_ADMIN'));
+    await assertFails(updateDoc(doc(staff, path), { status: 'CANCELLED' }));
+    await assertFails(deleteDoc(doc(staff, path)));
+  });
+
+  it('does not let a passenger set their own open-request pointer', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users/passenger-1'), profile('PASSENGER', 'Pat'));
+    });
+    await assertFails(
+      updateDoc(doc(as('passenger-1', verified('PASSENGER')), 'users/passenger-1'), {
+        currentTripRequestId: 'trip-2',
+        updatedAt: serverTimestamp(),
+      }),
+    );
   });
 });

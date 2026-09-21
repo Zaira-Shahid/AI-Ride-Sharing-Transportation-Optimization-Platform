@@ -11,6 +11,10 @@ import {
   setJourneyDetour as setDriverJourneyDetour,
   setJourneySeats as setDriverJourneySeats,
 } from './journeys.js';
+import {
+  cancelTripRequest as cancelPassengerTripRequest,
+  createTripRequest as createPassengerTripRequest,
+} from './tripRequests.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
   saveVehicle as saveDriverVehicle,
@@ -104,4 +108,12 @@ export const setJourneySeats = onCall((request) =>
 
 export const setJourneyDetour = onCall((request) =>
   setDriverJourneyDetour({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const createTripRequest = onCall((request) =>
+  createPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const cancelTripRequest = onCall((request) =>
+  cancelPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
 );

@@ -14,6 +14,7 @@ import { subscribeToDriverProfile, type DriverProfileSnapshot } from './driver';
 import { subscribeToJourney, type JourneySnapshot } from './journey';
 import { subscribeToProfile, type ProfileSnapshot } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
+import { subscribeToCurrentTripRequest, type TripRequestSnapshot } from './trip';
 import { subscribeToVehicle, type VehicleSnapshot } from './vehicle';
 
 type Client = Pick<FirebaseClient, 'auth' | 'functions' | 'firestore'>;
@@ -180,4 +181,11 @@ export type JourneyState = LiveState<JourneySnapshot>;
 export function useJourney(journeyId: string | null): JourneyState & { retry: () => void } {
   const live = useLiveSubscription(subscribeToJourney, journeyId ?? undefined);
   return journeyId ? live : { status: 'missing', retry: live.retry };
+}
+
+export type TripRequestState = LiveState<TripRequestSnapshot>;
+
+/** The signed-in passenger's open trip request, kept up to date. 'none' when they have no open one. */
+export function useCurrentTripRequest() {
+  return useLiveDocument(subscribeToCurrentTripRequest);
 }

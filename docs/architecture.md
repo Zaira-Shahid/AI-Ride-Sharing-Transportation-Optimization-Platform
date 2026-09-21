@@ -21,22 +21,22 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.6)
+## What exists now (through Module 3.7)
 
-| Area            | Location                                  | State                                                                                                                                                                                  |
-| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility), Trips, Wallet, Profile.                                             |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                               |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                            |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                   |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                      |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                  |
-| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                              |
-| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                             |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                             |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                              |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                    |
+| Area            | Location                                  | State                                                                                                                                                                                                                               |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride), Trips, Wallet, Profile.                                                               |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                                                                            |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                                                                         |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour`, `createTripRequest` and `cancelTripRequest` functions. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                                                                |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                                                                   |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                                                               |
+| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                                                                           |
+| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                                                          |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                                                                          |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                                                                           |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                                                                 |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -395,9 +395,8 @@ status (3.8).
   set. The rule is `isSamePlace` in `packages/types/src/trip.ts`: the same Google place ID, **or
   closer than 50 m** (`SAME_PLACE_DISTANCE_METERS`, haversine distance), so two different search
   results for the same building, or the device standing at the destination, are also refused. It is
-  enforced in the app only for now; **Module 3.7 must repeat it on the server** when it creates the
-  request (functions cannot import the types package, so it will be mirrored and covered by the
-  parity test).
+  enforced in the app and, since Module 3.7, again on the server (functions cannot import the types
+  package, so it is mirrored and covered by the parity test).
 - **Destination check (Module 3.4).** The destination itself is chosen in 3.1; 3.4 is the check that
   a place can be a trip's place at all, and it is deliberately small. `checkChosenPlace(place, other)`
   (`packages/types/src/trip.ts`) is the one check both the pickup and the destination go through
@@ -411,7 +410,7 @@ status (3.8).
 - **There is no service area and no recent or saved destinations** (decided for 3.1 and confirmed for
   3.4): a trip may start and end anywhere, and Home offers no shortcuts. Whether a route exists
   between two places is Phase 4's question, and saved places (Home, Work) are the spec's separate
-  "Quick destinations" feature. Module 3.7 must repeat `checkChosenPlace` on the server.
+  "Quick destinations" feature. Module 3.7 repeats the check on the server.
 - **Time preferences (Module 3.5).** A third card, "When do you want to go?", holds
   `TripTimes` (`packages/types/src/trip-times.ts`): a departure, which is **leave now** (the default) or
   a time chosen, and an optional **arrive by** time. Both are optional: a passenger may set neither,
@@ -465,9 +464,9 @@ status (3.8).
   changes off" do; for now the choice is only saved on the request.
 - `flexibilityPreferences` gives the request's form of a choice, and
   `isValidFlexibilityPreferences` accepts only a known level whose three numbers are exactly that
-  level's plus two booleans, so a request cannot claim a Strict level with a 5 km walk. **Module 3.7
-  must repeat that check on the server** (functions cannot import the types package, so it will be
-  mirrored and covered by the parity test). The "arrive by" of module 3.5 is the request's
+  level's plus two booleans, so a request cannot claim a Strict level with a 5 km walk. Module 3.7
+  repeats that check on the server (mirrored in `functions/src/tripRequests.ts` and covered by the
+  parity test). The "arrive by" of module 3.5 is the request's
   `arrivalDeadline`; the spec's separate "preferred arrival time" is not in the trip request's data
   model and is not offered.
 - Like the times, the card is a short summary (level, the numbers in words, sharing and route
@@ -476,6 +475,33 @@ status (3.8).
 - `PlaceSearch` lets its caller refuse a place by throwing `PlaceRejectedError`; its message is
   shown as it is. The two cards live in `TripPlaceCards.tsx`; `PassengerHomeScreen` holds the state
   (pickup, destination, the device's location) and the rules.
+
+### Creating and cancelling a request (Module 3.7)
+
+- **Home has three states.** _Planning_ (the four cards and a "Request ride" button, enabled once
+  both places are chosen and the times are acceptable), _reviewing_ ("Review your ride request": the
+  pickup, destination, when, arrive-by and flexibility in words, with "Confirm ride request" and
+  "Back") and _requested_ ("Ride requested", with "Cancel ride request" while the status is
+  `REQUESTED`). Nothing leaves the device until "Confirm"; "Back" returns to the same choices.
+  After a cancel the passenger returns to planning with their choices still filled in.
+- **`createTripRequest` (callable, `functions/src/tripRequests.ts`)** takes the places, the
+  departure (`{kind: 'NOW'}` or `{kind: 'AT', at}`), `arriveBy` and the preferences
+  (`createTripRequestInputSchema`), checks them again (see docs/security.md, "Trip requests") and, in
+  one transaction, creates `tripRequests/{id}` with status `REQUESTED`, points
+  `users/{uid}.currentTripRequestId` at it and writes an audit entry. For "leave now"
+  `requestedDepartureTime` is the server's timestamp, the same as `requestedAt`. `estimatedFare`,
+  `estimatedDistance`, `estimatedDuration` and `assignedPlanId` start `null`
+  (`NEW_TRIP_REQUEST_DEFAULTS`).
+- **`cancelTripRequest`** moves a `REQUESTED` request to `CANCELLED`, clears the pointer and audits it.
+- **The app follows the request live.** `subscribeToCurrentTripRequest` (`packages/firebase/src/trip.ts`,
+  hook `useCurrentTripRequest`) watches `users/{uid}` for the pointer, then `tripRequests/{id}`, and
+  reports "none" when there is no pointer or the request has ended. So the screen survives a reload
+  and follows changes the server makes (Module 3.8 will show the later statuses).
+  Refusals come back as `AuthFlowError`s with a message that says what to change.
+- **Not yet:** matching, a fare or route, notifications, or leaving the request open across several
+  devices with different choices (the app shows whatever the server holds). The request's
+  retention is decided (30 days after it ends) but not yet implemented, because it needs a scheduled
+  function and so the Blaze plan (docs/security.md, "Trip requests").
 
 ## Design tokens
 
