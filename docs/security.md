@@ -315,9 +315,29 @@ coordinates and addresses of a private person, when they want to travel and how 
   transaction refuses a second while that one is open (`ALREADY_OPEN`). A pointer to a request that
   is gone or has ended is treated as none. A cancelled request is a normal end: the passenger can
   request again at once.
-- **Cancelling.** Only a `REQUESTED` request can be cancelled (`NOT_CANCELLABLE` afterwards); a repeat
-  of a cancel that has happened is "unchanged", not an error, so a retry is harmless. Somebody
-  else's request, or one that does not exist, is reported as not found and left alone.
+- **Statuses only move along an allowed table (Module 3.8, spec section 73).**
+  `TRIP_STATUS_TRANSITIONS` (in `@ridemesh/types`, mirrored in `functions/src/tripRequests.ts`, and
+  compared by the parity test) lists where each status may go: for example `REQUESTED` to `SEARCHING`
+  or `CANCELLED` only, and nothing leaves `COMPLETED` or `CANCELLED`. Cancel checks it, and the
+  matching modules must use it for every move. Rules cannot enforce it, because no client may write
+  `tripRequests` at all; the functions that change a status are the only place it is applied.
+- **Cancelling.** A passenger can cancel from `REQUESTED` and `SEARCHING` (`PASSENGER_CANCELLABLE_STATUSES`):
+  nothing is committed to a driver yet, so it is free. From `MATCHED` onwards it is refused
+  (`NOT_CANCELLABLE`) because a cancellation there needs a policy (fees, penalties) that comes with
+  payments. A repeat of a cancel that has happened is "unchanged", not an error, so a retry is
+  harmless. Somebody else's request, or one that does not exist, is reported as not found and left
+  alone. The audit entry records the status it was cancelled from.
+- **Listing a passenger's trips.** The Trips tab queries `tripRequests` with
+  `where passengerId == own uid`, newest first, at most 50. The read rule accepts a list only when
+  the query itself pins `passengerId` to the caller, so a list without the filter, or for another
+  ID, is refused; drivers and staff cannot list at all (rules tests cover each). The query uses the
+  `passengerId` + `createdAt` index in `firestore.indexes.json`, which must be deployed with the
+  rules before the Trips tab works on the real project.
+- **A request nobody picks up stays open (known limitation).** Until matching exists, and after it if
+  no driver is found, a `REQUESTED` request stays open, and because a passenger has one open request
+  at a time it blocks a new one until they cancel it. Expiring it automatically needs a scheduled
+  function, so the Blaze plan, like the retention item below; the passenger can always cancel with
+  one tap.
 - **The audit trail names no place.** Creating and cancelling write `TRIP_REQUEST_CREATED` and
   `TRIP_REQUEST_CANCELLED` entries with the actor, the request's ID and the status change only;
   the functions log nothing about the places. Tests check that no address or coordinate appears in

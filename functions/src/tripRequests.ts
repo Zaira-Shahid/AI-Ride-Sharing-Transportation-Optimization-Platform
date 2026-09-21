@@ -313,9 +313,10 @@ export async function createTripRequest(
 }
 
 /**
- * Cancels the calling passenger's request. Only a REQUESTED one can be cancelled for now; one that
- * is already CANCELLED is left as it is (unchanged), so a repeated tap or retry is harmless. It also
- * clears the passenger's pointer to it. Somebody else's request is reported as not found.
+ * Cancels the calling passenger's request. Only a REQUESTED or SEARCHING one can be cancelled
+ * (canPassengerCancel, and the move must be an allowed transition); one that is already CANCELLED is
+ * left as it is (unchanged), so a repeated tap or retry is harmless. It also clears the passenger's
+ * pointer to it. Somebody else's request is reported as not found.
  */
 export async function cancelTripRequest(
   deps: { firestore: Firestore },
@@ -345,7 +346,7 @@ export async function cancelTripRequest(
 
     const status: unknown = trip.get('status');
     if (status === 'CANCELLED') return { status: 'unchanged' };
-    if (status !== 'REQUESTED') {
+    if (!canPassengerCancel(status)) {
       throw refuse(
         'failed-precondition',
         'NOT_CANCELLABLE',
@@ -362,10 +363,41 @@ export async function cancelTripRequest(
       actor: caller.uid,
       action: 'TRIP_REQUEST_CANCELLED',
       entity: `tripRequests/${tripId}`,
-      previousState: { status: 'REQUESTED' },
+      previousState: { status },
       newState: { status: 'CANCELLED' },
       reason: 'Passenger cancelled the request',
     });
     return { status: 'cancelled' };
   });
+}
+
+// How a request may move between statuses (spec section 73). Mirrors trip-request.ts in
+// @ridemesh/types; tests/roles-parity.test.ts fails if they diverge.
+export const TRIP_STATUS_TRANSITIONS: Record<string, readonly string[]> = {
+  REQUESTED: ['SEARCHING', 'CANCELLED'],
+  SEARCHING: ['MATCHED', 'CANCELLED'],
+  MATCHED: ['PICKUP_ASSIGNED', 'CANCELLED'],
+  PICKUP_ASSIGNED: ['DRIVER_ARRIVING', 'CANCELLED'],
+  DRIVER_ARRIVING: ['PICKED_UP', 'CANCELLED'],
+  PICKED_UP: ['IN_TRANSIT'],
+  IN_TRANSIT: ['DROPOFF_APPROACHING'],
+  DROPOFF_APPROACHING: ['COMPLETED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+export const PASSENGER_CANCELLABLE_STATUSES = ['REQUESTED', 'SEARCHING'] as const;
+
+export function canTransition(from: unknown, to: unknown): boolean {
+  const next = Object.hasOwn(TRIP_STATUS_TRANSITIONS, String(from))
+    ? TRIP_STATUS_TRANSITIONS[String(from)]
+    : undefined;
+  return next !== undefined && next.includes(to as string);
+}
+
+export function canPassengerCancel(status: unknown): boolean {
+  return (
+    (PASSENGER_CANCELLABLE_STATUSES as readonly unknown[]).includes(status) &&
+    canTransition(status, 'CANCELLED')
+  );
 }

@@ -11,10 +11,15 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  collection,
   getDoc,
+  getDocs,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { TEST_PORTS } from '../test-ports';
@@ -591,6 +596,38 @@ describe('tripRequests', () => {
     const staff = as('staff-1', verified('SUPER_ADMIN'));
     await assertFails(updateDoc(doc(staff, path), { status: 'CANCELLED' }));
     await assertFails(deleteDoc(doc(staff, path)));
+  });
+
+  it('lets a passenger list their own requests, and only through a query on their own ID', async () => {
+    const db = as('passenger-1', verified('PASSENGER'));
+    const mine = await assertSucceeds(
+      getDocs(query(collection(db, 'tripRequests'), where('passengerId', '==', 'passenger-1'))),
+    );
+    expect(mine.docs.map((entry) => entry.id)).toEqual(['trip-1']);
+    await assertSucceeds(
+      getDocs(
+        query(
+          collection(db, 'tripRequests'),
+          where('passengerId', '==', 'passenger-1'),
+          orderBy('createdAt', 'desc'),
+        ),
+      ),
+    );
+    // Someone else's ID, or no filter at all, would return other people's places: refused.
+    await assertFails(
+      getDocs(query(collection(db, 'tripRequests'), where('passengerId', '==', 'passenger-2'))),
+    );
+    await assertFails(getDocs(collection(db, 'tripRequests')));
+  });
+
+  it('does not let drivers or staff list requests, whatever they filter on', async () => {
+    for (const role of ['DRIVER', 'SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      const db = as('passenger-1', verified(role));
+      await assertFails(
+        getDocs(query(collection(db, 'tripRequests'), where('passengerId', '==', 'passenger-1'))),
+      );
+      await assertFails(getDocs(collection(db, 'tripRequests')));
+    }
   });
 
   it('does not let a passenger set their own open-request pointer', async () => {

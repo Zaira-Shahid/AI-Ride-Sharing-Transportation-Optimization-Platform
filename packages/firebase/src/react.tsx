@@ -14,7 +14,12 @@ import { subscribeToDriverProfile, type DriverProfileSnapshot } from './driver';
 import { subscribeToJourney, type JourneySnapshot } from './journey';
 import { subscribeToProfile, type ProfileSnapshot } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
-import { subscribeToCurrentTripRequest, type TripRequestSnapshot } from './trip';
+import {
+  subscribeToCurrentTripRequest,
+  subscribeToMyTripRequests,
+  type TripListSnapshot,
+  type TripRequestSnapshot,
+} from './trip';
 import { subscribeToVehicle, type VehicleSnapshot } from './vehicle';
 
 type Client = Pick<FirebaseClient, 'auth' | 'functions' | 'firestore'>;
@@ -188,4 +193,11 @@ export type TripRequestState = LiveState<TripRequestSnapshot>;
 /** The signed-in passenger's open trip request, kept up to date. 'none' when they have no open one. */
 export function useCurrentTripRequest() {
   return useLiveDocument(subscribeToCurrentTripRequest);
+}
+
+export type TripListState = LiveState<TripListSnapshot>;
+
+/** The signed-in passenger's own trip requests, newest first, kept up to date. */
+export function useMyTripRequests() {
+  return useLiveDocument(subscribeToMyTripRequests);
 }

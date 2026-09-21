@@ -264,6 +264,41 @@ describe('cancelTripRequest (functions + firestore emulators)', () => {
     expect((await userDoc(passenger.uid))?.currentTripRequestId).toBe(second);
   });
 
+  it('cancels a request that is SEARCHING, and audits the status it was in', async () => {
+    const passenger = await person('PASSENGER', 'cancel-searching');
+    const tripId = await passenger.create();
+    await admin().firestore.doc(`tripRequests/${tripId}`).update({ status: 'SEARCHING' });
+
+    expect(await passenger.cancel(tripId)).toBe('cancelled');
+
+    expect((await tripDoc(tripId))?.status).toBe('CANCELLED');
+    expect((await userDoc(passenger.uid))?.currentTripRequestId).toBeNull();
+    const entry = (await auditOf(tripId)).find((item) => item.action === 'TRIP_REQUEST_CANCELLED');
+    expect(entry).toMatchObject({
+      previousState: { status: 'SEARCHING' },
+      newState: { status: 'CANCELLED' },
+    });
+  });
+
+  it.each([
+    'MATCHED',
+    'PICKUP_ASSIGNED',
+    'DRIVER_ARRIVING',
+    'PICKED_UP',
+    'IN_TRANSIT',
+    'COMPLETED',
+  ])('does not cancel a request that is %s', async (status) => {
+    const passenger = await person('PASSENGER', 'cancel-not-' + status.toLowerCase());
+    const tripId = await passenger.create();
+    await admin().firestore.doc(`tripRequests/${tripId}`).update({ status });
+
+    expect(await refusal(passenger.cancel(tripId))).toBe('NOT_CANCELLABLE');
+    expect((await tripDoc(tripId))?.status).toBe(status);
+    expect(
+      (await auditOf(tripId)).filter((item) => item.action === 'TRIP_REQUEST_CANCELLED'),
+    ).toHaveLength(0);
+  });
+
   it('does not cancel a request that is past REQUESTED', async () => {
     const passenger = await person('PASSENGER', 'cancel-late');
     const tripId = await passenger.create();

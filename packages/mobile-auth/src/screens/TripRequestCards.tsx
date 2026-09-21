@@ -1,8 +1,9 @@
-import type { FlexibilityLevel } from '@ridemesh/types';
+import type { FlexibilityLevel, TripRequestStatus } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { StyleSheet, Text, View } from 'react-native';
 import { Notice, PrimaryButton, SecondaryButton, useAuthTheme } from '../components';
 import { formatWhen } from './timeFormat';
+import { TRIP_STATUS_TEXT } from './tripStatusText';
 
 const LEVEL_NAMES: Record<FlexibilityLevel, string> = {
   STRICT: 'Strict',
@@ -90,17 +91,22 @@ export function ReviewCard({
   );
 }
 
-/** A request that has been made: what it says, and a button to cancel it while that is possible. */
+/**
+ * A request that has been made: where it stands (the status, in words), what it says, and a button
+ * to cancel it while that is possible. The card keeps the name "Ride requested" whatever the status.
+ */
 export function RequestedCard({
+  status,
   summary,
   now,
   cancellable,
   problem,
   onCancel,
 }: {
+  status: TripRequestStatus;
   summary: TripSummaryData;
   now: number;
-  /** Only a request that is still waiting to be matched can be cancelled. */
+  /** Whether the passenger may cancel from this status (canPassengerCancel). */
   cancellable: boolean;
   problem: string | null;
   onCancel: () => void;
@@ -109,10 +115,10 @@ export function RequestedCard({
   return (
     <View style={useCardStyle()} accessibilityLabel="Ride requested">
       <Text accessibilityRole="header" style={[styles.title, { color: theme.textPrimary }]}>
-        Ride requested
+        {TRIP_STATUS_TEXT[status].title}
       </Text>
       <Text style={[styles.caption, { color: theme.textSecondary }]}>
-        We have your request. Finding a ride comes next.
+        {TRIP_STATUS_TEXT[status].detail}
       </Text>
       <TripSummary summary={summary} now={now} />
       {problem ? <Notice tone="error">{problem}</Notice> : null}

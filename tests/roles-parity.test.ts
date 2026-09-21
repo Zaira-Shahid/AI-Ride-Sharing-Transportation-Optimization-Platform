@@ -84,6 +84,10 @@ import {
   MIN_LEAD_MINUTES as functionsMinLead,
   NEW_TRIP_REQUEST_DEFAULTS as functionsTripDefaults,
   OPEN_TRIP_STATUSES as functionsOpenStatuses,
+  PASSENGER_CANCELLABLE_STATUSES as functionsCancellable,
+  TRIP_STATUS_TRANSITIONS as functionsTransitions,
+  canPassengerCancel as functionsCanPassengerCancel,
+  canTransition as functionsCanTransition,
   SAME_PLACE_DISTANCE_METERS as functionsSamePlaceMeters,
   TRIP_REQUEST_REFUSALS as functionsRefusals,
   cancelTripRequestInputSchema as functionsCancelSchema,
@@ -100,6 +104,10 @@ import {
   MIN_LEAD_MINUTES,
   NEW_TRIP_REQUEST_DEFAULTS,
   OPEN_TRIP_STATUSES,
+  PASSENGER_CANCELLABLE_STATUSES,
+  TRIP_STATUS_TRANSITIONS,
+  canPassengerCancel,
+  canTransition,
   SAME_PLACE_DISTANCE_METERS,
   TRIP_REQUEST_REFUSALS,
   cancelTripRequestInputSchema as sharedCancelSchema,
@@ -529,6 +537,55 @@ describe('trip requests: functions and shared types stay aligned', () => {
     ];
     for (const value of cases) {
       expect(functionsIsValidPreferences(value)).toBe(sharedIsValidPreferences(value));
+    }
+  });
+
+  it('allows the same status transitions, and the same cancellations, identically', () => {
+    expect(functionsTransitions).toEqual(TRIP_STATUS_TRANSITIONS);
+    expect([...functionsCancellable]).toEqual([...PASSENGER_CANCELLABLE_STATUSES]);
+    const statuses: unknown[] = [...TRIP_REQUEST_STATUSES, 'DRAFT', 'requested', '', null, 7];
+    for (const from of statuses) {
+      expect(functionsCanPassengerCancel(from)).toBe(canPassengerCancel(from));
+      for (const to of statuses) {
+        expect(functionsCanTransition(from, to)).toBe(canTransition(from, to));
+      }
+    }
+    // Names that exist on every object are not statuses.
+    expect(functionsCanTransition('constructor', 'CANCELLED')).toBe(false);
+    expect(functionsCanTransition('__proto__', 'CANCELLED')).toBe(false);
+  });
+
+  it('has a sound transition table: every status is covered, nothing leaves an end state', () => {
+    expect(Object.keys(TRIP_STATUS_TRANSITIONS).sort()).toEqual([...TRIP_REQUEST_STATUSES].sort());
+    for (const [from, targets] of Object.entries(TRIP_STATUS_TRANSITIONS)) {
+      for (const to of targets) expect(TRIP_REQUEST_STATUSES).toContain(to);
+      expect(targets).not.toContain(from);
+    }
+    expect(TRIP_STATUS_TRANSITIONS.COMPLETED).toEqual([]);
+    expect(TRIP_STATUS_TRANSITIONS.CANCELLED).toEqual([]);
+    // Every open status can reach an end state, and the open statuses are exactly the others.
+    for (const status of OPEN_TRIP_STATUSES) {
+      const seen = new Set<string>([status]);
+      const queue: string[] = [status];
+      while (queue.length > 0) {
+        const next = TRIP_STATUS_TRANSITIONS[queue.shift() as keyof typeof TRIP_STATUS_TRANSITIONS];
+        for (const target of next ?? []) {
+          if (!seen.has(target)) {
+            seen.add(target);
+            queue.push(target);
+          }
+        }
+      }
+      expect(seen.has('COMPLETED') || seen.has('CANCELLED')).toBe(true);
+    }
+    for (const status of TRIP_REQUEST_STATUSES) {
+      const ended = TRIP_STATUS_TRANSITIONS[status].length === 0;
+      expect(ended).toBe(!(OPEN_TRIP_STATUSES as readonly string[]).includes(status));
+    }
+    // A passenger can cancel only where free cancellation is agreed, and only along an arrow.
+    expect([...PASSENGER_CANCELLABLE_STATUSES]).toEqual(['REQUESTED', 'SEARCHING']);
+    for (const status of TRIP_REQUEST_STATUSES) {
+      expect(canPassengerCancel(status)).toBe(status === 'REQUESTED' || status === 'SEARCHING');
     }
   });
 });

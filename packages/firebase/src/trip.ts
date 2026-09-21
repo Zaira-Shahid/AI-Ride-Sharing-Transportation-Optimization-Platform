@@ -10,7 +10,16 @@ import {
   type TripRequestRefusal,
   type TripRequestStatus,
 } from '@ridemesh/types';
-import { doc, onSnapshot, type Timestamp } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  type Timestamp,
+} from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { AuthFlowError, type AuthErrorKind } from './auth-errors';
 import type { FirebaseClient } from './client';
@@ -21,6 +30,8 @@ export interface TripRequestData {
   status: TripRequestStatus;
   origin: StoredDestination;
   destination: StoredDestination;
+  /** When the request was made, in ms since 1970; null while the server has not stamped it. */
+  requestedAt: number | null;
   /** When the passenger wants to leave, in ms since 1970; null while the server has not stamped it. */
   departureAt: number | null;
   /** The time the passenger must be there by, or null for no deadline. */
@@ -158,6 +169,7 @@ function readTrip(id: string, data: Record<string, unknown>): TripRequestData | 
     status: data.status as TripRequestStatus,
     origin,
     destination,
+    requestedAt: readMillis(data.requestedAt),
     departureAt: readMillis(data.requestedDepartureTime),
     arriveBy: readMillis(data.arrivalDeadline),
     flexibilityLevel:
@@ -218,4 +230,40 @@ export function subscribeToCurrentTripRequest(
     stopUser();
     stopFollowingTrip();
   };
+}
+
+/** How many of the passenger's most recent requests the Trips list follows. */
+export const TRIP_LIST_LIMIT = 50;
+
+export type TripListSnapshot = { status: 'ready'; trips: TripRequestData[] };
+
+/**
+ * Follows the signed-in passenger's own trip requests, newest first, for the Trips tab. The query
+ * filters on the passenger's own ID, which is what the rules require: they refuse any list that
+ * could include somebody else's request. It is backed by the passengerId + createdAt index in
+ * firestore.indexes.json. A request with a status this app does not know is left out.
+ */
+export function subscribeToMyTripRequests(
+  client: Pick<FirebaseClient, 'firestore'>,
+  uid: string,
+  onChange: (snapshot: TripListSnapshot) => void,
+  onError: (error: unknown) => void,
+): () => void {
+  return onSnapshot(
+    query(
+      collection(client.firestore, 'tripRequests'),
+      where('passengerId', '==', uid),
+      orderBy('createdAt', 'desc'),
+      limit(TRIP_LIST_LIMIT),
+    ),
+    (snapshot) => {
+      const trips: TripRequestData[] = [];
+      for (const entry of snapshot.docs) {
+        const trip = readTrip(entry.id, entry.data());
+        if (trip) trips.push(trip);
+      }
+      onChange({ status: 'ready', trips });
+    },
+    onError,
+  );
 }

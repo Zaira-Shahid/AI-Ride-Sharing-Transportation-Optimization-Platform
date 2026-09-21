@@ -6,5 +6,6 @@ export { LoginScreen } from './screens/LoginScreen';
 export { PassengerHomeScreen } from './screens/PassengerHomeScreen';
 export { ProfileScreen } from './screens/ProfileScreen';
 export { RegisterScreen } from './screens/RegisterScreen';
+export { TripsScreen } from './screens/TripsScreen';
 export { VerifyEmailScreen } from './screens/VerifyEmailScreen';
 export { WelcomeScreen } from './screens/WelcomeScreen';

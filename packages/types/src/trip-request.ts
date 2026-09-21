@@ -103,3 +103,47 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   estimatedDuration: null,
   assignedPlanId: null,
 } as const;
+
+// How a trip request may move from one status to another (spec section 73: no arbitrary
+// transitions). A request only ever moves along these arrows, and nothing leaves COMPLETED or
+// CANCELLED. This is the starting set for the statuses the spec lists; the matching modules
+// (Phase 5 onwards) are what move a request forward and may add arrows, and must do so here and in
+// functions/src/tripRequests.ts (tests/roles-parity.test.ts fails if the two diverge).
+export const TRIP_STATUS_TRANSITIONS: Record<TripRequestStatus, readonly TripRequestStatus[]> = {
+  REQUESTED: ['SEARCHING', 'CANCELLED'],
+  SEARCHING: ['MATCHED', 'CANCELLED'],
+  MATCHED: ['PICKUP_ASSIGNED', 'CANCELLED'],
+  PICKUP_ASSIGNED: ['DRIVER_ARRIVING', 'CANCELLED'],
+  DRIVER_ARRIVING: ['PICKED_UP', 'CANCELLED'],
+  PICKED_UP: ['IN_TRANSIT'],
+  IN_TRANSIT: ['DROPOFF_APPROACHING'],
+  DROPOFF_APPROACHING: ['COMPLETED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+/** Whether a request may move from `from` to `to`. */
+export function canTransition(from: unknown, to: unknown): boolean {
+  const next = (TRIP_STATUS_TRANSITIONS as Record<string, readonly unknown[] | undefined>)[
+    String(from)
+  ];
+  return next !== undefined && next.includes(to);
+}
+
+/**
+ * The statuses a passenger may cancel from. Nothing is committed to a driver in either, so it is
+ * free. From MATCHED onwards a cancellation needs a policy (fees, penalties) that comes with
+ * payments, so it is not offered here.
+ */
+export const PASSENGER_CANCELLABLE_STATUSES = [
+  'REQUESTED',
+  'SEARCHING',
+] as const satisfies readonly TripRequestStatus[];
+
+/** Whether a passenger may cancel a request that is in `status`. */
+export function canPassengerCancel(status: unknown): boolean {
+  return (
+    (PASSENGER_CANCELLABLE_STATUSES as readonly unknown[]).includes(status) &&
+    canTransition(status, 'CANCELLED')
+  );
+}

@@ -21,11 +21,11 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 3.7)
+## What exists now (through Module 3.8)
 
 | Area            | Location                                  | State                                                                                                                                                                                                                               |
 | --------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride), Trips, Wallet, Profile.                                                               |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride, and its status), Trips (upcoming and past requests), Wallet, Profile.                  |
 | Driver app      | `apps/driver`                             | Same auth flow, then Home (go online), Current Journey, Earnings, History, Profile tabs.                                                                                                                                            |
 | Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                                                                         |
 | Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour`, `createTripRequest` and `cancelTripRequest` functions. Emulator-tested. |
@@ -492,16 +492,42 @@ status (3.8).
   `requestedDepartureTime` is the server's timestamp, the same as `requestedAt`. `estimatedFare`,
   `estimatedDistance`, `estimatedDuration` and `assignedPlanId` start `null`
   (`NEW_TRIP_REQUEST_DEFAULTS`).
-- **`cancelTripRequest`** moves a `REQUESTED` request to `CANCELLED`, clears the pointer and audits it.
+- **`cancelTripRequest`** moves a `REQUESTED` or `SEARCHING` request to `CANCELLED`, clears the pointer and audits it.
 - **The app follows the request live.** `subscribeToCurrentTripRequest` (`packages/firebase/src/trip.ts`,
   hook `useCurrentTripRequest`) watches `users/{uid}` for the pointer, then `tripRequests/{id}`, and
   reports "none" when there is no pointer or the request has ended. So the screen survives a reload
-  and follows changes the server makes (Module 3.8 will show the later statuses).
+  and follows changes the server makes (Module 3.8 shows every status).
   Refusals come back as `AuthFlowError`s with a message that says what to change.
 - **Not yet:** matching, a fare or route, notifications, or leaving the request open across several
   devices with different choices (the app shows whatever the server holds). The request's
   retention is decided (30 days after it ends) but not yet implemented, because it needs a scheduled
   function and so the Blaze plan (docs/security.md, "Trip requests").
+
+### Trip status and the Trips tab (Module 3.8)
+
+- **The status is shown in words on the Home card** for all ten statuses of spec section 73
+  (`tripStatusText.ts`: a short label, a title and one line of detail each, none of which promises
+  a time or a driver the request does not have). The card keeps its name "Ride requested" for
+  screen readers and tests; the heading is the status's title ("Finding your ride", "Your driver is
+  on the way", ...). Cancel is offered exactly when `canPassengerCancel(status)`. When a request
+  reaches `COMPLETED` or `CANCELLED`, Home goes back to planning.
+- **Only `REQUESTED` and `CANCELLED` can happen through the app today.** Matching starts in Phase
+  5, so the later statuses are shown correctly but are only reached in tests, where the status is
+  changed on the emulator with the owner token (`setTripStatus` in `tests/e2e/trip-helpers.ts`),
+  the way the matching functions will change it.
+- **Allowed transitions** (`TRIP_STATUS_TRANSITIONS`, `canTransition`, spec section 73: "do not
+  allow arbitrary state transitions") live in `@ridemesh/types` and are mirrored in
+  `functions/src/tripRequests.ts`. The table is a starting set of the arrows the spec's statuses
+  imply; the matching modules add arrows (for example back to `SEARCHING` when a driver drops out)
+  in both places, and the parity test fails if the two differ. A passenger can cancel from
+  `REQUESTED` and `SEARCHING` only (`PASSENGER_CANCELLABLE_STATUSES`).
+- **The Trips tab** (`TripsScreen`, `packages/mobile-auth`) lists the passenger's own requests,
+  newest first, in "Upcoming" (still open) and "Past" (completed or cancelled), each with its status,
+  pickup, destination and time, and "No trips yet" when there are none. It follows the requests live
+  (`subscribeToMyTripRequests`, hook `useMyTripRequests`) and only the most recent 50
+  (`TRIP_LIST_LIMIT`). It does not cancel; that is done from Home, where the open request is.
+- **Not yet:** a trip detail screen, receipts and fares, rating, a driver's name or position on the
+  card (they need matching and routing), and expiring a request that nobody picks up (docs/security.md).
 
 ## Design tokens
 
