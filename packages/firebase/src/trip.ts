@@ -1,12 +1,14 @@
 import {
   TRIP_REQUEST_STATUSES,
   isOpenTripStatus,
+  readTripEstimate,
   type CancelTripRequestInput,
   type CancelTripRequestResult,
   type CreateTripRequestInput,
   type CreateTripRequestResult,
   type FlexibilityLevel,
   type StoredDestination,
+  type TripEstimate,
   type TripRequestRefusal,
   type TripRequestStatus,
 } from '@ridemesh/types';
@@ -38,6 +40,11 @@ export interface TripRequestData {
   arriveBy: number | null;
   flexibilityLevel: FlexibilityLevel | null;
   allowSharedRide: boolean;
+  /**
+   * The road distance and time of the trip (Modules 4.4 and 4.5), worked out by the server just
+   * after the request was made; null until then, and when it could not be. Without live traffic.
+   */
+  estimate: TripEstimate | null;
 }
 
 export type TripRequestSnapshot = { status: 'none' } | { status: 'ready'; trip: TripRequestData };
@@ -175,6 +182,7 @@ function readTrip(id: string, data: Record<string, unknown>): TripRequestData | 
     flexibilityLevel:
       level === 'STRICT' || level === 'BALANCED' || level === 'FLEXIBLE' ? level : null,
     allowSharedRide: preferences.allowSharedRide === true,
+    estimate: readTripEstimate(data.estimatedDistance, data.estimatedDuration),
   };
 }
 

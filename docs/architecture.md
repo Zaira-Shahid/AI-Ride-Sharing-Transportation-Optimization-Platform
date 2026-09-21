@@ -21,22 +21,22 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 4.3)
+## What exists now (through Module 4.5)
 
-| Area            | Location                                  | State                                                                                                                                                                                                                                                                                                               |
-| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride, and its status), Trips (upcoming and past requests), Wallet, Profile.                                                                                                  |
-| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online, share location while online), Current Journey, Earnings, History, Profile tabs.                                                                                                                                                                                               |
-| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                                                                                                                                                         |
-| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour`, `createTripRequest`, `cancelTripRequest`, `setJourneyOrigin`, `updateDriverLocation`, `reverseGeocode` and `calculateRoute` functions. Emulator-tested. |
-| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                                                                                                                                                |
-| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                                                                                                                                                   |
-| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                                                                                                                                               |
-| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                                                                                                                                                           |
-| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                                                                                                                                          |
-| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                                                                                                                                                          |
-| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                                                                                                                                                           |
-| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                                                                                                                                                 |
+| Area            | Location                                  | State                                                                                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Passenger app   | `apps/passenger`                          | Welcome, sign-in, registration and email verification, then Home (map, destination, pickup, time and flexibility, request and cancel a ride, and its status), Trips (upcoming and past requests), Wallet, Profile.                                                                                                                                                 |
+| Driver app      | `apps/driver`                             | Same auth flow, then Home (go online, share location while online), Current Journey, Earnings, History, Profile tabs.                                                                                                                                                                                                                                              |
+| Admin dashboard | `apps/admin`                              | Next.js shell with the sidebar sections from spec section 22. Empty states.                                                                                                                                                                                                                                                                                        |
+| Cloud Functions | `functions`                               | `healthCheck`, `completeRegistration`, vehicle, review, `requestReview` and `setAvailability`, `declareDestination`, `setJourneySeats`, `setJourneyDetour`, `createTripRequest`, `cancelTripRequest`, `setJourneyOrigin`, `updateDriverLocation`, `reverseGeocode` and `calculateRoute` functions, and the `estimateTripRequestOnCreate` trigger. Emulator-tested. |
+| Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                                                                                                                                                                                               |
+| Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                                                                                                                                                                                                  |
+| Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                                                                                                                                                                                              |
+| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                                                                                                                                                                                                          |
+| Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                                                                                                                                                                                         |
+| Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                                                                                                                                                                                                         |
+| Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                                                                                                                                                                                                          |
+| Optimizer       | `services/optimizer`                      | Placeholder only. Built in Phase 6.                                                                                                                                                                                                                                                                                                                                |
 
 Nothing here is mocked product logic. No fake data is displayed.
 
@@ -615,17 +615,57 @@ legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic),
   `routeLimits/{uid}`; the shared `claimLookup` in `lookupLimits.ts`), ask the provider, cache the
   answer and return it. Privacy and the pre-launch items are in docs/security.md, "Route
   calculation".
-- **Built to be used next.** Nothing in the apps calls it yet, on purpose (decided for this module):
-  the trip request's `estimatedDistance` and `estimatedDuration` (still null), their units (metres and
-  seconds are the ones a route has) and a labelled ETA come with 4.4 and 4.5; walking with 4.6;
-  drawing the line on the map with 4.7 (which will decode `geometry`); a driver's route and the
-  optimizer's distances with Phases 5 and 6.
+- **Where it is used.** Module 4.3 only provided it; the trip estimate (4.4 and 4.5, below) is its
+  first use. Still to come: walking with 4.6, drawing the line on the map with 4.7 (which will
+  decode `geometry`), and a driver's route and the optimizer's distances with Phases 5 and 6.
 - **In the tests.** The functions emulator the tests start reads `functions/.env.demo-ridemesh`, which
   points `ROUTING_BASE_URL_DRIVING` at a fake OSRM on port 18890 (`tests/fake-osrm.ts`, with its own
   polyline encoder) and turns the spacing off (`tests/ports.test.ts` checks the file). Integration
   tests call `calculateRoute` directly with a stand-in provider and a controlled clock (rounding, the
   cache, the limits, failures) and through the real callable against the fake (the request that
   leaves, the answers, the timeout). There is no end-to-end test because there is no screen yet.
+
+### Trip estimate (Modules 4.4 and 4.5)
+
+- **What is stored.** `tripRequests.estimatedDistance` in **metres** and `estimatedDuration` in
+  **whole seconds** (what a route has; the apps write them as km and minutes with `formatDistance` and
+  `formatDuration`). Both are null until the server has worked them out, and stay null when it cannot.
+  `estimatedFare` stays null until pricing (Phase 8 onwards). Only the passenger's trip request has an
+  estimate: the driver's baseline route waits for Phase 5, when matching needs it.
+- **How it is filled in: a Firestore trigger.** `estimateTripRequestOnCreate` (`onDocumentCreated` on
+  `tripRequests/{id}`, `functions/src/index.ts`) calls `estimateTripRequest`
+  (`functions/src/estimates.ts`), which reads the request, asks `calculateRoute` (as the request's
+  passenger, pickup to destination) and writes the two fields in a transaction that first checks the
+  request is still open and still without an estimate. So creating a request is as quick as ever and
+  never depends on routing. Only a "busy" answer is retried (up to 4 tries, 1.3 s apart); a failure,
+  a timeout or "no route" leaves it empty. It has a 60 s timeout and never throws. Privacy and races
+  are in docs/security.md, "Trip estimate".
+- **What the passenger sees (4.5).** _At the review_, before confirming: `PassengerHomeScreen` asks
+  `calculateRoute` (the stops are rounded in the app) for the route between the chosen places and shows
+  "Estimated trip: 18 min, 8.2 km. Estimated without live traffic." (`EstimateNote` in
+  `TripRequestCards.tsx`), or "Estimating the trip time." while it waits, or "We could not estimate the
+  trip time. You can still request the ride." The request can always be sent. If an arrival time is
+  chosen and leaves less than the estimated trip (`arrivalShortfallMinutes`), an information notice says
+  "This trip is estimated at 18 min, so you may not arrive by 10:10. You can still request it." It is
+  a warning, never a refusal. _On the ride requested_ and _in the Trips list_, the stored estimate is
+  shown (`TripRequestData.estimate`, followed live, so it appears without a reload); until it arrives
+  the card says it is being worked out, and after 30 seconds (`estimateProgress`,
+  `ESTIMATE_WAIT_MS`) that it could not be made.
+- **One lookup serves both.** The review's route and the trigger's ask for the same rounded stops, so
+  the trigger normally finds it in the route cache. All the pure parts (reading, wording, the arrival
+  check, the waiting rule) are in `packages/types/src/trip-estimate.ts` with unit tests.
+- **Not yet:** the driver's ETA to the pickup (needs matching and a live position, Phase 5), the
+  estimated walking distance (walking routes, 4.6), the line on the map (4.7), an estimate for old
+  requests made before this module (none is backfilled), and a fare (pricing).
+- **In the tests.** `estimateTripRequest` is tested directly on requests made by hand in another
+  collection (so the trigger does not race the test; the function takes the collection as an optional
+  dependency for this), with a stand-in provider, a controlled clock and a recorded sleep: what is
+  written, what is left alone, the retries, the races. The trigger is tested end to end through the
+  real `createTripRequest` against the fake OSRM (an estimate arrives, one lookup for the same places
+  whoever asks, a failing server never delays or fails creation, a request cancelled while its route
+  is found gets none). The end-to-end tests run the shared fake route server from `global-setup.ts`
+  (it fails for a stop near `E2E_ROUTING.failing`), so every request made in a test gets an estimate,
+  and the older tests that assumed none, or no server call at the review, say what is true now.
 
 ## Design tokens
 

@@ -50,9 +50,12 @@ test.describe('passenger app: requesting a ride', () => {
     await expect(
       reviewCard(page).getByText('Balanced, sharing the ride', { exact: true }),
     ).toBeVisible();
-    // The places are not on show for editing while reviewing, and nothing has gone to the server.
+    // The places are not on show for editing while reviewing. The review asks the server for the
+    // estimated trip time (one route lookup) and nothing else: no request is created or stored.
     await expect(destinationCard(page)).toHaveCount(0);
-    expect(watch.serverCalls).toEqual([]);
+    await expect(reviewCard(page).getByLabel('Estimated trip')).toBeVisible();
+    expect(watch.serverCalls).toHaveLength(1);
+    expect(watch.serverCalls[0]).toContain('/calculateRoute');
     expect(await tripsOf(uid)).toHaveLength(0);
 
     await reviewCard(page).getByRole('button', { name: 'Back', exact: true }).click();

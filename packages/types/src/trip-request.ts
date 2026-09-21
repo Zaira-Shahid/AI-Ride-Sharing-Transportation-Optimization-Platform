@@ -85,9 +85,14 @@ export interface TripRequest {
   arrivalDeadline: FirestoreTimestamp | null;
   status: TripRequestStatus;
   passengerPreferences: z.infer<typeof flexibilityPreferencesSchema>;
-  /** Filled in by routing and pricing (Phase 4 onwards); null until then. */
+  /** Filled in by pricing (Phase 8 onwards); null until then. */
   estimatedFare: number | null;
+  /**
+   * The road distance from the pickup to the destination in METRES, filled in by the server just after
+   * the request is created (trip-estimate.ts); null until then, and when no route could be had.
+   */
   estimatedDistance: number | null;
+  /** The time for that route in whole SECONDS, without traffic; null like estimatedDistance. */
   estimatedDuration: number | null;
   assignedPlanId: string | null;
   createdAt: FirestoreTimestamp;

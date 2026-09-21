@@ -342,7 +342,8 @@ coordinates and addresses of a private person, when they want to travel and how 
   `TRIP_REQUEST_CANCELLED` entries with the actor, the request's ID and the status change only;
   the functions log nothing about the places. Tests check that no address or coordinate appears in
   the entry.
-- **Fare, distance and duration are `null`** until routing and pricing exist (Phase 4 onwards).
+- **The fare is `null`** until pricing exists. The distance and time are filled in by the server a
+  moment after a request is created (see "Trip estimate" below).
 - **Retention: 30 days after a request ends (decided, NOT yet implemented).** The policy is that a
   trip request's exact coordinates and addresses are deleted 30 days after it is COMPLETED or
   CANCELLED (spec section 56). **Nothing deletes anything today**: every request stays after it
@@ -495,14 +496,47 @@ the same way.
 - **The three collections** (`routeCache`, `routeLimits`, `routeGlobal`) are not in the rules, so
   they are closed to every client (a rules test checks each); only the function reads and writes them.
 - **The times are not traffic-aware.** OSRM has no traffic data, so the durations are free-flow
-  estimates. Whatever shows them (4.5) must say "estimated", and a paid provider with traffic (Google,
-  once billing exists) is the way to change that: one new `RoutingProvider`.
+  estimates. Everything that shows one says "Estimated without live traffic." (the trip estimate
+  below does), and a paid provider with traffic (Google, once billing exists) is the way to change
+  that: one new `RoutingProvider`.
 - **Before launch (owner's actions).** The routing server is asked with the same contact as
   Nominatim (`ROUTING_USER_AGENT`, else `GEOCODING_USER_AGENT`: docs/development.md). The public
   community server (routing.openstreetmap.de) is for light use only with no guarantee: move to a
   paid or self-hosted OSRM (one variable, `ROUTING_BASE_URL_DRIVING`) or Google before real traffic.
   The privacy notice must say that rounded stops go to it too (in the batch with the Nominatim
   and OpenStreetMap items). The deployed function needs the Blaze plan for outbound calls.
+
+## Trip estimate (Modules 4.4 and 4.5)
+
+A trip request carries the road distance (`estimatedDistance`, metres) and time (`estimatedDuration`,
+whole seconds) of its route from the pickup to the destination. It is location-derived data of a
+private person, and it changes no one's access to anything.
+
+- **Written only by the server, and readable only by the passenger.** The estimate trigger
+  (`estimateTripRequestOnCreate`, `functions/src/estimates.ts`) writes the two fields with the Admin SDK
+  just after the request is created. The rules are unchanged: only the passenger who made the request
+  can read it (staff and drivers cannot), and no client can write it, so the numbers cannot be
+  forged (a rules test already refuses a client write to `estimatedFare`, and none of the estimate
+  fields is any different).
+- **No new disclosure.** The trigger asks for the route as the request's passenger, through the same
+  `calculateRoute` as the app: the stops are rounded to about 11 m before they go to OSRM, the route is
+  cached by the rounded stops alone, and the same limits apply (counted against that passenger).
+  The route the app asked for when it showed the estimate at the review is the same route (same
+  rounded stops), so it is normally answered from the cache: one lookup serves both.
+- **Never blocks, never fails, never leaks.** It runs after the request exists, so creating a request
+  does not wait for the routing server, and the server being down, busy or finding no route leaves
+  the estimate empty. It waits and tries again only when the server is busy (up to 4 tries, 1.3 s
+  apart). It never throws; what it logs is the request's ID, and nothing about the places.
+- **Safe to repeat and to race.** It leaves alone a request that is gone, no longer open (cancelled,
+  say, while the route was being found) or that already has an estimate, and writes inside a
+  transaction that checks this again (tests race it against a cancellation and against a second
+  run, and fail if the check is removed). It changes only the two fields and the time of change.
+- **An estimate, not a promise.** It is free-flow (no traffic) and has no detours for sharing, so
+  nothing that decides price, matching or whether to accept a request may rely on it without a
+  better source. That is why an arrival time that leaves too little for the trip is only a warning
+  and never a refusal.
+- **Not there when it cannot be.** The app says so after 30 seconds (`ESTIMATE_WAIT_MS`); an old
+  request without an estimate is not backfilled.
 
 ## Staff roles
 

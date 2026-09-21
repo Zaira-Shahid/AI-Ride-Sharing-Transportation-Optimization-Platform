@@ -600,6 +600,10 @@ describe('tripRequests', () => {
     const path = 'tripRequests/trip-1';
     await assertFails(updateDoc(doc(db, path), { status: 'CANCELLED' }));
     await assertFails(updateDoc(doc(db, path), { estimatedFare: 0 }));
+    // The estimate is the server's: the passenger who owns the request cannot write it either.
+    await assertFails(updateDoc(doc(db, path), { estimatedDistance: 1 }));
+    await assertFails(updateDoc(doc(db, path), { estimatedDuration: 1 }));
+    await assertFails(updateDoc(doc(db, path), { estimatedDistance: 1, estimatedDuration: 1 }));
     await assertFails(setDoc(doc(db, 'tripRequests/new-one'), trip('passenger-1')));
     await assertFails(deleteDoc(doc(db, path)));
     const staff = as('staff-1', verified('SUPER_ADMIN'));

@@ -1,6 +1,6 @@
 import { useMyTripRequests } from '@ridemesh/firebase/react';
 import type { TripRequestData } from '@ridemesh/firebase';
-import { isOpenTripStatus } from '@ridemesh/types';
+import { describeEstimate, isOpenTripStatus } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { StyleSheet, Text, View } from 'react-native';
 import type { AuthScreenProps } from '../app-info';
@@ -34,6 +34,11 @@ function TripRow({ trip, now }: { trip: TripRequestData; now: number }) {
           {formatWhen(when, now)}
         </Text>
       )}
+      {trip.estimate ? (
+        <Text style={[styles.caption, { color: theme.textSecondary }]}>
+          Estimated {describeEstimate(trip.estimate)}
+        </Text>
+      ) : null}
       {trip.arriveBy === null ? null : (
         <Text style={[styles.caption, { color: theme.textSecondary }]}>
           Arrive by {formatWhen(trip.arriveBy, now)}
