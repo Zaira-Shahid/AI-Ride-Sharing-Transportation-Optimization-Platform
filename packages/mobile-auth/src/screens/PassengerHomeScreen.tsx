@@ -1,9 +1,13 @@
+import { cancelTripRequest, createTripRequest, describeAuthError } from '@ridemesh/firebase';
+import { useAuth, useCurrentTripRequest } from '@ridemesh/firebase/react';
 import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
 import {
   checkChosenPlace,
+  checkTripTimes,
   DEFAULT_FLEXIBILITY,
   DEFAULT_TRIP_TIMES,
   currentLocationPlace,
+  flexibilityPreferences,
   type ChosenPlaceProblem,
   type Flexibility,
   type StoredDestination,
@@ -13,10 +17,19 @@ import { radius, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { AuthScreenProps } from '../app-info';
-import { AuthThemeProvider, Notice, SecondaryButton, useAuthTheme } from '../components';
+import {
+  AuthThemeProvider,
+  ConfirmDialog,
+  Notice,
+  PrimaryButton,
+  SecondaryButton,
+  TextButton,
+  useAuthTheme,
+} from '../components';
 import { FlexibilityCard } from './FlexibilityCard';
 import { PlaceRejectedError } from './PlaceSearch';
 import { DestinationCard, PickupCard } from './TripPlaceCards';
+import { RequestedCard, ReviewCard, type TripSummaryData } from './TripRequestCards';
 import { TripTimeCard } from './TripTimeCard';
 import { useNow } from './useNow';
 
@@ -87,8 +100,10 @@ function LocateButton({
  * the button, one reading, never stored) or a place from the search. The passenger also says when:
  * leave now (the default) or at a time, and optionally a time to arrive by; and how flexible they
  * are: a level, and whether they will share and allow route changes. Everything is held only here,
- * in the app: nothing is sent to the server until the trip request is submitted (Module 3.7). A
- * pickup and a destination that are the same place are refused.
+ * in the app, until the passenger presses Request ride, looks over a summary and confirms: only then
+ * is it sent, once, and the server checks it all again (Module 3.7). A pickup and a destination that
+ * are the same place are refused. Once a request is open the screen shows it instead, with a button to
+ * cancel it while it is still waiting to be matched.
  */
 export function PassengerHomeScreen({
   theme,
@@ -98,6 +113,8 @@ export function PassengerHomeScreen({
   placesApiKey?: string | undefined;
 }) {
   const { height } = useWindowDimensions();
+  const { client } = useAuth();
+  const tripRequest = useCurrentTripRequest();
   const [pickup, setPickup] = useState<StoredDestination | null>(null);
   const [destination, setDestination] = useState<StoredDestination | null>(null);
   const location = useCurrentLocation();
@@ -112,6 +129,14 @@ export function PassengerHomeScreen({
   // How much of the map the cards at the top and the button at the bottom cover.
   const [topCover, setTopCover] = useState(0);
   const [bottomCover, setBottomCover] = useState(0);
+  const [reviewing, setReviewing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendProblem, setSendProblem] = useState<string | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelProblem, setCancelProblem] = useState<string | null>(null);
+
+  const openTrip = tripRequest.status === 'ready' ? tripRequest.trip : null;
 
   const choosePickup = (place: StoredDestination) => {
     const problem = checkChosenPlace(place, destination);
@@ -154,13 +179,62 @@ export function PassengerHomeScreen({
 
   const locationProblem = LOCATION_PROBLEMS[location.status];
 
+  const canRequest = pickup !== null && destination !== null && checkTripTimes(times, now) === null;
+
+  const sendRequest = async () => {
+    if (!pickup || !destination) return;
+    setSending(true);
+    setSendProblem(null);
+    try {
+      await createTripRequest(client, {
+        origin: pickup,
+        destination,
+        departure: times.departure,
+        arriveBy: times.arriveBy,
+        preferences: flexibilityPreferences(flexibility),
+      });
+      // The open request now arrives through the live subscription and replaces the review.
+      setReviewing(false);
+    } catch (error) {
+      setSendProblem(describeAuthError(error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const cancelRequest = async () => {
+    if (!openTrip) return;
+    setCancelling(true);
+    setCancelProblem(null);
+    try {
+      await cancelTripRequest(client, openTrip.id);
+    } catch (error) {
+      setCancelProblem(describeAuthError(error).message);
+    } finally {
+      setCancelling(false);
+      setConfirmingCancel(false);
+    }
+  };
+
+  const reviewSummary: TripSummaryData | null =
+    pickup && destination
+      ? {
+          pickup: pickup.formattedAddress,
+          destination: destination.formattedAddress,
+          departureAt: times.departure.kind === 'AT' ? times.departure.at : null,
+          arriveBy: times.arriveBy,
+          level: flexibility.level,
+          allowSharedRide: flexibility.allowSharedRide,
+        }
+      : null;
+
   return (
     <AuthThemeProvider theme={theme}>
       <View style={[styles.screen, { backgroundColor: theme.background }]}>
         <View style={StyleSheet.absoluteFill}>
           <MapView
-            pickup={pickup}
-            destination={destination}
+            pickup={openTrip ? openTrip.origin : pickup}
+            destination={openTrip ? openTrip.destination : destination}
             currentLocation={location.point}
             insets={{ top: topCover, bottom: bottomCover }}
           />
@@ -175,26 +249,67 @@ export function PassengerHomeScreen({
             contentContainerStyle={styles.stack}
             keyboardShouldPersistTaps="handled"
           >
-            <DestinationCard
-              placesApiKey={placesApiKey}
-              destination={destination}
-              onPick={chooseDestination}
-              onClear={() => setDestination(null)}
-            />
-            <PickupCard
-              placesApiKey={placesApiKey}
-              pickup={pickup}
-              locating={pickupFromLocation && location.status === 'locating'}
-              problem={pickupProblem ?? (askedBy === 'pickup' ? (locationProblem ?? null) : null)}
-              onUseCurrentLocation={usePickupHere}
-              onPick={choosePickup}
-              onClear={() => {
-                setPickup(null);
-                setAskedBy((asked) => (asked === 'pickup' ? null : asked));
-              }}
-            />
-            <TripTimeCard times={times} now={now} onChange={setTimes} />
-            <FlexibilityCard flexibility={flexibility} onChange={setFlexibility} />
+            {tripRequest.status === 'error' ? (
+              <View style={styles.problem}>
+                <Notice tone="error">
+                  We could not check for a ride you have already requested.
+                </Notice>
+                <TextButton label="Try again" onPress={tripRequest.retry} />
+              </View>
+            ) : null}
+            {openTrip ? (
+              <RequestedCard
+                summary={{
+                  pickup: openTrip.origin.formattedAddress,
+                  destination: openTrip.destination.formattedAddress,
+                  departureAt: openTrip.departureAt,
+                  arriveBy: openTrip.arriveBy,
+                  level: openTrip.flexibilityLevel,
+                  allowSharedRide: openTrip.allowSharedRide,
+                }}
+                now={now}
+                cancellable={openTrip.status === 'REQUESTED'}
+                problem={cancelProblem}
+                onCancel={() => {
+                  setCancelProblem(null);
+                  setConfirmingCancel(true);
+                }}
+              />
+            ) : tripRequest.status === 'loading' ? null : reviewing && reviewSummary ? (
+              <ReviewCard
+                summary={reviewSummary}
+                now={now}
+                sending={sending}
+                problem={sendProblem}
+                onConfirm={() => void sendRequest()}
+                onBack={() => setReviewing(false)}
+              />
+            ) : (
+              <>
+                <DestinationCard
+                  placesApiKey={placesApiKey}
+                  destination={destination}
+                  onPick={chooseDestination}
+                  onClear={() => setDestination(null)}
+                />
+                <PickupCard
+                  placesApiKey={placesApiKey}
+                  pickup={pickup}
+                  locating={pickupFromLocation && location.status === 'locating'}
+                  problem={
+                    pickupProblem ?? (askedBy === 'pickup' ? (locationProblem ?? null) : null)
+                  }
+                  onUseCurrentLocation={usePickupHere}
+                  onPick={choosePickup}
+                  onClear={() => {
+                    setPickup(null);
+                    setAskedBy((asked) => (asked === 'pickup' ? null : asked));
+                  }}
+                />
+                <TripTimeCard times={times} now={now} onChange={setTimes} />
+                <FlexibilityCard flexibility={flexibility} onChange={setFlexibility} />
+              </>
+            )}
           </ScrollView>
         </View>
         <View
@@ -202,12 +317,32 @@ export function PassengerHomeScreen({
           style={styles.bottom}
           onLayout={(event) => setBottomCover(event.nativeEvent.layout.height)}
         >
+          {!openTrip && !reviewing && tripRequest.status !== 'loading' ? (
+            <PrimaryButton
+              label="Request ride"
+              onPress={() => {
+                setSendProblem(null);
+                setReviewing(true);
+              }}
+              disabled={!canRequest}
+            />
+          ) : null}
           <LocateButton
             status={location.status}
             problem={askedBy === 'map' ? locationProblem : undefined}
             onLocate={showMyLocation}
           />
         </View>
+        <ConfirmDialog
+          visible={confirmingCancel}
+          title="Cancel your ride request?"
+          message="You can request a ride again whenever you like."
+          confirmLabel="Yes, cancel it"
+          cancelLabel="Keep request"
+          busy={cancelling}
+          onConfirm={() => void cancelRequest()}
+          onCancel={() => setConfirmingCancel(false)}
+        />
       </View>
     </AuthThemeProvider>
   );
@@ -217,6 +352,14 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   top: { position: 'absolute', top: 0, left: 0, right: 0, padding: spacing[4] },
   stack: { gap: spacing[3] },
-  bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing[4] },
+  bottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: spacing[4],
+    gap: spacing[3],
+  },
+  problem: { gap: spacing[1] },
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4], gap: spacing[3] },
 });

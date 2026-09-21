@@ -68,7 +68,7 @@ export async function createAccount(
   return localId;
 }
 
-const firestoreDocs = `http://127.0.0.1:${TEST_PORTS.firestore}/v1/projects/${projectId}/databases/(default)/documents`;
+export const firestoreDocs = `http://127.0.0.1:${TEST_PORTS.firestore}/v1/projects/${projectId}/databases/(default)/documents`;
 
 /** Writes users/{uid} the way the server does, bypassing rules with the emulator owner token. */
 async function createProfileDoc(
