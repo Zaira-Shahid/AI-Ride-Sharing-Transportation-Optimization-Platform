@@ -77,6 +77,48 @@ import {
 import { describe, expect, it } from 'vitest';
 import { completeRegistrationInputSchema as functionsSchema } from '../functions/src/registration';
 import { completeRegistrationInputSchema as sharedSchema } from '@ridemesh/types';
+import {
+  FLEXIBILITY_LEVEL_LIMITS as functionsLevelLimits,
+  MAX_AHEAD_DAYS as functionsMaxAheadDays,
+  MIN_ARRIVAL_GAP_MINUTES as functionsMinArrivalGap,
+  MIN_LEAD_MINUTES as functionsMinLead,
+  NEW_TRIP_REQUEST_DEFAULTS as functionsTripDefaults,
+  OPEN_TRIP_STATUSES as functionsOpenStatuses,
+  PASSENGER_CANCELLABLE_STATUSES as functionsCancellable,
+  TRIP_STATUS_TRANSITIONS as functionsTransitions,
+  canPassengerCancel as functionsCanPassengerCancel,
+  canTransition as functionsCanTransition,
+  SAME_PLACE_DISTANCE_METERS as functionsSamePlaceMeters,
+  TRIP_REQUEST_REFUSALS as functionsRefusals,
+  cancelTripRequestInputSchema as functionsCancelSchema,
+  checkTripTimes as functionsCheckTimes,
+  createTripRequestInputSchema as functionsCreateSchema,
+  isSamePlace as functionsIsSamePlace,
+  isUsablePlace as functionsIsUsablePlace,
+  isValidFlexibilityPreferences as functionsIsValidPreferences,
+} from '../functions/src/tripRequests';
+import {
+  FLEXIBILITY_LEVEL_LIMITS,
+  MAX_AHEAD_DAYS,
+  MIN_ARRIVAL_GAP_MINUTES,
+  MIN_LEAD_MINUTES,
+  NEW_TRIP_REQUEST_DEFAULTS,
+  OPEN_TRIP_STATUSES,
+  PASSENGER_CANCELLABLE_STATUSES,
+  TRIP_STATUS_TRANSITIONS,
+  canPassengerCancel,
+  canTransition,
+  SAME_PLACE_DISTANCE_METERS,
+  TRIP_REQUEST_REFUSALS,
+  cancelTripRequestInputSchema as sharedCancelSchema,
+  checkTripTimes as sharedCheckTimes,
+  createTripRequestInputSchema as sharedCreateSchema,
+  findPlaceProblem,
+  flexibilityPreferences,
+  isSamePlace as sharedIsSamePlace,
+  isValidFlexibilityPreferences as sharedIsValidPreferences,
+  TRIP_REQUEST_STATUSES,
+} from '@ridemesh/types';
 
 describe('functions and shared types stay aligned', () => {
   it('uses the same role lists', () => {
@@ -333,5 +375,217 @@ describe('functions and shared types stay aligned', () => {
       }
     }
     expect(functionsDetourSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('trip requests: functions and shared types stay aligned', () => {
+  const NOW = Date.UTC(2026, 8, 21, 12, 0, 0);
+  const MIN = 60_000;
+  const place = (overrides: Record<string, unknown> = {}) => ({
+    latitude: 51.5,
+    longitude: -0.02,
+    formattedAddress: 'Office',
+    placeId: 'p1',
+    ...overrides,
+  });
+  const balanced = flexibilityPreferences({
+    level: 'BALANCED',
+    allowSharedRide: true,
+    allowRouteChange: true,
+  });
+  const valid = () => ({
+    origin: place(),
+    destination: place({ latitude: 51.6, placeId: 'p2', formattedAddress: 'Home' }),
+    departure: { kind: 'NOW' },
+    arriveBy: null,
+    preferences: balanced,
+  });
+
+  it('uses the same statuses, refusals, defaults and limits', () => {
+    expect([...functionsOpenStatuses]).toEqual([...OPEN_TRIP_STATUSES]);
+    for (const status of OPEN_TRIP_STATUSES) expect(TRIP_REQUEST_STATUSES).toContain(status);
+    expect([...functionsRefusals]).toEqual([...TRIP_REQUEST_REFUSALS]);
+    expect(functionsTripDefaults).toEqual(NEW_TRIP_REQUEST_DEFAULTS);
+    expect(TRIP_REQUEST_STATUSES).toContain(functionsTripDefaults.status);
+    expect([
+      functionsSamePlaceMeters,
+      functionsMinLead,
+      functionsMaxAheadDays,
+      functionsMinArrivalGap,
+    ]).toEqual([
+      SAME_PLACE_DISTANCE_METERS,
+      MIN_LEAD_MINUTES,
+      MAX_AHEAD_DAYS,
+      MIN_ARRIVAL_GAP_MINUTES,
+    ]);
+    for (const level of ['STRICT', 'BALANCED', 'FLEXIBLE'] as const) {
+      const { maxWalkingDistance, maxExtraTime, maxDetourDistance } =
+        FLEXIBILITY_LEVEL_LIMITS[level];
+      expect(functionsLevelLimits[level]).toEqual({
+        maxWalkingDistance,
+        maxExtraTime,
+        maxDetourDistance,
+      });
+    }
+  });
+
+  it('validates the input of a request identically', () => {
+    const inputs: unknown[] = [
+      valid(),
+      { ...valid(), departure: { kind: 'AT', at: NOW + 30 * MIN } },
+      { ...valid(), departure: { kind: 'AT', at: Number.NaN } },
+      { ...valid(), departure: { kind: 'AT' } },
+      { ...valid(), departure: { kind: 'LATER' } },
+      { ...valid(), arriveBy: NOW + 60 * MIN },
+      { ...valid(), arriveBy: undefined },
+      { ...valid(), arriveBy: '1' },
+      { ...valid(), origin: place({ latitude: 91 }) },
+      { ...valid(), destination: place({ formattedAddress: '  ' }) },
+      { ...valid(), destination: null },
+      { ...valid(), preferences: { ...balanced, flexibilityLevel: 'WILD' } },
+      { ...valid(), preferences: { ...balanced, maxWalkingDistance: 0 } },
+      { ...valid(), preferences: { ...balanced, allowSharedRide: 'yes' } },
+      { origin: place() },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsCreateSchema.safeParse(input).success).toBe(
+        sharedCreateSchema.safeParse(input).success,
+      );
+    }
+    for (const input of [{ tripId: 'abc' }, { tripId: '' }, { tripId: 'x'.repeat(201) }, {}]) {
+      expect(functionsCancelSchema.safeParse(input).success).toBe(
+        sharedCancelSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('decides the same place identically', () => {
+    const base = place({ placeId: null });
+    const places = [
+      base,
+      place({ placeId: 'p1' }),
+      place({ placeId: 'p1', latitude: 40 }),
+      place({ placeId: 'p2', latitude: 40 }),
+      place({ placeId: null, latitude: 51.5004 }),
+      place({ placeId: null, latitude: 51.5006 }),
+      place({ placeId: null, latitude: 51.5, longitude: -0.0206 }),
+    ].map((entry) => ({ ...entry, placeId: (entry.placeId ?? null) as string | null }));
+    for (const a of places) {
+      for (const b of places) {
+        expect(functionsIsSamePlace(a, b)).toBe(sharedIsSamePlace(a, b));
+      }
+    }
+  });
+
+  it('treats 0, 0 as no position, as the shared check does', () => {
+    for (const [latitude, longitude] of [
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [51.5, -0.02],
+    ] as const) {
+      const candidate = place({ latitude, longitude, placeId: null }) as ReturnType<
+        typeof place
+      > & {
+        placeId: string | null;
+      };
+      expect(functionsIsUsablePlace(candidate)).toBe(findPlaceProblem(candidate) === null);
+    }
+  });
+
+  it('checks the times identically, at every edge', () => {
+    const departures = [
+      { kind: 'NOW' as const },
+      ...[-1, 0, 4, 5, 6, 60, 7 * 24 * 60 - 1, 7 * 24 * 60, 7 * 24 * 60 + 1].map((minutes) => ({
+        kind: 'AT' as const,
+        at: NOW + minutes * MIN,
+      })),
+      { kind: 'AT' as const, at: Number.NaN },
+      { kind: 'AT' as const, at: Number.POSITIVE_INFINITY },
+    ];
+    const arrivals = [
+      null,
+      ...[-1, 0, 4, 5, 6, 30, 61, 7 * 24 * 60, 7 * 24 * 60 + 1].map(
+        (minutes) => NOW + minutes * MIN,
+      ),
+      Number.NaN,
+    ];
+    for (const departure of departures) {
+      for (const arriveBy of arrivals) {
+        const times = { departure, arriveBy };
+        expect(functionsCheckTimes(times, NOW)).toEqual(sharedCheckTimes(times, NOW));
+      }
+    }
+  });
+
+  it('accepts exactly the preferences a level gives, identically', () => {
+    const cases: unknown[] = [
+      ...(['STRICT', 'BALANCED', 'FLEXIBLE'] as const).flatMap((level) => [
+        flexibilityPreferences({ level, allowSharedRide: true, allowRouteChange: true }),
+        flexibilityPreferences({ level, allowSharedRide: false, allowRouteChange: false }),
+      ]),
+      { ...balanced, flexibilityLevel: 'STRICT' },
+      { ...balanced, maxWalkingDistance: 5000 },
+      { ...balanced, maxExtraTime: 11 },
+      { ...balanced, maxDetourDistance: 4 },
+      { ...balanced, maxWalkingDistance: 500.5 },
+      { ...balanced, flexibilityLevel: 'WILD' },
+      { ...balanced, allowRouteChange: 'no' },
+      null,
+      {},
+    ];
+    for (const value of cases) {
+      expect(functionsIsValidPreferences(value)).toBe(sharedIsValidPreferences(value));
+    }
+  });
+
+  it('allows the same status transitions, and the same cancellations, identically', () => {
+    expect(functionsTransitions).toEqual(TRIP_STATUS_TRANSITIONS);
+    expect([...functionsCancellable]).toEqual([...PASSENGER_CANCELLABLE_STATUSES]);
+    const statuses: unknown[] = [...TRIP_REQUEST_STATUSES, 'DRAFT', 'requested', '', null, 7];
+    for (const from of statuses) {
+      expect(functionsCanPassengerCancel(from)).toBe(canPassengerCancel(from));
+      for (const to of statuses) {
+        expect(functionsCanTransition(from, to)).toBe(canTransition(from, to));
+      }
+    }
+    // Names that exist on every object are not statuses.
+    expect(functionsCanTransition('constructor', 'CANCELLED')).toBe(false);
+    expect(functionsCanTransition('__proto__', 'CANCELLED')).toBe(false);
+  });
+
+  it('has a sound transition table: every status is covered, nothing leaves an end state', () => {
+    expect(Object.keys(TRIP_STATUS_TRANSITIONS).sort()).toEqual([...TRIP_REQUEST_STATUSES].sort());
+    for (const [from, targets] of Object.entries(TRIP_STATUS_TRANSITIONS)) {
+      for (const to of targets) expect(TRIP_REQUEST_STATUSES).toContain(to);
+      expect(targets).not.toContain(from);
+    }
+    expect(TRIP_STATUS_TRANSITIONS.COMPLETED).toEqual([]);
+    expect(TRIP_STATUS_TRANSITIONS.CANCELLED).toEqual([]);
+    // Every open status can reach an end state, and the open statuses are exactly the others.
+    for (const status of OPEN_TRIP_STATUSES) {
+      const seen = new Set<string>([status]);
+      const queue: string[] = [status];
+      while (queue.length > 0) {
+        const next = TRIP_STATUS_TRANSITIONS[queue.shift() as keyof typeof TRIP_STATUS_TRANSITIONS];
+        for (const target of next ?? []) {
+          if (!seen.has(target)) {
+            seen.add(target);
+            queue.push(target);
+          }
+        }
+      }
+      expect(seen.has('COMPLETED') || seen.has('CANCELLED')).toBe(true);
+    }
+    for (const status of TRIP_REQUEST_STATUSES) {
+      const ended = TRIP_STATUS_TRANSITIONS[status].length === 0;
+      expect(ended).toBe(!(OPEN_TRIP_STATUSES as readonly string[]).includes(status));
+    }
+    // A passenger can cancel only where free cancellation is agreed, and only along an arrow.
+    expect([...PASSENGER_CANCELLABLE_STATUSES]).toEqual(['REQUESTED', 'SEARCHING']);
+    for (const status of TRIP_REQUEST_STATUSES) {
+      expect(canPassengerCancel(status)).toBe(status === 'REQUESTED' || status === 'SEARCHING');
+    }
   });
 });

@@ -269,7 +269,7 @@ run unless the Auth and Firestore emulators are configured.
   be added before launch.
 - The passenger app uses the same key and the same search (Module 3.1); it is restricted in the
   same way. A passenger's picked place is held only in the app and sent to no server until the trip
-  request is submitted (Module 3.7).
+  request is confirmed (Module 3.7, see "Trip requests").
 - **The passenger's location (Module 3.2).** It is location data of a private person, so: it is
   asked for only when the passenger taps "Show my location" (never on start-up), it is one reading
   (nothing is watched), it is held only in the app's memory, and it is sent to no server of ours
@@ -277,10 +277,9 @@ run unless the Auth and Firestore emulators are configured.
   phone shows its own permission prompt, and a refusal is handled with a plain message. Phones use
   the "while using the app" permission only, never background location.
 - **A pickup taken from the device's location is still only in the app.** It is one reading, kept
-  in memory with the destination, and sent to no server until the trip request is submitted
-  (Module 3.7). That module will store exact coordinates of a private person's position on
-  `tripRequests`, so it must decide who can read them, and how long they are kept, before it is
-  built (spec section 56).
+  in memory with the destination, and sent to no server until the trip request is confirmed
+  (Module 3.7). From then on the exact coordinates are stored on `tripRequests`; who can read them
+  and how long they are kept are described in "Trip requests" below (spec section 56).
 - **The map tile provider sees where the map is looking.** Every tile request carries the tile's
   zoom and position, which is roughly the area the passenger is viewing (including around their
   own location), plus their IP address and the app's referrer. That is a disclosure to
@@ -288,6 +287,75 @@ run unless the Auth and Firestore emulators are configured.
   Places. The web map's code is bundled with the app; it loads no third-party script.
 - Sending a driver's or passenger's typed search text to Google is a disclosure to a third party. It should be
   covered by the privacy notice and consent required by spec section 56 before launch.
+
+## Trip requests
+
+`tripRequests/{id}` (Module 3.7) holds what a passenger asked for: the exact pickup and destination
+coordinates and addresses of a private person, when they want to travel and how flexible they are.
+
+- **Only the passenger who made a request can read it.** The rule needs a verified email, the
+  `PASSENGER` claim and `request.auth.uid == resource.data.passengerId`. **Staff cannot read it, and
+  neither can drivers**: staff access will come through audited functions when a module needs it
+  (support and disputes), not through a blanket read rule. The document ID is generated, so
+  ownership comes from `passengerId`.
+- **Only the server writes it.** The rules deny every client write to `tripRequests` and the
+  `currentTripRequestId` pointer on `users/{uid}` (the profile rule allows a person to change only
+  their name and phone). `createTripRequest` and `cancelTripRequest` are the only writers. Both
+  need a verified `PASSENGER` (from the signed token, never from a document), and `createTripRequest`
+  also an ACTIVE account. They use the caller's own uid and ignore every other field of the input
+  (status, fare, another passenger's ID).
+- **The server believes nothing the app sent.** It checks the shape and range of both places again,
+  refuses 0, 0 and a pickup that is the same place as the destination (the same place ID or under
+  50 m), checks the times against **its own clock** (leave now is the server's time; a chosen time
+  must be 5 minutes to 7 days ahead, an arrival time after the departure) and accepts only
+  preferences that are exactly a flexibility level's numbers plus two booleans. These are mirrors of
+  the checks in `@ridemesh/types`; `tests/roles-parity.test.ts` fails if they diverge. A refusal
+  carries a `details.reason` from `TRIP_REQUEST_REFUSALS` and a message a person can act on.
+- **One open request per passenger.** `users/{uid}.currentTripRequestId` points at it and the
+  transaction refuses a second while that one is open (`ALREADY_OPEN`). A pointer to a request that
+  is gone or has ended is treated as none. A cancelled request is a normal end: the passenger can
+  request again at once.
+- **Statuses only move along an allowed table (Module 3.8, spec section 73).**
+  `TRIP_STATUS_TRANSITIONS` (in `@ridemesh/types`, mirrored in `functions/src/tripRequests.ts`, and
+  compared by the parity test) lists where each status may go: for example `REQUESTED` to `SEARCHING`
+  or `CANCELLED` only, and nothing leaves `COMPLETED` or `CANCELLED`. Cancel checks it, and the
+  matching modules must use it for every move. Rules cannot enforce it, because no client may write
+  `tripRequests` at all; the functions that change a status are the only place it is applied.
+- **Cancelling.** A passenger can cancel from `REQUESTED` and `SEARCHING` (`PASSENGER_CANCELLABLE_STATUSES`):
+  nothing is committed to a driver yet, so it is free. From `MATCHED` onwards it is refused
+  (`NOT_CANCELLABLE`) because a cancellation there needs a policy (fees, penalties) that comes with
+  payments. A repeat of a cancel that has happened is "unchanged", not an error, so a retry is
+  harmless. Somebody else's request, or one that does not exist, is reported as not found and left
+  alone. The audit entry records the status it was cancelled from.
+- **Listing a passenger's trips.** The Trips tab queries `tripRequests` with
+  `where passengerId == own uid`, newest first, at most 50. The read rule accepts a list only when
+  the query itself pins `passengerId` to the caller, so a list without the filter, or for another
+  ID, is refused; drivers and staff cannot list at all (rules tests cover each). The query uses the
+  `passengerId` + `createdAt` index in `firestore.indexes.json`, which must be deployed with the
+  rules before the Trips tab works on the real project.
+- **A request nobody picks up stays open (known limitation).** Until matching exists, and after it if
+  no driver is found, a `REQUESTED` request stays open, and because a passenger has one open request
+  at a time it blocks a new one until they cancel it. Expiring it automatically needs a scheduled
+  function, so the Blaze plan, like the retention item below; the passenger can always cancel with
+  one tap.
+- **The audit trail names no place.** Creating and cancelling write `TRIP_REQUEST_CREATED` and
+  `TRIP_REQUEST_CANCELLED` entries with the actor, the request's ID and the status change only;
+  the functions log nothing about the places. Tests check that no address or coordinate appears in
+  the entry.
+- **Fare, distance and duration are `null`** until routing and pricing exist (Phase 4 onwards).
+- **Retention: 30 days after a request ends (decided, NOT yet implemented).** The policy is that a
+  trip request's exact coordinates and addresses are deleted 30 days after it is COMPLETED or
+  CANCELLED (spec section 56). **Nothing deletes anything today**: every request stays after it
+  ends, because automatic deletion needs a scheduled Cloud Function, and scheduled functions need the
+  Blaze plan (the project is on Spark). This is a known limitation until then. When Blaze is
+  available, add a scheduled function that finds requests whose end time is more than 30 days ago
+  and removes them (or clears their places, if the trip record is still needed for fares and
+  disputes: decide that with the payments module), audits the run without naming places, and has a
+  test on the emulators. The end time is not stored on the request yet (only `updatedAt`, which
+  changes on every write), so that change should also add an explicit `endedAt` written by the
+  functions that complete or cancel a request. Until then a passenger cannot delete their own requests
+  and no export or erasure flow exists (also spec section 56). The privacy notice must state the
+  30 days before real passengers use the app.
 
 ## Staff roles
 
@@ -305,12 +373,13 @@ npm run admin:set-staff-role -- <email> <SUPPORT|OPERATIONS|ADMIN|SUPER_ADMIN> -
 
 ## Firestore rules (`firestore.rules`)
 
-| Collection       | Read                                                     | Write                                         |
-| ---------------- | -------------------------------------------------------- | --------------------------------------------- |
-| `users/{uid}`    | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
-| `drivers/{uid}`  | That driver, or any driver profile for verified staff    | Nobody                                        |
-| `vehicles/{uid}` | That driver, or any vehicle for verified staff           | Nobody (the saveVehicle function only)        |
-| everything else  | Nobody                                                   | Nobody                                        |
+| Collection          | Read                                                     | Write                                         |
+| ------------------- | -------------------------------------------------------- | --------------------------------------------- |
+| `users/{uid}`       | Own profile, or any profile for verified staff (4 roles) | Owner may update name and phone only (ACTIVE) |
+| `drivers/{uid}`     | That driver, or any driver profile for verified staff    | Nobody                                        |
+| `vehicles/{uid}`    | That driver, or any vehicle for verified staff           | Nobody (the saveVehicle function only)        |
+| `tripRequests/{id}` | The passenger who made it, and nobody else (not staff)   | Nobody (the trip request functions only)      |
+| everything else     | Nobody                                                   | Nobody                                        |
 
 Creating and deleting profiles, and every other write, happens through Cloud Functions or scripts
 using the Admin SDK, which bypass rules.

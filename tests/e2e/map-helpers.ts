@@ -52,11 +52,12 @@ export async function countLocationRequests(page: Page) {
 
 export async function newPassenger(page: Page, prefix: string) {
   const email = uniqueEmail(prefix);
-  await createAccount(email, passenger.role, true, 'Pat Passenger', {
+  const uid = await createAccount(email, passenger.role, true, 'Pat Passenger', {
     name: 'Pat Passenger',
     phone: null,
   });
   await openLogin(page, passenger.url, passenger.title);
   await submitLogin(page, email, PASSWORD);
   await expect(page.getByRole('heading', { name: 'Where are you going?' })).toBeVisible();
+  return { uid, email };
 }

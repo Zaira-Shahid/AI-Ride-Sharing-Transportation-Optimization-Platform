@@ -1,10 +1,6 @@
-import { ScreenShell } from '../../src/components/ScreenShell';
+import { TripsScreen } from '@ridemesh/mobile-auth';
+import { theme } from '../../src/theme';
 
-export default function TripsScreen() {
-  return (
-    <ScreenShell
-      title="No trips yet"
-      description="Your past and upcoming trips will appear here."
-    />
-  );
+export default function Trips() {
+  return <TripsScreen theme={theme} />;
 }

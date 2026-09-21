@@ -72,6 +72,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A passenger's trip request. The document ID is generated, so ownership comes from passengerId.
+    // Only server functions create or change it (Module 3.7). It holds exact pickup and destination
+    // coordinates of a private person, so only the passenger who made it can read it: not staff
+    // (their access will come through audited functions), and not drivers.
+    match /tripRequests/{tripId} {
+      allow read: if isVerified()
+                  && request.auth.uid == resource.data.passengerId
+                  && role() == 'PASSENGER';
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;

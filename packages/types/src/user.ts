@@ -20,6 +20,8 @@ export interface UserProfile {
   phone: string | null;
   photoUrl: string | null;
   status: UserStatus;
+  /** A passenger's open trip request (Module 3.7); set and cleared by server functions only. */
+  currentTripRequestId?: string | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
