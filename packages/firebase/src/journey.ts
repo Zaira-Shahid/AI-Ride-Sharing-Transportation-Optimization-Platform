@@ -5,9 +5,13 @@ import {
   type DriverJourneyStatus,
   type SetJourneyDetourInput,
   type SetJourneyDetourResult,
+  type SetJourneyOriginInput,
+  type SetJourneyOriginResult,
   type SetJourneySeatsInput,
   type SetJourneySeatsResult,
   type StoredDestination,
+  type UpdateDriverLocationInput,
+  type UpdateDriverLocationResult,
 } from '@ridemesh/types';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -17,6 +21,8 @@ import type { FirebaseClient } from './client';
 export interface JourneyData {
   status: DriverJourneyStatus;
   destination: StoredDestination | null;
+  /** Where the journey starts (the device's position, saved by the driver); null until saved. */
+  origin: StoredDestination | null;
   /** Passenger seats on offer; null until the driver chooses. */
   availableSeats: number | null;
   /** Extra minutes the driver accepts for passengers; null until they choose. */
@@ -69,6 +75,7 @@ export function subscribeToJourney(
             ? (data.status as DriverJourneyStatus)
             : 'DRAFT',
           destination: readDestination(data.destination),
+          origin: readDestination(data.origin),
           availableSeats: Number.isInteger(data.availableSeats)
             ? (data.availableSeats as number)
             : null,
@@ -160,6 +167,61 @@ export async function setJourneyDetour(
         'permission',
         'You cannot set a detour right now. Set your destination first, then try again.',
       );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Saves where the signed-in driver's journey starts: one reading of the device's position, through
+ * the setJourneyOrigin function. It needs a destination first, and only a draft journey can change.
+ */
+export async function setJourneyOrigin(
+  client: Pick<FirebaseClient, 'functions'>,
+  origin: SetJourneyOriginInput['origin'],
+): Promise<SetJourneyOriginResult['status']> {
+  try {
+    const result = await httpsCallable<SetJourneyOriginInput, SetJourneyOriginResult>(
+      client.functions,
+      'setJourneyOrigin',
+    )({ origin: { latitude: origin.latitude, longitude: origin.longitude } });
+    return result.data.status;
+  } catch (error) {
+    const code = getErrorCode(error);
+    if (code === 'functions/failed-precondition' || code === 'functions/invalid-argument') {
+      throw new AuthFlowError(
+        'permission',
+        'You cannot set a start right now. Set your destination first, then try again.',
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Sends one reading of the signed-in driver's position through the updateDriverLocation function.
+ * The app decides how often (shouldSendLocation in @ridemesh/types); the server checks again, and
+ * says what it did: 'updated', 'ignored' (too inaccurate) or 'throttled' (too soon after the last).
+ * Only an online driver can share a position.
+ */
+export async function updateDriverLocation(
+  client: Pick<FirebaseClient, 'functions'>,
+  reading: UpdateDriverLocationInput,
+): Promise<UpdateDriverLocationResult['status']> {
+  try {
+    const result = await httpsCallable<UpdateDriverLocationInput, UpdateDriverLocationResult>(
+      client.functions,
+      'updateDriverLocation',
+    )({
+      latitude: reading.latitude,
+      longitude: reading.longitude,
+      accuracy: reading.accuracy ?? null,
+    });
+    return result.data.status;
+  } catch (error) {
+    const code = getErrorCode(error);
+    if (code === 'functions/failed-precondition' || code === 'functions/invalid-argument') {
+      throw new AuthFlowError('permission', 'Your location could not be shared right now.');
     }
     throw error;
   }

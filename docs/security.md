@@ -357,6 +357,50 @@ coordinates and addresses of a private person, when they want to travel and how 
   and no export or erasure flow exists (also spec section 56). The privacy notice must state the
   30 days before real passengers use the app.
 
+## Driver location (Module 4.1)
+
+A driver's position is location data of a private person. Two things are stored, both on the driver's
+own journey (`driverJourneys/{id}`), so the journey rules apply: only that driver (verified email and
+the `DRIVER` claim, matched on `driverId`) and verified staff can read them, passengers cannot, and
+no client can write them.
+
+- **The start of the journey (`origin`).** One reading of the device, taken only when the driver
+  presses "Use my current location as the start" (never on start-up; a test checks the browser is not
+  asked before the press) and saved by `setJourneyOrigin`. It is stored as "Current location" with
+  its coordinates and no place ID, because turning a position into an address is reverse geocoding
+  (a later Phase 4 module). It needs a verified driver with an ACTIVE account and a journey (so a
+  destination first), and can only change while the journey is a DRAFT. It is **required to go
+  online** (`originSet`, after `destinationDeclared`). 0, 0 and out-of-range positions are refused.
+- **The current position (`currentLocation`).** Written by `updateDriverLocation` **only while the
+  driver is ONLINE**: the app follows the device only then (phones use the "while using the app"
+  permission, never a background one, so nothing is shared once the app is closed), and the function
+  refuses a driver who is offline, unverified, suspended or without a journey of their own. It stores
+  the latitude, longitude, accuracy (or null) and the server's time.
+- **Sparingly (spec section 72).** The numbers are one set, `LOCATION_THROTTLE` in `@ridemesh/types`
+  (mirrored in `functions/src/locations.ts`, compared by the parity test): the app writes at most every
+  **30 seconds**, and only after the driver has moved **50 metres**; a driver standing still is written
+  every **5 minutes** (a heartbeat); a reading less accurate than **100 metres** is never used. The
+  decision is `shouldSendLocation`, unit-tested including a ten-minute drive at 36 km/h that gives 20
+  writes, not 600. The server does not trust the app: it refuses to write more often than every
+  **15 seconds** (`throttled`) and ignores an inaccurate reading (`ignored`), and both come back as
+  normal results, not errors. The app's own rule is looser than that safety net on purpose, so a normal
+  app is never refused.
+- **Cleared when the driver goes offline.** `setAvailability` to OFFLINE removes `currentLocation` in
+  the same transaction, so a stale position never sits on the journey as if it were current.
+  **Known limitation:** when the _system_ takes a driver offline (staff reject the driver or vehicle, or
+  raising the seats resets the vehicle to pending), the last position stays on the journey until the
+  driver next goes offline or online again. It is readable only by the driver and verified staff, and
+  passengers cannot read journeys at all yet; clearing it there means touching the journey from those
+  transactions, which is left for the module that lets passengers see a driver.
+- **The audit trail records no position.** Neither function writes an audit entry, and neither logs
+  the coordinates; tests check that no coordinate appears in the driver's audit entries.
+- **Retention.** A position is overwritten by the next one and removed on going offline, but the
+  journey's `origin` stays with the journey. The retention rule for journeys (like the 30 days for trip
+  requests above) is still to be decided with the privacy notice (spec section 56), and automatic
+  deletion needs a scheduled function, so the Blaze plan.
+- **Passengers' positions are not shared.** A passenger's own device position is still only used on
+  demand, in memory, for the pickup or the map (Modules 3.2 and 3.3).
+
 ## Staff roles
 
 ```bash

@@ -9,8 +9,10 @@ import { setAvailability as setDriverAvailability } from './availability.js';
 import {
   declareDestination as declareDriverDestination,
   setJourneyDetour as setDriverJourneyDetour,
+  setJourneyOrigin as setDriverJourneyOrigin,
   setJourneySeats as setDriverJourneySeats,
 } from './journeys.js';
+import { updateDriverLocation as updateDriverJourneyLocation } from './locations.js';
 import {
   cancelTripRequest as cancelPassengerTripRequest,
   createTripRequest as createPassengerTripRequest,
@@ -116,4 +118,12 @@ export const createTripRequest = onCall((request) =>
 
 export const cancelTripRequest = onCall((request) =>
   cancelPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const setJourneyOrigin = onCall((request) =>
+  setDriverJourneyOrigin({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const updateDriverLocation = onCall((request) =>
+  updateDriverJourneyLocation({ firestore: getFirestore() }, callerOf(request), request.data),
 );
