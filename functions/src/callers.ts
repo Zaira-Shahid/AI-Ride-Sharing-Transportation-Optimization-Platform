@@ -21,3 +21,10 @@ export function requireVerifiedPassenger(caller: PassengerCaller): void {
     throw new HttpsError('permission-denied', 'Only verified passengers can do this.');
   }
 }
+
+/** Drivers and passengers, with a verified email: who may ask for an address or a route. */
+export function requireVerifiedRider(caller: Caller): void {
+  if (!caller.emailVerified || (caller.role !== 'DRIVER' && caller.role !== 'PASSENGER')) {
+    throw new HttpsError('permission-denied', 'Only verified drivers and passengers can do this.');
+  }
+}

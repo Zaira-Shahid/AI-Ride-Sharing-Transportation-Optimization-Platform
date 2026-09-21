@@ -9,6 +9,7 @@ export * from './journey';
 export * from './password-reset';
 export * from './profile';
 export * from './register';
+export * from './routing';
 export * from './session';
 export * from './sign-in';
 export * from './trip';
