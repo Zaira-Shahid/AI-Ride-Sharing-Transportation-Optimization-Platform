@@ -459,6 +459,51 @@ person's location to a third party.
   (`npm run emulators`, no `.env` for the real project); the deployed function needs the Blaze plan
   for outbound network access, like other external calls.
 
+## Route calculation (Module 4.3)
+
+`calculateRoute` works out the road route through 2 to 10 stops: the distance, the time and the line.
+The stops are private locations (a passenger's pickup and destination, a driver's start), and they go
+to a third party, **OSRM**, so the rules are those of reverse geocoding (above), and they are tested
+the same way.
+
+- **Only rounded stops leave the device.** Every stop is rounded to 4 decimals (about 11 m) by the app
+  before it calls our function (`roundStopsForRouting`; a unit test captures what the app sends), and
+  again by the function before it is sent to OSRM or cached (mirrored in `functions/src/routing.ts` and
+  parity-tested, because the server does not trust the app). The price is a route that starts and
+  ends up to about 11 m from where the person is, which is well inside what a road route can tell.
+- **Who and what.** Only a verified driver or passenger can ask; staff cannot. 0, 0, out-of-range
+  positions, fewer than 2 or more than 10 stops, and any profile but `driving` are refused.
+- **A stop that is not near a road is "no route".** OSRM puts a stop on the nearest road however far
+  that is: a real check found two points in the middle of the Atlantic came back as an "Ok" route
+  that started on a road 594 km away. A stop more than 1,000 m (`ROUTE_LIMITS.maxSnapMeters`) from the
+  road OSRM used is answered `none`, so a route never starts somewhere the person is not.
+- **Cached by the rounded stops alone.** Routes, including "no route", are stored in
+  `routeCache/{hash}` (a SHA-256 of the profile and the rounded stops in order): the profile, the
+  rounded stops, the route and a time, nothing about who asked (a test checks this and that no exact
+  coordinate is there). Nothing expires the cache yet (a scheduled function needs the Blaze plan): it
+  belongs with the other retention items above. A failure is never cached, and a route whose line
+  is over 700,000 characters is answered but not stored (a document is at most 1 MiB).
+- **Limits.** OSRM's public server is for light use, so the function claims a place in line in
+  Firestore (`routeGlobal/lookups`: at least 1.1 s between lookups from everybody) and each caller
+  may cause 20 routes a minute (`routeLimits/{uid}`); a route answered from the cache costs neither.
+  The counters are separate from geocoding's, because the two servers are separate, and the code is
+  shared (`functions/src/lookupLimits.ts`, also used by geocoding, with its tests unchanged). Over a
+  limit, or if the counters cannot be updated, the answer is `busy`. The provider gets 8 s.
+- **Never an error for the person.** Failure, a timeout, a refusal and a busy server are the normal
+  results `unavailable` and `busy`, and the client function returns null and never throws. The
+  provider's failure text is not returned.
+- **The three collections** (`routeCache`, `routeLimits`, `routeGlobal`) are not in the rules, so
+  they are closed to every client (a rules test checks each); only the function reads and writes them.
+- **The times are not traffic-aware.** OSRM has no traffic data, so the durations are free-flow
+  estimates. Whatever shows them (4.5) must say "estimated", and a paid provider with traffic (Google,
+  once billing exists) is the way to change that: one new `RoutingProvider`.
+- **Before launch (owner's actions).** The routing server is asked with the same contact as
+  Nominatim (`ROUTING_USER_AGENT`, else `GEOCODING_USER_AGENT`: docs/development.md). The public
+  community server (routing.openstreetmap.de) is for light use only with no guarantee: move to a
+  paid or self-hosted OSRM (one variable, `ROUTING_BASE_URL_DRIVING`) or Google before real traffic.
+  The privacy notice must say that rounded stops go to it too (in the batch with the Nominatim
+  and OpenStreetMap items). The deployed function needs the Blaze plan for outbound calls.
+
 ## Staff roles
 
 ```bash

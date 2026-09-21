@@ -7,6 +7,7 @@ export * from './gps';
 export * from './journey';
 export * from './location';
 export * from './roles';
+export * from './routing';
 export * from './states';
 export * from './trip';
 export * from './trip-request';
