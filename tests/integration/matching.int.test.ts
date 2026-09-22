@@ -10,12 +10,15 @@ import {
   setJourneySeats,
   setVehicleCapacity,
 } from '../../packages/firebase/src';
-import { findCandidateJourneysNow } from '../../functions/src/matching';
+import { checkCandidateRoute, findCandidateJourneysNow } from '../../functions/src/matching';
+import type { Route, RoutePoint, RoutingProvider } from '../../functions/src/routing';
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
 
 // Candidate discovery (Module 5.2): the first describe block calls findCandidateJourneysNow
 // directly. Starting the search (Module 5.3, the trigger that runs it automatically and moves a
-// trip request on to SEARCHING) is the second describe block, end to end.
+// trip request on to SEARCHING) is the second describe block, end to end. Route compatibility
+// (Module 5.4, checkCandidateRoute) is the third, with a stand-in routing provider - the same way
+// routing.int.test.ts tests calculateRoute's own logic.
 
 const ORIGIN = { latitude: 51.4545, longitude: -2.5879 };
 const OFFICE = {
@@ -217,5 +220,102 @@ describe('matchTripRequestOnCreate (the trigger, functions + firestore emulators
 
     const trip = await waitFor(searchingTrip(tripId));
     expect(trip.candidateCount).toBeNull();
+  });
+});
+
+describe('checkCandidateRoute (functions + firestore emulators, a stand-in provider)', () => {
+  const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+
+  /** Answers by how many stops were asked for: 2 is the driver's own route, 4 is with the passenger. */
+  function stubProvider(byStopCount: Partial<Record<number, Route | null>>): RoutingProvider {
+    return {
+      route: (stops: RoutePoint[]) => Promise.resolve(byStopCount[stops.length] ?? null),
+    };
+  }
+
+  const route = (distanceMeters: number, durationSeconds: number): Route => ({
+    distanceMeters,
+    durationSeconds,
+    geometry: '_p~iF~ps|U',
+    legs: [{ distanceMeters, durationSeconds }],
+  });
+
+  let counter = 0;
+  /** A different, distant set of points for every test, so no test's routes share a cache entry. */
+  function points(): {
+    driverOrigin: RoutePoint;
+    driverDestination: RoutePoint;
+    passengerPickup: RoutePoint;
+    passengerDestination: RoutePoint;
+  } {
+    counter += 1;
+    const base = 10 + counter * 2;
+    return {
+      driverOrigin: { latitude: base, longitude: base },
+      driverDestination: { latitude: base + 1, longitude: base + 1 },
+      passengerPickup: { latitude: base + 0.2, longitude: base + 0.2 },
+      passengerDestination: { latitude: base + 0.5, longitude: base + 0.5 },
+    };
+  }
+
+  const LIMITS = {
+    driverMaxDetourMinutes: 10,
+    driverMaxDetourDistanceKm: 3,
+    passengerMaxExtraMinutes: 10,
+    passengerMaxDetourDistanceKm: 3,
+  };
+
+  it('is checked and compatible when both routes are found and the detour is small', async () => {
+    const provider = stubProvider({ 2: route(10_000, 900), 4: route(11_000, 1_050) });
+
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      { driverId: 'driver-rc-1', passengerId: 'passenger-rc-1', ...points(), ...LIMITS },
+    );
+
+    expect(result).toEqual({
+      status: 'checked',
+      compatible: true,
+      additionalDistanceMeters: 1_000,
+      additionalDurationSeconds: 150,
+    });
+  });
+
+  it('is checked but not compatible when the detour is too big', async () => {
+    const provider = stubProvider({ 2: route(10_000, 900), 4: route(20_000, 900) });
+
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      { driverId: 'driver-rc-2', passengerId: 'passenger-rc-2', ...points(), ...LIMITS },
+    );
+
+    expect(result).toEqual({
+      status: 'checked',
+      compatible: false,
+      additionalDistanceMeters: 10_000,
+      additionalDurationSeconds: 0,
+    });
+  });
+
+  it('is unavailable when the route with the passenger cannot be found', async () => {
+    const provider = stubProvider({ 2: route(10_000, 900), 4: null });
+
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      { driverId: 'driver-rc-3', passengerId: 'passenger-rc-3', ...points(), ...LIMITS },
+    );
+
+    expect(result).toEqual({ status: 'unavailable' });
+  });
+
+  it('is unavailable when the driver own route cannot be found', async () => {
+    const provider = stubProvider({ 2: null, 4: route(11_000, 1_000) });
+
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      { driverId: 'driver-rc-4', passengerId: 'passenger-rc-4', ...points(), ...LIMITS },
+    );
+
+    expect(result).toEqual({ status: 'unavailable' });
   });
 });

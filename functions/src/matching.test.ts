@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   bearingDegrees,
   bearingDifferenceDegrees,
+  candidateRouteStops,
   CANDIDATE_DIRECTION_TOLERANCE_DEGREES,
   CANDIDATE_PROXIMITY_METERS,
+  checkRouteCompatibility,
   findCandidateJourneys,
   isLeaveNowRequest,
   type CandidateSourceJourney,
@@ -116,5 +118,66 @@ describe('isLeaveNowRequest', () => {
     expect(isLeaveNowRequest({ requestedAt: at(1_000), requestedDepartureTime: undefined })).toBe(
       false,
     );
+  });
+});
+
+describe('candidateRouteStops', () => {
+  it('puts the pickup and destination between the driver origin and destination, in order', () => {
+    const driverOrigin = { latitude: 1, longitude: 1 };
+    const pickup = { latitude: 2, longitude: 2 };
+    const destination = { latitude: 3, longitude: 3 };
+    const driverDestination = { latitude: 4, longitude: 4 };
+
+    expect(candidateRouteStops(driverOrigin, pickup, destination, driverDestination)).toEqual([
+      driverOrigin,
+      pickup,
+      destination,
+      driverDestination,
+    ]);
+  });
+});
+
+describe('checkRouteCompatibility', () => {
+  const LIMITS = {
+    driverMaxDetourMinutes: 10,
+    driverMaxDetourDistanceKm: 3,
+    passengerMaxExtraMinutes: 10,
+    passengerMaxDetourDistanceKm: 3,
+  };
+  const base = { distanceMeters: 10_000, durationSeconds: 900 };
+
+  it('is compatible when the added distance and time are within every limit', () => {
+    const withPassenger = { distanceMeters: 11_500, durationSeconds: 1_200 };
+    const result = checkRouteCompatibility(base, withPassenger, LIMITS);
+    expect(result).toEqual({
+      compatible: true,
+      additionalDistanceMeters: 1_500,
+      additionalDurationSeconds: 300,
+    });
+  });
+
+  it('is not compatible when the added distance is over the driver detour limit', () => {
+    const withPassenger = { distanceMeters: 13_500, durationSeconds: 1_000 };
+    expect(checkRouteCompatibility(base, withPassenger, LIMITS).compatible).toBe(false);
+  });
+
+  it('is not compatible when the added time is over the passenger extra-time limit', () => {
+    const withPassenger = { distanceMeters: 10_500, durationSeconds: 1_600 };
+    expect(checkRouteCompatibility(base, withPassenger, LIMITS).compatible).toBe(false);
+  });
+
+  it('is not compatible when the tighter of the two detour limits is exceeded', () => {
+    const tightPassenger = { ...LIMITS, passengerMaxDetourDistanceKm: 1 };
+    const withPassenger = { distanceMeters: 11_500, durationSeconds: 1_000 };
+    expect(checkRouteCompatibility(base, withPassenger, tightPassenger).compatible).toBe(false);
+  });
+
+  it('treats a route that comes back shorter than its own base as no additional distance or time', () => {
+    const withPassenger = { distanceMeters: 9_800, durationSeconds: 890 };
+    expect(checkRouteCompatibility(base, withPassenger, LIMITS)).toEqual({
+      compatible: true,
+      additionalDistanceMeters: 0,
+      additionalDurationSeconds: 0,
+    });
   });
 });

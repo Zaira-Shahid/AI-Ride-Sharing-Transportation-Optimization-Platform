@@ -1,4 +1,6 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import type { LookupLimits } from './lookupLimits.js';
+import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
 import { distanceMeters } from './tripRequests.js';
 
 // Candidate discovery (Module 5.2) and starting the search (Module 5.3). Candidate discovery is a
@@ -213,4 +215,137 @@ export async function matchTripRequest(
     });
     return leaveNow ? 'searching' : 'queued';
   });
+}
+
+// Route compatibility (Module 5.4): Stage 2 of the spec's matching pipeline (section 15), for one
+// candidate from Stage 1 (findCandidateJourneys) at a time. It asks calculateRoute (Module 4.3) for
+// the driver's own route, and the same route with the passenger's pickup and destination inserted
+// before the driver's destination - a fixed insertion, not a search for the best order or the best
+// drop-off point (no last-mile walking yet: the passenger is always taken to their exact
+// destination). The difference between the two routes must fit both the driver's detour limits
+// (Module 2.8) and the passenger's own flexibility preferences (Module 3.6); the tighter of the two
+// always decides. Like Stage 1, this is untriggered: nothing calls it automatically, and nothing is
+// assigned from its result - that is a later module's decision.
+
+export interface RouteCompatibilityLimits {
+  driverMaxDetourMinutes: number;
+  driverMaxDetourDistanceKm: number;
+  passengerMaxExtraMinutes: number;
+  passengerMaxDetourDistanceKm: number;
+}
+
+export interface RouteCompatibilityResult {
+  compatible: boolean;
+  additionalDistanceMeters: number;
+  additionalDurationSeconds: number;
+}
+
+/**
+ * Whether the difference between a driver's own route (`base`) and the same route with a
+ * passenger's pickup and destination inserted (`withPassenger`) fits inside both the driver's
+ * detour limits and the passenger's flexibility preferences. A route can come back very slightly
+ * shorter than its own base route (OSRM rounds each independently), so a negative difference counts
+ * as none, not a credit.
+ */
+export function checkRouteCompatibility(
+  base: { distanceMeters: number; durationSeconds: number },
+  withPassenger: { distanceMeters: number; durationSeconds: number },
+  limits: RouteCompatibilityLimits,
+): RouteCompatibilityResult {
+  const additionalDistanceMeters = Math.max(0, withPassenger.distanceMeters - base.distanceMeters);
+  const additionalDurationSeconds = Math.max(
+    0,
+    withPassenger.durationSeconds - base.durationSeconds,
+  );
+  const additionalDistanceKm = additionalDistanceMeters / 1000;
+  const additionalMinutes = additionalDurationSeconds / 60;
+
+  const compatible =
+    additionalDistanceKm <= limits.driverMaxDetourDistanceKm &&
+    additionalMinutes <= limits.driverMaxDetourMinutes &&
+    additionalDistanceKm <= limits.passengerMaxDetourDistanceKm &&
+    additionalMinutes <= limits.passengerMaxExtraMinutes;
+
+  return { compatible, additionalDistanceMeters, additionalDurationSeconds };
+}
+
+/**
+ * The stops for a candidate's route with a passenger's pickup and destination inserted before the
+ * driver's own destination, in that order: a fixed, simple insertion (no search for a better order
+ * or a shared drop-off point - that is full optimization, Phase 6).
+ */
+export function candidateRouteStops(
+  driverOrigin: RoutePoint,
+  passengerPickup: RoutePoint,
+  passengerDestination: RoutePoint,
+  driverDestination: RoutePoint,
+): RoutePoint[] {
+  return [driverOrigin, passengerPickup, passengerDestination, driverDestination];
+}
+
+export type RouteCompatibilityOutcome =
+  ({ status: 'checked' } & RouteCompatibilityResult) | { status: 'unavailable' };
+
+/**
+ * Works out whether one candidate journey can take one trip request without going over anyone's
+ * detour limits: the driver's own route, and the same route with the passenger inserted
+ * (candidateRouteStops), both asked for through calculateRoute (Module 4.3, so both go through its
+ * cache, rounding and limits). 'unavailable' when either route could not be had (no road route, the
+ * routing server down or busy) - never thrown, so one bad candidate never stops the others being
+ * checked next.
+ */
+export async function checkCandidateRoute(
+  deps: {
+    firestore: Firestore;
+    provider: RoutingProvider;
+    limits?: LookupLimits;
+    now?: () => number;
+  },
+  input: {
+    driverId: string;
+    passengerId: string;
+    driverOrigin: RoutePoint;
+    driverDestination: RoutePoint;
+    passengerPickup: RoutePoint;
+    passengerDestination: RoutePoint;
+  } & RouteCompatibilityLimits,
+): Promise<RouteCompatibilityOutcome> {
+  const { firestore, provider } = deps;
+  const routeDeps = {
+    firestore,
+    provider,
+    ...(deps.limits ? { limits: deps.limits } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
+  };
+  const driverCaller = { uid: input.driverId, role: 'DRIVER', emailVerified: true };
+  const passengerCaller = { uid: input.passengerId, role: 'PASSENGER', emailVerified: true };
+
+  // One after the other, never together: both share the one global spacing limit (routeGlobal,
+  // Module 4.3), which is meant to space consecutive calls apart, not referee concurrent ones.
+  const baseResult = await calculateRoute(routeDeps, driverCaller, {
+    stops: [input.driverOrigin, input.driverDestination],
+  });
+  if (baseResult.status !== 'found' || !baseResult.route) return { status: 'unavailable' };
+
+  const withPassengerResult = await calculateRoute(routeDeps, passengerCaller, {
+    stops: candidateRouteStops(
+      input.driverOrigin,
+      input.passengerPickup,
+      input.passengerDestination,
+      input.driverDestination,
+    ),
+  });
+  if (withPassengerResult.status !== 'found' || !withPassengerResult.route) {
+    return { status: 'unavailable' };
+  }
+
+  return {
+    status: 'checked',
+    ...checkRouteCompatibility(baseResult.route, withPassengerResult.route, {
+      driverMaxDetourMinutes: input.driverMaxDetourMinutes,
+      driverMaxDetourDistanceKm: input.driverMaxDetourDistanceKm,
+      passengerMaxExtraMinutes: input.passengerMaxExtraMinutes,
+      passengerMaxDetourDistanceKm: input.passengerMaxDetourDistanceKm,
+    }),
+  };
 }
