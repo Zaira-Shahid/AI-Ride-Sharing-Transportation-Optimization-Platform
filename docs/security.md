@@ -473,7 +473,20 @@ the same way.
   parity-tested, because the server does not trust the app). The price is a route that starts and
   ends up to about 11 m from where the person is, which is well inside what a road route can tell.
 - **Who and what.** Only a verified driver or passenger can ask; staff cannot. 0, 0, out-of-range
-  positions, fewer than 2 or more than 10 stops, and any profile but `driving` are refused.
+  positions, fewer than 2 or more than 10 stops, and any profile but `driving` or `walking` are refused.
+- **Walking (Module 4.6) is the same function with a different server.** A `walking` route is asked
+  of the foot server and a `driving` one of the car server, each set on its own
+  (`ROUTING_BASE_URL_WALKING`, `ROUTING_BASE_URL_DRIVING`). Nothing else differs: the same rounding,
+  the same cache (the profile is part of the cache key, so a road route is never the answer to a
+  walking question), and the same limits (a walk and a drive count against the same per-person
+  and overall budget, tested). It is for matching's walk to a pickup point (Phase 5); nothing shows a
+  walking route to anyone yet. **Which server is asked is what makes a route a walking one:** a real
+  check found that the community foot server answers the same walking route whatever profile word the
+  URL carries (foot, walking or driving), so pointing the walking setting at a car server would return
+  driving distances and driving times as if they were a walk, and nothing in the answer would say
+  so. The function says "foot" in the URL, the tests' fake refuses a wrong word, and the defaults
+  are the community server's separate foot and car servers, but the setting is the owner's to get
+  right for any server of their own.
 - **A stop that is not near a road is "no route".** OSRM puts a stop on the nearest road however far
   that is: a real check found two points in the middle of the Atlantic came back as an "Ok" route
   that started on a road 594 km away. A stop more than 1,000 m (`ROUTE_LIMITS.maxSnapMeters`) from the
@@ -502,7 +515,8 @@ the same way.
 - **Before launch (owner's actions).** The routing server is asked with the same contact as
   Nominatim (`ROUTING_USER_AGENT`, else `GEOCODING_USER_AGENT`: docs/development.md). The public
   community server (routing.openstreetmap.de) is for light use only with no guarantee: move to a
-  paid or self-hosted OSRM (one variable, `ROUTING_BASE_URL_DRIVING`) or Google before real traffic.
+  paid or self-hosted OSRM (one variable for each way of travelling, `ROUTING_BASE_URL_DRIVING` and
+  `ROUTING_BASE_URL_WALKING`) or Google before real traffic.
   The privacy notice must say that rounded stops go to it too (in the batch with the Nominatim
   and OpenStreetMap items). The deployed function needs the Blaze plan for outbound calls.
 

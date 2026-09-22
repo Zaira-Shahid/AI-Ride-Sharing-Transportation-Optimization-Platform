@@ -12,8 +12,17 @@ import type { Socket } from 'node:net';
  * names this port, so nothing in a test can reach the real routing server.
  */
 export const FAKE_OSRM_PORT = 18_890;
-/** The path the fake serves under, like the community server's car profile (routed-car). */
+/** The paths the fake serves under, like the community server's car and foot servers. */
 export const FAKE_OSRM_BASE_PATH = '/routed-car';
+export const FAKE_OSRM_FOOT_BASE_PATH = '/routed-foot';
+
+export type FakeProfile = 'driving' | 'walking';
+
+/** The word each server expects in /route/v1/{word}/ (the real one ignores it; the fake insists). */
+const SERVER_WORDS: Record<string, { profile: FakeProfile; word: string }> = {
+  [FAKE_OSRM_BASE_PATH]: { profile: 'driving', word: 'driving' },
+  [FAKE_OSRM_FOOT_BASE_PATH]: { profile: 'walking', word: 'foot' },
+};
 
 export interface FakeStop {
   latitude: number;
@@ -21,6 +30,8 @@ export interface FakeStop {
 }
 
 export interface FakeRouteRequest {
+  /** Which server was asked: by road or on foot. */
+  profile: FakeProfile;
   stops: FakeStop[];
   path: string;
   headers: IncomingHttpHeaders;
@@ -88,17 +99,27 @@ function metresBetween(a: FakeStop, b: FakeStop): number {
 /**
  * An answer shaped like the real one (checked once against routing.openstreetmap.de): code Ok, one
  * route with a leg between each two stops, a line, and each stop put on a road a few metres away.
- * The road is 1.3 times the straight line and travelled at 50 km/h, so the numbers say what the
- * request was for.
+ * By road, the route is 1.3 times the straight line and travelled at 50 km/h; on foot, 1.2 times the
+ * straight line at 4.5 km/h (what the real foot server gave for a short walk), so the numbers say what
+ * the request was for and which server it went to.
  */
 export function defaultRouteBody(
-  request: Pick<FakeRouteRequest, 'stops'>,
+  request: Pick<FakeRouteRequest, 'stops'> & { profile?: FakeProfile },
   options: { snapMeters?: number } = {},
 ) {
+  const walking = request.profile === 'walking';
+  const detour = walking ? 1.2 : 1.3;
+  const metresPerSecond = walking ? 1.25 : 13.9;
   const legs = request.stops.slice(1).map((stop, index) => {
     const distance =
-      Math.round(metresBetween(request.stops[index] as FakeStop, stop) * 1.3 * 10) / 10;
-    return { steps: [], weight: distance / 13.9, summary: '', duration: distance / 13.9, distance };
+      Math.round(metresBetween(request.stops[index] as FakeStop, stop) * detour * 10) / 10;
+    return {
+      steps: [],
+      weight: distance / metresPerSecond,
+      summary: '',
+      duration: distance / metresPerSecond,
+      distance,
+    };
   });
   const distance = legs.reduce((sum, leg) => sum + leg.distance, 0);
   const duration = legs.reduce((sum, leg) => sum + leg.duration, 0);
@@ -181,18 +202,22 @@ export async function startFakeOsrm(
 
   const server: Server = createServer((incoming, response) => {
     const url = new URL(incoming.url ?? '/', `http://127.0.0.1:${FAKE_OSRM_PORT}`);
-    const prefix = `${FAKE_OSRM_BASE_PATH}/route/v1/driving/`;
-    if (!url.pathname.startsWith(prefix)) {
+    // /routed-car/route/v1/driving/... or /routed-foot/route/v1/foot/...: a request that asks a
+    // server for the wrong profile word is refused, so a mix-up in the function is caught.
+    const matched = /^(\/routed-[a-z]+)\/route\/v1\/([a-z]+)\/(.+)$/.exec(url.pathname);
+    const server = matched ? SERVER_WORDS[matched[1] as string] : undefined;
+    if (!matched || !server || matched[2] !== server.word) {
       response.writeHead(404).end();
       return;
     }
-    const stops: FakeStop[] = decodeURIComponent(url.pathname.slice(prefix.length))
+    const stops: FakeStop[] = decodeURIComponent(matched[3] as string)
       .split(';')
       .map((pair) => {
         const [longitude, latitude] = pair.split(',').map(Number);
         return { latitude: latitude as number, longitude: longitude as number };
       });
     const request: FakeRouteRequest = {
+      profile: server.profile,
       stops,
       path: url.pathname,
       headers: incoming.headers,

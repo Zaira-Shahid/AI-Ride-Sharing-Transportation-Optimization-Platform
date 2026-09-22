@@ -58,6 +58,27 @@ describe('calculateRoute in the app', () => {
     }
   });
 
+  it('says nothing about the profile for a road route, and "walking" for a walk', async () => {
+    const stops = [
+      { latitude: 51.5049, longitude: -0.0195 },
+      { latitude: 51.507, longitude: -0.025 },
+    ];
+
+    await calculateRoute(client, stops);
+    await calculateRoute(client, stops, { profile: 'driving' });
+    await calculateRoute(client, stops, { profile: 'walking' });
+
+    const rounded = [
+      { latitude: 51.5049, longitude: -0.0195 },
+      { latitude: 51.507, longitude: -0.025 },
+    ];
+    expect(callable.bodies).toEqual([
+      { stops: rounded },
+      { stops: rounded },
+      { stops: rounded, profile: 'walking' },
+    ]);
+  });
+
   it('does not change the stops it was given', async () => {
     const stops = [
       { latitude: 51.44941234, longitude: -2.58139876 },

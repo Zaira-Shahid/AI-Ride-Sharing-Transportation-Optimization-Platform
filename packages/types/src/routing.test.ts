@@ -34,13 +34,16 @@ describe('route input', () => {
     expect(ok({ stops: [stop(0), null] })).toBe(false);
   });
 
-  it('takes a profile, driving being the only one for now, or none', () => {
-    expect([...ROUTE_PROFILES]).toEqual(['driving']);
+  it('takes a profile, by road or on foot, or none', () => {
+    expect([...ROUTE_PROFILES]).toEqual(['driving', 'walking']);
+    expect(ok({ stops: stops(2), profile: 'walking' })).toBe(true);
     expect(ok({ stops: stops(2), profile: 'driving' })).toBe(true);
     expect(ok({ stops: stops(2), profile: null })).toBe(true);
     expect(ok({ stops: stops(2), profile: undefined })).toBe(true);
-    expect(ok({ stops: stops(2), profile: 'walking' })).toBe(false);
+    expect(ok({ stops: stops(2), profile: 'cycling' })).toBe(false);
     expect(ok({ stops: stops(2), profile: 'flying' })).toBe(false);
+    expect(ok({ stops: stops(2), profile: 'WALKING' })).toBe(false);
+    expect(ok({ stops: stops(2), profile: 'foot' })).toBe(false);
   });
 
   it('refuses anything that is not a list of stops', () => {
