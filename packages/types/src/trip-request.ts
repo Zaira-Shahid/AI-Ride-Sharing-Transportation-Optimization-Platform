@@ -94,6 +94,9 @@ export interface TripRequest {
    * decision). A snapshot for a person to read, not a promise any of them are still available.
    */
   candidateCount: number | null;
+  /** Who this request was assigned (Module 5.5), once its status is MATCHED; null until then. */
+  matchedJourneyId: string | null;
+  matchedDriverId: string | null;
   /**
    * The road distance from the pickup to the destination in METRES, filled in by the server just after
    * the request is created (trip-estimate.ts); null until then, and when no route could be had.
@@ -115,6 +118,8 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   estimatedDuration: null,
   assignedPlanId: null,
   candidateCount: null,
+  matchedJourneyId: null,
+  matchedDriverId: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

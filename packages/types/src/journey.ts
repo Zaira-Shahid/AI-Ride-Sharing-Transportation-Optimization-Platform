@@ -108,6 +108,8 @@ export interface DriverJourney {
   status: DriverJourneyStatus;
   currentLocation: StoredDestination | null;
   currentRoute: unknown;
+  /** The trip request this journey was assigned (Module 5.5), once MATCHING; null until then. */
+  matchedTripRequestId: string | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -123,4 +125,5 @@ export const NEW_JOURNEY_DEFAULTS = {
   status: 'DRAFT',
   currentLocation: null,
   currentRoute: null,
+  matchedTripRequestId: null,
 } as const;

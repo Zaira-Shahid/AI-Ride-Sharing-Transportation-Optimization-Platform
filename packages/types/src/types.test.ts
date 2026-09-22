@@ -366,6 +366,7 @@ describe('journeys and destinations', () => {
       status: 'DRAFT',
       currentLocation: null,
       currentRoute: null,
+      matchedTripRequestId: null,
     });
   });
 
