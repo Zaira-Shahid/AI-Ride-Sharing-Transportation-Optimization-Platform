@@ -43,6 +43,9 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   // How many candidates matching found (Module 5.2/5.3): filled in only for a leave-now request,
   // once it starts SEARCHING; null until then, and always for a future-dated one.
   candidateCount: null,
+  // Who this request was assigned to (Module 5.5), once its status is MATCHED; null until then.
+  matchedJourneyId: null,
+  matchedDriverId: null,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;

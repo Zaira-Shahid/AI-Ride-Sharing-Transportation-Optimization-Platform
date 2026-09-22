@@ -6,7 +6,7 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { estimateTripRequest } from './estimates.js';
 import { buildHealthResponse } from './health.js';
-import { matchTripRequest } from './matching.js';
+import { assignSearchingTripRequest, matchTripRequest } from './matching.js';
 import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
@@ -172,16 +172,23 @@ export const estimateTripRequestOnCreate = onDocumentCreated(
 );
 
 /**
- * Starts the search for a new trip request (Modules 5.2 and 5.3): moves it from REQUESTED to
- * SEARCHING, running candidate discovery first when it leaves now. Never throws: a request that
- * stays REQUESTED a little longer is normal (the trigger can be retried), and nothing about the
- * request's places is logged.
+ * Starts the search for a new trip request and, when it finds candidates, tries to match it
+ * straight away (Modules 5.2, 5.3 and 5.5): moves it from REQUESTED to SEARCHING, running candidate
+ * discovery first when it leaves now, then assignment if that discovery found anyone. Never throws:
+ * a request that stays SEARCHING (matched or not) is normal (the trigger can be retried), and
+ * nothing about the request's places is logged.
  */
 export const matchTripRequestOnCreate = onDocumentCreated(
-  { document: 'tripRequests/{tripId}', timeoutSeconds: 60 },
+  { document: 'tripRequests/{tripId}', timeoutSeconds: 120 },
   async (event) => {
     try {
-      await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
+      const outcome = await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
+      if (outcome === 'searching') {
+        await assignSearchingTripRequest(
+          { firestore: getFirestore(), provider: osrmFromEnvironment() },
+          event.params.tripId,
+        );
+      }
     } catch {
       logger.warn('The search for a trip request could not be started.', {
         tripId: event.params.tripId,
