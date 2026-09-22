@@ -6,7 +6,7 @@ import {
   reverseGeocode,
 } from '@ridemesh/firebase';
 import { useAuth, useCurrentTripRequest } from '@ridemesh/firebase/react';
-import { MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
+import { decodePolyline, MapView, useCurrentLocation, type LocationStatus } from '@ridemesh/map';
 import {
   checkChosenPlace,
   canPassengerCancel,
@@ -20,12 +20,13 @@ import {
   flexibilityPreferences,
   type ChosenPlaceProblem,
   type Flexibility,
+  type Route,
   type StoredDestination,
   type TripEstimate,
   type TripTimes,
 } from '@ridemesh/types';
 import { radius, spacing } from '@ridemesh/ui';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { AuthScreenProps } from '../app-info';
 import {
@@ -164,6 +165,9 @@ export function PassengerHomeScreen({
   // The estimated time and distance, asked for when the review opens (Module 4.5). The server asks
   // for the same route (the same rounded places) when the request is made, so it is one lookup.
   const [reviewEstimate, setReviewEstimate] = useState<EstimateView>({ state: 'loading' });
+  // The same lookup's line, for the map (Module 4.7). Kept apart from reviewEstimate: the card only
+  // needs the numbers, and a route becoming available is not a state the card has to know about.
+  const [reviewRoute, setReviewRoute] = useState<Route | null>(null);
   const [sending, setSending] = useState(false);
   const [sendProblem, setSendProblem] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
@@ -234,6 +238,7 @@ export function PassengerHomeScreen({
     if (!reviewing || !pickup || !destination) return undefined;
     let current = true;
     setReviewEstimate({ state: 'loading' });
+    setReviewRoute(null);
     void calculateRoute(client, [pickup, destination]).then((route) => {
       if (!current) return;
       setReviewEstimate(
@@ -247,11 +252,30 @@ export function PassengerHomeScreen({
             }
           : { state: 'unavailable' },
       );
+      setReviewRoute(route);
     });
     return () => {
       current = false;
     };
   }, [reviewing, pickup, destination, client]);
+
+  // The line for a request already made (Module 4.7): the numbers were already stored by the server
+  // when the request was created (Module 4.4), so only the line is asked for here - almost always
+  // answered straight from the cache that first lookup filled.
+  const [openTripRoute, setOpenTripRoute] = useState<Route | null>(null);
+  useEffect(() => {
+    if (!openTrip) {
+      setOpenTripRoute(null);
+      return undefined;
+    }
+    let current = true;
+    void calculateRoute(client, [openTrip.origin, openTrip.destination]).then((route) => {
+      if (current) setOpenTripRoute(route);
+    });
+    return () => {
+      current = false;
+    };
+  }, [openTrip, client]);
 
   // An arrival time that leaves less than the estimated trip is a warning, never a refusal: the
   // estimate has no live traffic and no detour for sharing.
@@ -317,6 +341,15 @@ export function PassengerHomeScreen({
         }
       : null;
 
+  // The route line to draw (Module 4.7): the open request's when there is one, else the review's
+  // while reviewing. Null (no line, just the two places) until a route has been found or reviewing
+  // has not asked for one yet.
+  const mapRoute = openTrip ? openTripRoute : reviewing ? reviewRoute : null;
+  const routePoints = useMemo(
+    () => (mapRoute ? decodePolyline(mapRoute.geometry) : null),
+    [mapRoute],
+  );
+
   return (
     <AuthThemeProvider theme={theme}>
       <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -325,6 +358,7 @@ export function PassengerHomeScreen({
             pickup={openTrip ? openTrip.origin : pickup}
             destination={openTrip ? openTrip.destination : destination}
             currentLocation={location.point}
+            route={routePoints}
             insets={{ top: topCover, bottom: bottomCover }}
           />
         </View>

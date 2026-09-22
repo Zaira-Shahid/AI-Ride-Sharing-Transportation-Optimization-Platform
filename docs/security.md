@@ -487,6 +487,11 @@ the same way.
   so. The function says "foot" in the URL, the tests' fake refuses a wrong word, and the defaults
   are the community server's separate foot and car servers, but the setting is the owner's to get
   right for any server of their own.
+- **Drawing the line (Module 4.7) changes nothing here.** `calculateRoute` has always returned the
+  route's line (`geometry`); the passenger map now decodes and draws it (review and the ride
+  requested card), but this is a client-side change only - no new call, no new data leaves the
+  device, and the line is not stored anywhere (it is asked for again, from the same cache, whenever
+  it is needed to draw).
 - **A stop that is not near a road is "no route".** OSRM puts a stop on the nearest road however far
   that is: a real check found two points in the middle of the Atlantic came back as an "Ok" route
   that started on a road 594 km away. A stop more than 1,000 m (`ROUTE_LIMITS.maxSnapMeters`) from the
