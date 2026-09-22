@@ -8,6 +8,7 @@ import {
   checkRouteCompatibility,
   findCandidateJourneys,
   isLeaveNowRequest,
+  rankCandidates,
   type CandidateSourceJourney,
 } from './matching';
 
@@ -179,5 +180,31 @@ describe('checkRouteCompatibility', () => {
       additionalDistanceMeters: 0,
       additionalDurationSeconds: 0,
     });
+  });
+});
+
+describe('rankCandidates', () => {
+  it('is null for an empty list', () => {
+    expect(rankCandidates([])).toBeNull();
+  });
+
+  it('picks the candidate with the least added distance', () => {
+    const near = { id: 'near', additionalDistanceMeters: 500, additionalDurationSeconds: 200 };
+    const far = { id: 'far', additionalDistanceMeters: 1_500, additionalDurationSeconds: 100 };
+    expect(rankCandidates([far, near])).toBe(near);
+  });
+
+  it('breaks a tie in added distance by the least added time', () => {
+    const slower = {
+      id: 'slower',
+      additionalDistanceMeters: 1_000,
+      additionalDurationSeconds: 300,
+    };
+    const faster = {
+      id: 'faster',
+      additionalDistanceMeters: 1_000,
+      additionalDurationSeconds: 150,
+    };
+    expect(rankCandidates([slower, faster])).toBe(faster);
   });
 });

@@ -349,3 +349,179 @@ export async function checkCandidateRoute(
     }),
   };
 }
+
+// Assignment (Module 5.5): the last stage of "basic matching" (spec Phase 5's acceptance line, "the
+// system can automatically match simple shared trips") - picking one AVAILABLE journey for a
+// SEARCHING, leave-now request that found candidates (Module 5.3), fully automatically (no driver
+// accept step; every AVAILABLE journey counts as opted in - a driver preference to opt out is a
+// later module, once there is a reason to add one). It is wired into the same trigger as starting
+// the search (matchTripRequestOnCreate, index.ts): once a request has candidates, assignment runs
+// right after. Only one passenger per journey for now ("simple" trips): a journey stops being a
+// candidate the moment it is MATCHING (Module 5.2 only ever looks at AVAILABLE ones), so stacking
+// several passengers onto one shared route is full optimization, Phase 6.
+
+/** How many of Stage 1's closest candidates get a route check (Stage 2) before assigning. */
+export const ASSIGN_CANDIDATES_CHECKED = 5;
+
+/**
+ * The candidate that adds the least distance to its driver's route, ties broken by the least added
+ * time; null when there are none. The "cost" a candidate adds to the system is what decides, not
+ * anything about the passenger (spec section 35: pricing must not drive matching, and neither does
+ * anything else about who is asking).
+ */
+export function rankCandidates<
+  T extends { additionalDistanceMeters: number; additionalDurationSeconds: number },
+>(candidates: readonly T[]): T | null {
+  if (candidates.length === 0) return null;
+  return [...candidates].sort(
+    (a, b) =>
+      a.additionalDistanceMeters - b.additionalDistanceMeters ||
+      a.additionalDurationSeconds - b.additionalDurationSeconds,
+  )[0]!;
+}
+
+export type AssignOutcome = 'skipped' | 'matched' | 'unmatched';
+
+/**
+ * Tries to assign one AVAILABLE journey to trip request `tripId`, if it still needs one: only a
+ * SEARCHING request with candidates (candidateCount > 0, Module 5.3) and no assignment yet does.
+ * Re-runs candidate discovery fresh (Module 5.2 - the pool may have moved on since the request
+ * started searching), checks route compatibility (Module 5.4) for its closest ASSIGN_CANDIDATES_
+ * CHECKED, and assigns whichever passes and adds the least distance (rankCandidates). 'unmatched'
+ * when nobody passes: the request stays SEARCHING, unchanged, for a later module to retry (there is
+ * no automatic re-check yet). A candidate that stops being AVAILABLE between being checked and being
+ * assigned (taken by another request, or its driver going offline) is caught by the assigning
+ * transaction; this attempt then also reports 'unmatched' rather than trying the next candidate -
+ * accepted as a known gap while matching is still simple.
+ */
+export async function assignSearchingTripRequest(
+  deps: {
+    firestore: Firestore;
+    provider: RoutingProvider;
+    limits?: LookupLimits;
+    now?: () => number;
+    /** Always tripRequests in production; tests use another collection so the trigger does not race them. */
+    collection?: string;
+  },
+  tripId: string,
+): Promise<AssignOutcome> {
+  const { firestore } = deps;
+  const tripRef = firestore.collection(deps.collection ?? 'tripRequests').doc(tripId);
+
+  const trip = await tripRef.get();
+  if (!trip.exists || trip.get('status') !== 'SEARCHING' || trip.get('matchedJourneyId') != null) {
+    return 'skipped';
+  }
+  const candidateCount = trip.get('candidateCount');
+  if (typeof candidateCount !== 'number' || candidateCount < 1) return 'skipped';
+
+  const origin = pointOf(trip.get('origin'));
+  const destination = pointOf(trip.get('destination'));
+  const passengerId: unknown = trip.get('passengerId');
+  const preferences = trip.get('passengerPreferences') as
+    { maxExtraTime?: unknown; maxDetourDistance?: unknown } | undefined;
+  if (
+    !origin ||
+    !destination ||
+    typeof passengerId !== 'string' ||
+    !passengerId ||
+    typeof preferences?.maxExtraTime !== 'number' ||
+    typeof preferences?.maxDetourDistance !== 'number'
+  ) {
+    return 'skipped';
+  }
+  const passengerMaxExtraMinutes = preferences.maxExtraTime;
+  const passengerMaxDetourDistanceKm = preferences.maxDetourDistance;
+
+  const candidates = (await findCandidateJourneysNow({ firestore }, { origin, destination })).slice(
+    0,
+    ASSIGN_CANDIDATES_CHECKED,
+  );
+
+  const compatible: Array<
+    CandidateJourney &
+      Pick<RouteCompatibilityResult, 'additionalDistanceMeters' | 'additionalDurationSeconds'>
+  > = [];
+  for (const candidate of candidates) {
+    const journeySnapshot = await firestore
+      .collection('driverJourneys')
+      .doc(candidate.journeyId)
+      .get();
+    const driverOrigin = pointOf(journeySnapshot.get('origin'));
+    const driverDestination = pointOf(journeySnapshot.get('destination'));
+    const driverMaxDetourMinutes = journeySnapshot.get('maxDetourMinutes');
+    const driverMaxDetourDistanceKm = journeySnapshot.get('maxDetourDistance');
+    if (
+      !driverOrigin ||
+      !driverDestination ||
+      typeof driverMaxDetourMinutes !== 'number' ||
+      typeof driverMaxDetourDistanceKm !== 'number'
+    ) {
+      continue;
+    }
+
+    // One after the other, never in parallel across candidates either: see checkCandidateRoute.
+    const result = await checkCandidateRoute(
+      {
+        firestore,
+        provider: deps.provider,
+        ...(deps.limits ? { limits: deps.limits } : {}),
+        ...(deps.now ? { now: deps.now } : {}),
+      },
+      {
+        driverId: candidate.driverId,
+        passengerId,
+        driverOrigin,
+        driverDestination,
+        passengerPickup: origin,
+        passengerDestination: destination,
+        driverMaxDetourMinutes,
+        driverMaxDetourDistanceKm,
+        passengerMaxExtraMinutes,
+        passengerMaxDetourDistanceKm,
+      },
+    );
+    if (result.status === 'checked' && result.compatible) {
+      compatible.push({
+        ...candidate,
+        additionalDistanceMeters: result.additionalDistanceMeters,
+        additionalDurationSeconds: result.additionalDurationSeconds,
+      });
+    }
+  }
+
+  const winner = rankCandidates(compatible);
+  if (!winner) return 'unmatched';
+
+  const journeyRef = firestore.collection('driverJourneys').doc(winner.journeyId);
+  return firestore.runTransaction(async (tx): Promise<AssignOutcome> => {
+    const [currentTrip, currentJourney] = await Promise.all([tx.get(tripRef), tx.get(journeyRef)]);
+    if (
+      !currentTrip.exists ||
+      currentTrip.get('status') !== 'SEARCHING' ||
+      currentTrip.get('matchedJourneyId') != null
+    ) {
+      return 'skipped';
+    }
+    if (
+      !currentJourney.exists ||
+      currentJourney.get('status') !== 'AVAILABLE' ||
+      currentJourney.get('driverId') !== winner.driverId
+    ) {
+      return 'unmatched';
+    }
+
+    tx.update(tripRef, {
+      status: 'MATCHED',
+      matchedJourneyId: winner.journeyId,
+      matchedDriverId: winner.driverId,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(journeyRef, {
+      status: 'MATCHING',
+      matchedTripRequestId: tripId,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return 'matched';
+  });
+}

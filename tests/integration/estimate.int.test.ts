@@ -455,13 +455,22 @@ describe('the trigger: a new trip request gets its estimate (functions + firesto
     // finishes first (it never waits on a routing server), so this leave-now request is normally
     // already SEARCHING by now.
     expect(['REQUESTED', 'SEARCHING']).toContain(trip.status);
-    // One lookup, for the rounded places, asked as the routing server's contact says.
-    expect(fake.requests).toHaveLength(1);
-    expect(fake.requests[0]?.stops).toEqual(rounded);
-    expect(fake.requests[0]?.headers['user-agent']).toBe('RideMesh-tests');
+    // One lookup, for the rounded places, asked as the routing server's contact says. Other leave-now
+    // requests elsewhere in the suite may leave an AVAILABLE journey that happens to be a candidate
+    // for this one too (Modules 5.2-5.5 start searching automatically), asking for other routes of
+    // their own - so only the exact A -> B lookup is counted, not every request the fake server saw.
+    const forThisTrip = fake.requests.filter(
+      (req) => JSON.stringify(req.stops) === JSON.stringify(rounded),
+    );
+    expect(forThisTrip).toHaveLength(1);
+    expect(forThisTrip[0]?.headers['user-agent']).toBe('RideMesh-tests');
   });
 
   it('asks the routing server once for the same places, whoever asks', async () => {
+    const rounded = [
+      { latitude: 51.4494, longitude: -2.5814 },
+      { latitude: 51.5049, longitude: -0.0195 },
+    ];
     const first = await passenger('est-cache-1');
     const second = await passenger('est-cache-2');
 
@@ -471,7 +480,11 @@ describe('the trigger: a new trip request gets its estimate (functions + firesto
     const trip = await waitFor(estimateOf(two));
 
     expect(trip.estimatedDistance).toBeGreaterThan(0);
-    expect(fake.requests).toHaveLength(1);
+    // Only the exact A -> B lookup is counted; see the note above the previous test.
+    const forThisTrip = fake.requests.filter(
+      (req) => JSON.stringify(req.stops) === JSON.stringify(rounded),
+    );
+    expect(forThisTrip).toHaveLength(1);
   });
 
   it('never fails or delays creating the request when the routing server is down', async () => {
