@@ -85,7 +85,6 @@ describe('createTripRequest (functions + firestore emulators)', () => {
       origin: HOME,
       destination: OFFICE,
       arrivalDeadline: null,
-      status: 'REQUESTED',
       passengerPreferences: BALANCED,
       estimatedFare: null,
       // The distance and time are filled in a moment after creation by the estimate trigger (Modules
@@ -95,6 +94,9 @@ describe('createTripRequest (functions + firestore emulators)', () => {
       estimatedDuration: null,
       assignedPlanId: null,
     });
+    // status and candidateCount are also moved on by a trigger a moment after creation (Modules 5.2
+    // and 5.3, tests/integration/matching.int.test.ts), so they are not asserted here - this
+    // (leave-now) request could already be REQUESTED or SEARCHING by the time this line runs.
     const stored = await tripDoc(tripId);
     expect(stored?.requestedAt).toBeDefined();
     expect(stored?.createdAt).toBeDefined();
@@ -225,7 +227,7 @@ describe('createTripRequest (functions + firestore emulators)', () => {
 });
 
 describe('cancelTripRequest (functions + firestore emulators)', () => {
-  it('cancels a REQUESTED request, clears the pointer and audits it', async () => {
+  it('cancels a REQUESTED or SEARCHING request, clears the pointer and audits it', async () => {
     const passenger = await person('PASSENGER', 'cancel-ok');
     const tripId = await passenger.create();
 
@@ -238,11 +240,13 @@ describe('cancelTripRequest (functions + firestore emulators)', () => {
       'TRIP_REQUEST_CANCELLED',
       'TRIP_REQUEST_CREATED',
     ]);
-    expect(entries.find((entry) => entry.action === 'TRIP_REQUEST_CANCELLED')).toMatchObject({
-      actor: passenger.uid,
-      previousState: { status: 'REQUESTED' },
-      newState: { status: 'CANCELLED' },
-    });
+    const cancelEntry = entries.find((entry) => entry.action === 'TRIP_REQUEST_CANCELLED');
+    expect(cancelEntry).toMatchObject({ actor: passenger.uid, newState: { status: 'CANCELLED' } });
+    // The search-starting trigger (Modules 5.2 and 5.3) may already have moved this (leave-now)
+    // request on to SEARCHING by the time it is cancelled here.
+    expect(['REQUESTED', 'SEARCHING']).toContain(
+      (cancelEntry?.previousState as { status?: string } | undefined)?.status,
+    );
   });
 
   it('is harmless to repeat', async () => {
@@ -318,7 +322,9 @@ describe('cancelTripRequest (functions + firestore emulators)', () => {
 
     expect(await refusal(other.cancel(tripId))).toBe('NOT_FOUND');
     expect(await refusal(other.cancel('does-not-exist'))).toBe('NOT_FOUND');
-    expect((await tripDoc(tripId))?.status).toBe('REQUESTED');
+    // Untouched by the failed cancels; the search-starting trigger (Modules 5.2 and 5.3) may have
+    // moved it on to SEARCHING by now regardless.
+    expect(['REQUESTED', 'SEARCHING']).toContain((await tripDoc(tripId))?.status);
   });
 
   it('refuses malformed input and callers who are not verified passengers', async () => {

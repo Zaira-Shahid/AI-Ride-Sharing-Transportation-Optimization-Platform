@@ -1,17 +1,18 @@
-import type { Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { distanceMeters } from './tripRequests.js';
 
-// Candidate discovery (Module 5.2): a cheap, first-pass filter over AVAILABLE driver journeys
-// (Module 5.1) for a trip request, before any route is calculated - Stage 1 of the spec's matching
-// pipeline (section 15). It only looks at proximity, seats and a coarse direction check; route
-// overlap, detour and walking distance (the spec's Stage 2) need calculateRoute (Module 4.3) and are
-// left for a later module, as is anything that runs this automatically or acts on its result (a
-// request stays exactly as it is today; nothing here writes to it yet).
+// Candidate discovery (Module 5.2) and starting the search (Module 5.3). Candidate discovery is a
+// cheap, first-pass filter over AVAILABLE driver journeys (Module 5.1) for a trip request, before
+// any route is calculated - Stage 1 of the spec's matching pipeline (section 15). It only looks at
+// proximity, seats and a coarse direction check; route overlap, detour and walking distance (the
+// spec's Stage 2) need calculateRoute (Module 4.3) and are left for a later module, as is anything
+// that assigns a match.
 //
-// A driver has no schedule of their own (only ONLINE/OFFLINE), so this only makes sense for a
-// request leaving NOW: matching a future-dated request against a driver who merely happens to be
-// online right now is a later module's decision (driver scheduling, or a closer-to-departure
-// re-check).
+// A driver has no schedule of their own (only ONLINE/OFFLINE), so discovery only makes sense for a
+// request leaving NOW. A Firestore trigger (matchTripRequestOnCreate, index.ts) moves every new
+// request from REQUESTED to SEARCHING: for a leave-now one, only after running discovery; a
+// future-dated one is moved straight to SEARCHING with no discovery run, and waits there until a
+// later module adds driver scheduling or a closer-to-departure re-check.
 
 /** How close a journey's origin must be to the pickup to be a candidate, in metres. */
 export const CANDIDATE_PROXIMITY_METERS = 5_000;
@@ -156,4 +157,60 @@ export function isLeaveNowRequest(trip: {
     trip.requestedDepartureTime != null &&
     trip.requestedAt.toMillis() === trip.requestedDepartureTime.toMillis()
   );
+}
+
+export type MatchOutcome = 'skipped' | 'queued' | 'searching';
+
+/**
+ * Starts the search for trip request `tripId`, if it still needs one: only a REQUESTED request does
+ * (safe to run more than once - a trigger can be delivered twice, and a request already SEARCHING or
+ * past it, or gone, or cancelled in the meantime, is left alone). A leave-now request runs candidate
+ * discovery first and stores how many it found (candidateCount: 0 or more - a snapshot for a person
+ * to read, not a list to assign from; whoever assigns a match asks again, against the pool as it is
+ * then, since a driver can go offline in the meantime); a future-dated one skips discovery and goes
+ * straight to SEARCHING with no count, see the note at the top of this file.
+ */
+export async function matchTripRequest(
+  deps: {
+    firestore: Firestore;
+    /** Always tripRequests in production; tests use another collection so the trigger does not race them. */
+    collection?: string;
+  },
+  tripId: string,
+): Promise<MatchOutcome> {
+  const { firestore } = deps;
+  const tripRef = firestore.collection(deps.collection ?? 'tripRequests').doc(tripId);
+
+  const trip = await tripRef.get();
+  if (!trip.exists || trip.get('status') !== 'REQUESTED') return 'skipped';
+  // A real request always has this (createTripRequest sets it); a document without one was never
+  // made through the real function (a fixture written directly for another test, say) and is left
+  // alone.
+  if (trip.get('requestedAt') == null) return 'skipped';
+
+  const leaveNow = isLeaveNowRequest({
+    requestedAt: trip.get('requestedAt'),
+    requestedDepartureTime: trip.get('requestedDepartureTime'),
+  });
+
+  let candidateCount: number | null = null;
+  if (leaveNow) {
+    const origin = pointOf(trip.get('origin'));
+    const destination = pointOf(trip.get('destination'));
+    if (origin && destination) {
+      candidateCount = (await findCandidateJourneysNow({ firestore }, { origin, destination }))
+        .length;
+    }
+  }
+
+  return firestore.runTransaction(async (tx): Promise<MatchOutcome> => {
+    const current = await tx.get(tripRef);
+    if (!current.exists || current.get('status') !== 'REQUESTED') return 'skipped';
+    tx.update(tripRef, {
+      status: 'SEARCHING',
+      ...(candidateCount === null ? {} : { candidateCount }),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return leaveNow ? 'searching' : 'queued';
+  });
 }
