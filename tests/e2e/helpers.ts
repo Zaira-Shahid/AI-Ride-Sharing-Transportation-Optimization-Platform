@@ -293,7 +293,21 @@ export async function readDriverAvailability(uid: string) {
   return fields.availabilityStatus?.stringValue;
 }
 
-const functionsUrl = `http://127.0.0.1:${TEST_PORTS.functions}/${projectId}/europe-west1`;
+export const functionsUrl = `http://127.0.0.1:${TEST_PORTS.functions}/${projectId}/europe-west1`;
+
+/** Signs in with the emulator's real auth REST API, the way the apps do, and returns the ID token. */
+export async function signInIdToken(email: string, password: string = PASSWORD): Promise<string> {
+  const response = await fetch(
+    `${authEmulator}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+    },
+  );
+  const { idToken } = (await response.json()) as { idToken: string };
+  return idToken;
+}
 
 /**
  * Makes a staff decision the way the admin dashboard will: a real ADMIN account calls the real
@@ -307,15 +321,7 @@ export async function reviewAsAdmin(
 ) {
   const email = uniqueEmail('e2e-admin');
   await createAccount(email, 'ADMIN', true);
-  const signIn = await fetch(
-    `${authEmulator}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password: PASSWORD, returnSecureToken: true }),
-    },
-  );
-  const { idToken } = (await signIn.json()) as { idToken: string };
+  const idToken = await signInIdToken(email);
   const response = await fetch(
     `${functionsUrl}/review${target === 'driver' ? 'Driver' : 'Vehicle'}`,
     {
