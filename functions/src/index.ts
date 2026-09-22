@@ -6,6 +6,7 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { estimateTripRequest } from './estimates.js';
 import { buildHealthResponse } from './health.js';
+import { matchTripRequest } from './matching.js';
 import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
@@ -164,6 +165,25 @@ export const estimateTripRequestOnCreate = onDocumentCreated(
       );
     } catch {
       logger.warn('The estimate for a trip request could not be made.', {
+        tripId: event.params.tripId,
+      });
+    }
+  },
+);
+
+/**
+ * Starts the search for a new trip request (Modules 5.2 and 5.3): moves it from REQUESTED to
+ * SEARCHING, running candidate discovery first when it leaves now. Never throws: a request that
+ * stays REQUESTED a little longer is normal (the trigger can be retried), and nothing about the
+ * request's places is logged.
+ */
+export const matchTripRequestOnCreate = onDocumentCreated(
+  { document: 'tripRequests/{tripId}', timeoutSeconds: 60 },
+  async (event) => {
+    try {
+      await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
+    } catch {
+      logger.warn('The search for a trip request could not be started.', {
         tripId: event.params.tripId,
       });
     }
