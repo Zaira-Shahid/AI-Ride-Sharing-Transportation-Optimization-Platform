@@ -52,6 +52,11 @@ export const NEW_JOURNEY_DEFAULTS = {
   currentRoute: null,
 } as const;
 
+// A journey's DRAFT parts (destination, seats, detour, start) stay editable once the driver goes
+// online and the journey becomes an AVAILABLE match candidate (Module 5.1) - going online does not
+// freeze them. MATCHING/ACTIVE (once matching exists) are not editable this way.
+const EDITABLE_JOURNEY_STATUSES = new Set(['DRAFT', 'AVAILABLE']);
+
 export type DeclareDestinationResult = { status: 'created' | 'updated' | 'unchanged' };
 export type SetJourneySeatsResult = { status: 'updated' | 'unchanged' };
 export type SetJourneyDetourResult = { status: 'updated' | 'unchanged' };
@@ -78,8 +83,9 @@ function sameDestination(stored: unknown, next: StoredDestination): boolean {
 /**
  * Sets where the calling driver is heading. A driver has at most one open journey, found through
  * drivers/{uid}.currentJourneyId: the first declaration creates it as a DRAFT and later ones
- * replace its destination while it is still a DRAFT. Seats on offer (setJourneySeats) and detour
- * limits (setJourneyDetour) are added to the same journey.
+ * replace its destination while it is still DRAFT or AVAILABLE (the driver is online, Module 5.1).
+ * Seats on offer (setJourneySeats) and detour limits (setJourneyDetour) are added to the same
+ * journey.
  *
  * The coordinates and address come from the app's place search and are checked only for shape and
  * range; they are the driver's own claim. The address is not written to the audit log, because a
@@ -128,7 +134,10 @@ export async function declareDestination(
     const current = currentRef ? await tx.get(currentRef) : undefined;
 
     if (currentRef && current?.exists) {
-      if (current.get('driverId') !== caller.uid || current.get('status') !== 'DRAFT') {
+      if (
+        current.get('driverId') !== caller.uid ||
+        !EDITABLE_JOURNEY_STATUSES.has(current.get('status'))
+      ) {
         throw new HttpsError(
           'failed-precondition',
           'The destination cannot be changed for this journey.',
@@ -169,8 +178,9 @@ export async function declareDestination(
 /**
  * Sets how many passenger seats the calling driver offers on their open journey: at least one and
  * never more than the vehicle's seatCapacity, which is why this is a function and not a rule.
- * Like the destination, it can only be changed while the journey is a DRAFT. It needs a journey
- * (so a destination) and a vehicle with its capacity set. Routine changes are not audited.
+ * Like the destination, it can only be changed while the journey is DRAFT or AVAILABLE (online,
+ * Module 5.1). It needs a journey (so a destination) and a vehicle with its capacity set. Routine
+ * changes are not audited.
  */
 export async function setJourneySeats(
   deps: { firestore: Firestore },
@@ -209,7 +219,7 @@ export async function setJourneySeats(
     if (!journeyRef || !journey?.exists || journey.get('driverId') !== caller.uid) {
       throw new HttpsError('failed-precondition', 'Set your destination before you offer seats.');
     }
-    if (journey.get('status') !== 'DRAFT') {
+    if (!EDITABLE_JOURNEY_STATUSES.has(journey.get('status'))) {
       throw new HttpsError('failed-precondition', 'The seats cannot be changed for this journey.');
     }
 
@@ -233,8 +243,9 @@ export async function setJourneySeats(
 /**
  * Sets how far the calling driver will go out of their way on their open journey: extra minutes
  * (1 to 60) and extra kilometres (1 to 30), both whole numbers and always set together. Like the
- * destination and the seats, they can only be changed while the journey is a DRAFT, and they need
- * a journey (so a destination first). Routine changes are not audited.
+ * destination and the seats, they can only be changed while the journey is DRAFT or AVAILABLE
+ * (online, Module 5.1), and they need a journey (so a destination first). Routine changes are not
+ * audited.
  */
 export async function setJourneyDetour(
   deps: { firestore: Firestore },
@@ -268,7 +279,7 @@ export async function setJourneyDetour(
     if (!journeyRef || !journey?.exists || journey.get('driverId') !== caller.uid) {
       throw new HttpsError('failed-precondition', 'Set your destination before you set a detour.');
     }
-    if (journey.get('status') !== 'DRAFT') {
+    if (!EDITABLE_JOURNEY_STATUSES.has(journey.get('status'))) {
       throw new HttpsError('failed-precondition', 'The detour cannot be changed for this journey.');
     }
 
@@ -291,9 +302,10 @@ export async function setJourneyDetour(
  * Saves where the calling driver's journey starts: the position of their device, read once by the
  * app when the driver asks for it. Its address is the one the app found for the position (reverse
  * geocoding, Module 4.2: the app's claim, like a destination's) or, when there is none, "Current
- * location"; it has its coordinates and no place ID, the same shape as a destination. Like the other parts of a journey it can only be changed while
- * the journey is a DRAFT and needs a journey (so a destination first). It is the driver's own claim,
- * checked only for shape and range. The position is not written to the audit log.
+ * location"; it has its coordinates and no place ID, the same shape as a destination. Like the
+ * other parts of a journey it can only be changed while the journey is DRAFT or AVAILABLE (online,
+ * Module 5.1) and needs a journey (so a destination first). It is the driver's own claim, checked
+ * only for shape and range. The position is not written to the audit log.
  */
 export async function setJourneyOrigin(
   deps: { firestore: Firestore },
@@ -333,7 +345,7 @@ export async function setJourneyOrigin(
     if (!journeyRef || !journey?.exists || journey.get('driverId') !== caller.uid) {
       throw new HttpsError('failed-precondition', 'Set your destination before you set a start.');
     }
-    if (journey.get('status') !== 'DRAFT') {
+    if (!EDITABLE_JOURNEY_STATUSES.has(journey.get('status'))) {
       throw new HttpsError('failed-precondition', 'The start cannot be changed for this journey.');
     }
 

@@ -115,20 +115,13 @@ export async function setAvailability(
       tx.get(driverRef),
       tx.get(vehicleRef),
     ]);
-    const journeyId: unknown = driver.get('currentJourneyId');
-    const journey =
-      typeof journeyId === 'string' && journeyId
-        ? await tx.get(firestore.collection('driverJourneys').doc(journeyId))
-        : undefined;
+    const ownJourney = await readOwnJourney(tx, firestore, caller.uid, driver);
     if (!user.exists || !driver.exists) {
       throw new HttpsError('failed-precondition', 'This account cannot change availability.');
     }
     if (driver.get('availabilityStatus') === status) return { status: 'unchanged' };
 
     if (status === 'ONLINE') {
-      // Only the driver's own journey counts, never one the pointer happens to lead to.
-      const ownJourney =
-        journey?.exists === true && journey.get('driverId') === caller.uid ? journey : undefined;
       const { eligible, unmet } = evaluateGoOnline({
         accountActive: user.get('status') === 'ACTIVE',
         driverStatus: driver.get('verificationStatus'),
@@ -143,19 +136,26 @@ export async function setAvailability(
       if (!eligible) {
         throw new HttpsError('failed-precondition', 'You cannot go online yet.', { unmet });
       }
+      // The journey becomes a candidate for matching (Module 5.1) the moment it is DRAFT and its
+      // driver is online; going online with a journey already MATCHING or ACTIVE (matched earlier,
+      // taken offline and back online) leaves it as it is.
+      if (ownJourney?.get('status') === 'DRAFT') {
+        tx.update(ownJourney.ref, { status: 'AVAILABLE', updatedAt: FieldValue.serverTimestamp() });
+      }
     }
 
-    // Going offline ends the sharing of the driver's position: the last one is removed, so it does
-    // not sit on the journey as if it were current. (When the system takes a driver offline, see
-    // offlineFields, the last position stays until the driver next goes online; only the driver
-    // and verified staff can read it, and docs/security.md lists this.)
-    if (
-      status === 'OFFLINE' &&
-      journey?.exists === true &&
-      journey.get('driverId') === caller.uid
-    ) {
-      if (journey.get('currentLocation') != null) {
-        tx.update(journey.ref, { currentLocation: null, updatedAt: FieldValue.serverTimestamp() });
+    if (status === 'OFFLINE' && ownJourney) {
+      // Going offline ends the sharing of the driver's position: the last one is removed, so it does
+      // not sit on the journey as if it were current. (When the system takes a driver offline, see
+      // offlineFields, the last position stays until the driver next goes online; only the driver
+      // and verified staff can read it, and docs/security.md lists this.)
+      const journeyUpdate: Record<string, unknown> = {};
+      if (ownJourney.get('currentLocation') != null) journeyUpdate.currentLocation = null;
+      // Only a journey nobody has been matched to yet stops being a candidate; one already MATCHING
+      // or ACTIVE keeps its status here (Module 5.6 decides what going offline mid-match should do).
+      Object.assign(journeyUpdate, journeyOfflineFields(ownJourney));
+      if (Object.keys(journeyUpdate).length > 0) {
+        tx.update(ownJourney.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
       }
     }
 
@@ -166,6 +166,37 @@ export async function setAvailability(
     });
     return { status: 'updated' };
   });
+}
+
+/**
+ * Reads the driver's own open journey inside a transaction, from their own snapshot's
+ * `currentJourneyId` - never one the pointer happens to lead to that belongs to someone else. Read
+ * this before any write in the transaction (Firestore requires every read to happen first).
+ */
+export async function readOwnJourney(
+  tx: Transaction,
+  firestore: Firestore,
+  driverId: string,
+  driverSnapshot: DocumentSnapshot,
+): Promise<DocumentSnapshot | undefined> {
+  const journeyId: unknown = driverSnapshot.get('currentJourneyId');
+  if (typeof journeyId !== 'string' || !journeyId) return undefined;
+  const journey = await tx.get(firestore.collection('driverJourneys').doc(journeyId));
+  return journey.exists && journey.get('driverId') === driverId ? journey : undefined;
+}
+
+/**
+ * The field that takes a driver's journey off the matching pool when they are forced offline
+ * (Module 5.1): AVAILABLE only, back to DRAFT. A journey already MATCHING or ACTIVE is left alone
+ * here - what going offline mid-match should do is Module 5.6's decision, once matching exists.
+ * Undefined when there is nothing to change. Use alongside offlineFields, with the driver's own
+ * journey from readOwnJourney.
+ */
+export function journeyOfflineFields(
+  journey: DocumentSnapshot | undefined,
+): { status: 'DRAFT' } | undefined {
+  if (!journey || journey.get('status') !== 'AVAILABLE') return undefined;
+  return { status: 'DRAFT' };
 }
 
 /**

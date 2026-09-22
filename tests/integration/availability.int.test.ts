@@ -49,6 +49,10 @@ const driverRef = (uid: string) => admin().firestore.doc(`drivers/${uid}`);
 const vehicleRef = (uid: string) => admin().firestore.doc(`vehicles/${uid}`);
 const driverDoc = async (uid: string) => (await driverRef(uid).get()).data();
 const vehicleDoc = async (uid: string) => (await vehicleRef(uid).get()).data();
+const journeyDoc = async (uid: string) => {
+  const journeyId = (await driverDoc(uid))?.currentJourneyId as string;
+  return (await admin().firestore.doc(`driverJourneys/${journeyId}`).get()).data();
+};
 const offlineAudit = async (uid: string) =>
   (
     await admin()
@@ -447,5 +451,76 @@ describe('losing the right to be online takes the driver offline', () => {
 
     await call(reviewer.client, 'reviewVehicle', { driverId: driver.uid, decision: 'VERIFIED' });
     expect(await setAvailability(driver.client, 'ONLINE')).toBe('updated');
+  });
+});
+
+describe('the journey becomes a match candidate while its driver is online (Module 5.1)', () => {
+  async function onlineDriver(prefix: string) {
+    const driver = await eligibleDriver(prefix);
+    await setAvailability(driver.client, 'ONLINE');
+    return driver;
+  }
+
+  it('goes DRAFT -> AVAILABLE on going online, and back on going offline', async () => {
+    const driver = await eligibleDriver('avl-status-toggle');
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+
+    await setAvailability(driver.client, 'ONLINE');
+    expect((await journeyDoc(driver.uid))?.status).toBe('AVAILABLE');
+
+    await setAvailability(driver.client, 'OFFLINE');
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+  });
+
+  it.each([
+    ['driver', 'reviewDriver'],
+    ['vehicle', 'reviewVehicle'],
+  ] as const)('goes back to DRAFT when staff reject the %s', async (what, reviewFunction) => {
+    const reviewer = await staff(`avl-status-reject-${what}`);
+    const driver = await onlineDriver(`avl-status-reject-${what}-d`);
+
+    await call(reviewer.client, reviewFunction, {
+      driverId: driver.uid,
+      decision: 'REJECTED',
+      reason: 'Not good enough.',
+    });
+
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+  });
+
+  it('goes back to DRAFT when the driver changes the vehicle details', async () => {
+    const driver = await onlineDriver('avl-status-edit');
+    await saveVehicle(driver.client, {
+      type: 'CAR',
+      make: 'Toyota',
+      model: 'Yaris',
+      plateNumber: uniquePlate(),
+    });
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+  });
+
+  it('goes back to DRAFT when the driver raises the seats, but stays AVAILABLE when lowered', async () => {
+    const raised = await onlineDriver('avl-status-raise');
+    await setVehicleCapacity(raised.client, 5);
+    expect((await journeyDoc(raised.uid))?.status).toBe('DRAFT');
+
+    const lowered = await onlineDriver('avl-status-lower');
+    await setVehicleCapacity(lowered.client, 2);
+    expect((await journeyDoc(lowered.uid))?.status).toBe('AVAILABLE');
+  });
+
+  it('goes online again -> AVAILABLE again, once the driver is eligible again', async () => {
+    const reviewer = await staff('avl-status-back');
+    const driver = await onlineDriver('avl-status-back-d');
+    await call(reviewer.client, 'reviewVehicle', {
+      driverId: driver.uid,
+      decision: 'REJECTED',
+      reason: 'Photo unclear.',
+    });
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+
+    await call(reviewer.client, 'reviewVehicle', { driverId: driver.uid, decision: 'VERIFIED' });
+    await setAvailability(driver.client, 'ONLINE');
+    expect((await journeyDoc(driver.uid))?.status).toBe('AVAILABLE');
   });
 });
