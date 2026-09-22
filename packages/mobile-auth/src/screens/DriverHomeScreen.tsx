@@ -12,7 +12,12 @@ import {
   useProfile,
   useVehicle,
 } from '@ridemesh/firebase/react';
-import { evaluateGoOnline, type GoOnlineCheck, type GoOnlineRequirement } from '@ridemesh/types';
+import {
+  evaluateGoOnline,
+  isEditableJourneyStatus,
+  type GoOnlineCheck,
+  type GoOnlineRequirement,
+} from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -144,8 +149,9 @@ export function DriverHomeScreen({
   const availableSeats = journey.status === 'ready' ? journey.journey.availableSeats : null;
   const maxDetourMinutes = journey.status === 'ready' ? journey.journey.maxDetourMinutes : null;
   const maxDetourDistance = journey.status === 'ready' ? journey.journey.maxDetourDistance : null;
-  // Seats and detour can only be changed while the journey is a draft.
-  const editable = journey.status !== 'ready' || journey.journey.status === 'DRAFT';
+  // Seats and detour stay changeable once the driver goes online (Module 5.1); only once the
+  // journey is matched to a request (Module 5.5 onwards) do they stop being.
+  const editable = journey.status !== 'ready' || isEditableJourneyStatus(journey.journey.status);
 
   const facts: Facts = {
     accountActive: profile.status === 'ready' && profile.profile.status === 'ACTIVE',

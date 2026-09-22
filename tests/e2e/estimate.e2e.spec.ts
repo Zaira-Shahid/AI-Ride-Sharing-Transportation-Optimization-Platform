@@ -184,8 +184,10 @@ test.describe('passenger app: the estimated trip', () => {
     const fields = trip?.fields as unknown as Record<string, { nullValue?: null }>;
     expect(fields.estimatedDistance).toEqual({ nullValue: null });
     expect(fields.estimatedDuration).toEqual({ nullValue: null });
+    // The search-starting trigger (Modules 5.2 and 5.3) may already have moved this on to
+    // SEARCHING by now (no driver is anywhere near this pickup, so it is never matched).
     await expect(
-      requestedCard(page).getByRole('heading', { name: 'Ride requested' }),
+      requestedCard(page).getByRole('heading', { name: /^(Ride requested|Finding your ride)$/ }),
     ).toBeVisible();
   });
 });

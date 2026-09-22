@@ -132,7 +132,8 @@ test.describe('phase 2: a driver creates a valid journey', () => {
     const journey = await readDriverJourney(uid);
     expect(journey).toMatchObject({
       driverId: uid,
-      status: 'DRAFT',
+      // The journey becomes a match candidate the moment its driver goes online (Module 5.1).
+      status: 'AVAILABLE',
       address: office.address,
       latitude: office.latitude,
       longitude: office.longitude,

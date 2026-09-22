@@ -3,6 +3,8 @@ import { PLACES, mockPlaces } from './helpers';
 import { newPassenger, watchMap } from './map-helpers';
 import {
   cancelRequest,
+  choosePickup,
+  chooseDestination,
   confirm,
   destinationCard,
   readyToRequest,
@@ -12,7 +14,21 @@ import {
   tripsOf,
 } from './trip-helpers';
 
-const { office, station } = PLACES;
+const { farNorthStart, farNorthEnd } = PLACES;
+
+/**
+ * A passenger with both places chosen, ready to request a ride - like readyToRequest, but at a
+ * corner of the world no other e2e spec's driver is ever near (Modules 5.2-5.5), for a test that
+ * needs its request to stay exactly in the status it is put in and never be matched for real.
+ */
+async function readyToRequestUnmatchable(page: Page, prefix: string) {
+  await mockPlaces(page);
+  const watch = await watchMap(page);
+  const { uid } = await newPassenger(page, prefix);
+  await chooseDestination(page, 'thistle', farNorthEnd.text);
+  await choosePickup(page, 'kelpie', farNorthStart.text);
+  return { uid, watch };
+}
 
 const heading = (page: Page, name: string) =>
   requestedCard(page).getByRole('heading', { name, exact: true });
@@ -38,7 +54,9 @@ test.describe('passenger app: trip status', () => {
   test('follows the request through every status, and offers cancel only while it is free', async ({
     page,
   }) => {
-    const { uid } = await readyToRequest(page, 'status-walk');
+    // No driver is ever near this request (Modules 5.2-5.5), so its status only ever changes here,
+    // by hand - the walk below needs a known, stable starting point.
+    const { uid } = await readyToRequestUnmatchable(page, 'status-walk');
     await requestRide(page).click();
     await confirm(page).click();
     await expect(requestedCard(page)).toBeVisible();
@@ -46,14 +64,16 @@ test.describe('passenger app: trip status', () => {
     if (!trip) throw new Error('The request was not stored.');
 
     for (const [status, title, cancellable] of OPEN_STATUSES) {
-      // The server moves the request along; the app is not reloaded.
-      if (status !== 'REQUESTED') await setTripStatus(trip, status);
+      // The server moves the request along; the app is not reloaded. Always set, even for
+      // REQUESTED: the search-starting trigger (Modules 5.2 and 5.3) moves every request on to
+      // SEARCHING moments after creation, so the walk needs to pin it back for its first step too.
+      await setTripStatus(trip, status);
       await expect(heading(page, title)).toBeVisible();
       if (cancellable) await expect(cancelRequest(page)).toBeVisible();
       else await expect(cancelRequest(page)).toHaveCount(0);
       // It is still the same request: the places are on the card the whole way.
-      await expect(requestedCard(page).getByText(station.address)).toBeVisible();
-      await expect(requestedCard(page).getByText(office.address)).toBeVisible();
+      await expect(requestedCard(page).getByText(farNorthStart.address)).toBeVisible();
+      await expect(requestedCard(page).getByText(farNorthEnd.address)).toBeVisible();
     }
 
     // When the trip is over, Home goes back to planning.
@@ -63,7 +83,7 @@ test.describe('passenger app: trip status', () => {
   });
 
   test('lets the passenger cancel while the request is being searched for', async ({ page }) => {
-    const { uid } = await readyToRequest(page, 'status-cancel-search');
+    const { uid } = await readyToRequestUnmatchable(page, 'status-cancel-search');
     await requestRide(page).click();
     await confirm(page).click();
     await expect(requestedCard(page)).toBeVisible();
@@ -97,16 +117,19 @@ test.describe('passenger app: trip status', () => {
   test('lists upcoming and past requests, and moves a request between them live', async ({
     page,
   }) => {
-    await readyToRequest(page, 'trips-list');
+    // No driver is ever near this request (Modules 5.2-5.5), so it is never matched away while this
+    // test still needs to cancel it - only the REQUESTED -> SEARCHING move (Modules 5.2 and 5.3,
+    // which happens whether or not a candidate is found) can still race the check below.
+    await readyToRequestUnmatchable(page, 'trips-list');
     await requestRide(page).click();
     await confirm(page).click();
     await expect(requestedCard(page)).toBeVisible();
 
     await goToTrips(page);
     await expect(rows(upcoming(page))).toHaveCount(1);
-    const first = upcoming(page).getByLabel('Trip: Requested');
-    await expect(first.getByText(`From ${station.address}`)).toBeVisible();
-    await expect(first.getByText(`To ${office.address}`)).toBeVisible();
+    const first = upcoming(page).getByLabel(/^Trip: (Requested|Finding a ride)$/);
+    await expect(first.getByText(`From ${farNorthStart.address}`)).toBeVisible();
+    await expect(first.getByText(`To ${farNorthEnd.address}`)).toBeVisible();
     await expect(past(page)).toHaveCount(0);
 
     // Cancel from Home; the list follows.
