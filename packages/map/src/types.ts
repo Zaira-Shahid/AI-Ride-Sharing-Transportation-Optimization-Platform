@@ -12,6 +12,12 @@ export interface MapViewProps {
   /** Where the device is, when the person has allowed it and it has been found. */
   currentLocation: MapPoint | null;
   /**
+   * The road route between pickup and destination, as the points it passes through (Module 4.7;
+   * decode a route's `geometry` with `decodePolyline`). Null while there is none to show yet, or when
+   * one could not be had - the map still shows the two places on their own, as it always did.
+   */
+  route: readonly MapPoint[] | null;
+  /**
    * How much of the map, in pixels, is covered at the top and the bottom by things drawn over it
    * (the search and the buttons). Places are framed in the part that is left, and the zoom buttons
    * are kept out of the covered part. Defaults to nothing covered.

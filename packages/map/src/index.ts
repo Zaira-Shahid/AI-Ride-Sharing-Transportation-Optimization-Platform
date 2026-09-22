@@ -1,4 +1,5 @@
 export { MapView } from './MapView';
+export { decodePolyline } from './polyline';
 export { useCurrentLocation } from './useCurrentLocation';
 export { useLocationWatch } from './useLocationWatch';
 export { frameMap, type MapFraming } from './view';

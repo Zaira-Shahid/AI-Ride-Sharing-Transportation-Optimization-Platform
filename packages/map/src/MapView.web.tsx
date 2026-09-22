@@ -31,14 +31,26 @@ function dotMarker(point: MapPoint, marker: typeof PICKUP_MARKER, size: number):
 
 const NO_INSETS = { top: 0, bottom: 0 };
 
+/** How the route line looks (Module 4.7): a blue distinct from the pickup/destination/location dots. */
+const ROUTE_LINE: L.PolylineOptions = {
+  color: '#3b82f6',
+  weight: 4,
+  opacity: 0.85,
+  lineCap: 'round',
+  // Its own class, so it can be told apart from anything else Leaflet draws (used by the tests).
+  className: 'ridemesh-route-line',
+};
+
 /**
  * The map on the web, drawn with Leaflet on OpenStreetMap tiles. It fills its parent, and shows the
- * destination and the device's location when there are any, framed so both can be seen.
+ * destination and the device's location when there are any, framed so both can be seen, with the
+ * route line between pickup and destination when one has been found (Module 4.7).
  */
 export function MapView({
   pickup,
   destination,
   currentLocation,
+  route,
   insets = NO_INSETS,
 }: MapViewProps) {
   const container = useRef<HTMLDivElement | null>(null);
@@ -91,12 +103,16 @@ export function MapView({
     if (!instance || !group) return;
 
     group.clearLayers();
+    // The line first, so the markers are drawn on top of it, not under it.
+    if (route && route.length > 1) L.polyline(route.map(toLatLng), ROUTE_LINE).addTo(group);
     // Drawn in this order, so a pickup taken from the device's location covers its own dot.
     if (currentLocation) dotMarker(currentLocation, LOCATION_MARKER, 18).addTo(group);
     if (destination) dotMarker(destination, DESTINATION_MARKER, 24).addTo(group);
     if (pickup) dotMarker(pickup, PICKUP_MARKER, 22).addTo(group);
 
-    const framing = frameMap([pickup, destination, currentLocation]);
+    // The whole route is framed when there is one, not just its two ends: a road route can bow out
+    // past the straight line between them.
+    const framing = frameMap([pickup, destination, currentLocation, ...(route ?? [])]);
     if (framing.kind === 'world') {
       instance.setView(toLatLng(framing.center), framing.zoom);
       return;
@@ -115,7 +131,7 @@ export function MapView({
       paddingBottomRight: [margin, bottom + margin],
       maxZoom: framing.kind === 'point' ? framing.zoom : 16,
     });
-  }, [pickup, destination, currentLocation]);
+  }, [pickup, destination, currentLocation, route]);
 
   return (
     <div

@@ -22,6 +22,8 @@ const { office, station } = PLACES;
 const map = (page: Page) => page.getByRole('region', { name: 'Map' });
 const pickupMarker = (page: Page) => map(page).getByTitle('Pickup', { exact: true });
 const destinationMarker = (page: Page) => map(page).getByTitle('Destination', { exact: true });
+// The route line (Module 4.7): its own CSS class, since Leaflet gives it no title or role.
+const routeLine = (page: Page) => map(page).locator('.ridemesh-route-line');
 
 test.describe('passenger app: requesting a ride', () => {
   test('cannot request a ride until both places are chosen', async ({ page }) => {
@@ -54,6 +56,8 @@ test.describe('passenger app: requesting a ride', () => {
     // estimated trip time (one route lookup) and nothing else: no request is created or stored.
     await expect(destinationCard(page)).toHaveCount(0);
     await expect(reviewCard(page).getByLabel('Estimated trip')).toBeVisible();
+    // The same lookup draws the route line on the map (Module 4.7), not a second one.
+    await expect(routeLine(page)).toBeVisible();
     expect(watch.serverCalls).toHaveLength(1);
     expect(watch.serverCalls[0]).toContain('/calculateRoute');
     expect(await tripsOf(uid)).toHaveLength(0);
@@ -79,6 +83,9 @@ test.describe('passenger app: requesting a ride', () => {
     await expect(requestedCard(page).getByText(office.address)).toBeVisible();
     await expect(pickupMarker(page)).toBeVisible();
     await expect(destinationMarker(page)).toBeVisible();
+    // The route line is asked for again for the requested card (Module 4.7), and answered from
+    // the cache the trigger already filled when the request was created.
+    await expect(routeLine(page)).toBeVisible();
     // The planning cards and the request button give way to the request.
     await expect(destinationCard(page)).toHaveCount(0);
     await expect(requestRide(page)).toHaveCount(0);
