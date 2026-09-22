@@ -112,8 +112,14 @@ or key is needed. Settings, read from the function's environment like the geocod
 | Variable                   | Meaning                                                                      | Default                                                          |
 | -------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | `ROUTING_BASE_URL_DRIVING` | Where the car-profile OSRM is (a server of our own later; a path is allowed) | `https://routing.openstreetmap.de/routed-car`                    |
+| `ROUTING_BASE_URL_WALKING` | Where the foot-profile OSRM is. **Must be a foot server**: see below         | `https://routing.openstreetmap.de/routed-foot`                   |
 | `ROUTING_USER_AGENT`       | What the function calls itself when it asks for routes                       | `GEOCODING_USER_AGENT`, else "RideMesh (contact not configured)" |
 | `ROUTING_MIN_SPACING_MS`   | Least time between routes from everybody together                            | 1100                                                             |
+
+Walking routes (Module 4.6) go to a separate foot server, and **it is the server that makes a route a
+walking one**: the community server answers a walking route for any profile word in the URL, so
+pointing `ROUTING_BASE_URL_WALKING` at a car server would give driving distances and times as if they
+were a walk, with nothing to say so. Use the community defaults, or a foot-profile OSRM of your own.
 
 The one contact you already set as `GEOCODING_USER_AGENT` serves both, so nothing more is needed. The
 public server is for light use only, and has no traffic data (the times are free-flow estimates).

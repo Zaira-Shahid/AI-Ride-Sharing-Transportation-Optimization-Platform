@@ -10,6 +10,7 @@ import {
   routeCacheKey,
   type Route,
   type RoutePoint,
+  type RouteProfile,
   type RoutingProvider,
 } from '../../functions/src/routing';
 import type { LookupLimits } from '../../functions/src/lookupLimits';
@@ -59,7 +60,7 @@ function stubProvider(answer: Route | null | Error = ROUTE) {
   return { provider, calls };
 }
 
-const cacheDoc = async (stops: RoutePoint[], profile: 'driving' = 'driving') =>
+const cacheDoc = async (stops: RoutePoint[], profile: RouteProfile = 'driving') =>
   (
     await admin()
       .firestore.doc(`routeCache/${routeCacheKey(profile, stops)}`)
@@ -179,6 +180,54 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
     await calculateRoute(deps, rider(), { stops });
 
     expect(calls).toHaveLength(1);
+  });
+
+  it('takes a walking profile, and asks the provider for a walking route', async () => {
+    const { provider, calls } = stubProvider();
+    const stops = newStops();
+
+    await calculateRoute({ firestore: admin().firestore, provider, limits: NO_LIMITS }, rider(), {
+      stops,
+      profile: 'walking',
+    });
+
+    expect(calls.map((call) => call.profile)).toEqual(['walking']);
+    expect((await cacheDoc(calls[0]?.stops ?? [], 'walking'))?.profile).toBe('walking');
+  });
+
+  it('keeps a walking route and a driving route between the same stops apart', async () => {
+    const { provider, calls } = stubProvider();
+    const stops = newStops();
+    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+
+    await calculateRoute(deps, rider(), { stops });
+    // The road route is not the answer to a walking question: it is asked again, and cached on its own.
+    await calculateRoute(deps, rider(), { stops, profile: 'walking' });
+    expect(calls.map((call) => call.profile)).toEqual(['driving', 'walking']);
+    expect(routeCacheKey('driving', stops)).not.toBe(routeCacheKey('walking', stops));
+
+    // Now each is answered from the cache.
+    await calculateRoute(deps, rider(), { stops });
+    await calculateRoute(deps, rider(), { stops, profile: 'walking' });
+    expect(calls).toHaveLength(2);
+    expect((await cacheDoc(calls[0]?.stops ?? [], 'driving'))?.profile).toBe('driving');
+    expect((await cacheDoc(calls[1]?.stops ?? [], 'walking'))?.profile).toBe('walking');
+  });
+
+  it('counts walking and driving lookups against the same limits', async () => {
+    const { provider } = stubProvider();
+    const limits: LookupLimits = { globalSpacingMs: 0, perCallerPerMinute: 2 };
+    const deps = { firestore: admin().firestore, provider, limits, now: () => 3_000_000 };
+
+    expect((await calculateRoute(deps, rider('mix'), { stops: newStops() })).status).toBe('found');
+    expect(
+      (await calculateRoute(deps, rider('mix'), { stops: newStops(), profile: 'walking' })).status,
+    ).toBe('found');
+    // Two lookups, one of each: a third, of either kind, is over the caller's limit.
+    expect(
+      (await calculateRoute(deps, rider('mix'), { stops: newStops(), profile: 'walking' })).status,
+    ).toBe('busy');
+    expect((await calculateRoute(deps, rider('mix'), { stops: newStops() })).status).toBe('busy');
   });
 
   it('caches "no route here" too, so those stops are not asked about again', async () => {
@@ -360,7 +409,7 @@ describe('calculateRoute: who may ask, and what', () => {
     ['a stop at 0, 0', { stops: [...newStops(1), { latitude: 0, longitude: 0 }] }],
     ['a latitude out of range', { stops: [...newStops(1), { latitude: 91, longitude: 0 }] }],
     ['text for a number', { stops: [...newStops(1), { latitude: '51', longitude: 0 }] }],
-    ['a profile that does not exist', { stops: newStops(), profile: 'walking' }],
+    ['a profile that does not exist', { stops: newStops(), profile: 'cycling' }],
     ['stops that are not a list', { stops: 'abc' }],
     ['nothing', null],
   ])('refuses %s and asks nobody', async (_label, input) => {
@@ -435,6 +484,53 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
         { latitude: 51.50492, longitude: -0.01951 },
       ],
     })) as { status: string };
+
+    expect(again.status).toBe('found');
+    expect(fake.requests).toHaveLength(1);
+  });
+
+  it('asks the foot server for a walking route, and gets a walking pace', async () => {
+    const { client } = await person('PASSENGER', 'route-walk');
+    const stops = [
+      { latitude: 51.5049, longitude: -0.0195 },
+      { latitude: 51.507, longitude: -0.025 },
+    ];
+
+    const walking = (await call(client, { stops, profile: 'walking' })) as {
+      status: string;
+      route: Route;
+    };
+    const driving = (await call(client, { stops })) as { status: string; route: Route };
+
+    expect(walking.status).toBe('found');
+    expect(driving.status).toBe('found');
+    // The two questions went to the two servers, each with its own word for the way of travelling.
+    expect(fake.requests.map((request) => [request.profile, request.path.split('/')[1]])).toEqual([
+      ['walking', 'routed-foot'],
+      ['driving', 'routed-car'],
+    ]);
+    expect(fake.requests[0]?.path).toBe('/routed-foot/route/v1/foot/-0.0195,51.5049;-0.025,51.507');
+    expect(fake.requests[1]?.path).toBe(
+      '/routed-car/route/v1/driving/-0.0195,51.5049;-0.025,51.507',
+    );
+    // On foot the same trip is slow: walking pace is about 1.25 m/s, a car's about 14 m/s.
+    const walkingPace = walking.route.distanceMeters / walking.route.durationSeconds;
+    const drivingPace = driving.route.distanceMeters / driving.route.durationSeconds;
+    expect(walkingPace).toBeGreaterThan(1);
+    expect(walkingPace).toBeLessThan(2);
+    expect(drivingPace).toBeGreaterThan(10);
+  });
+
+  it('answers a second walking request for the same stops from the cache', async () => {
+    const first = await person('PASSENGER', 'route-walk-cache-1');
+    const second = await person('DRIVER', 'route-walk-cache-2');
+    const stops = [
+      { latitude: 51.5049, longitude: -0.0195 },
+      { latitude: 51.507, longitude: -0.025 },
+    ];
+
+    await call(first.client, { stops, profile: 'walking' });
+    const again = (await call(second.client, { stops, profile: 'walking' })) as { status: string };
 
     expect(again.status).toBe('found');
     expect(fake.requests).toHaveLength(1);
@@ -530,6 +626,22 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
       code: 'functions/unauthenticated',
     });
     expect(fake.requests).toHaveLength(0);
+  });
+
+  it('is what the app calls for a walking route: on foot when asked, by road when not', async () => {
+    const { client } = await person('DRIVER', 'route-app-walk');
+    const stops = [
+      { latitude: 51.5049, longitude: -0.0195 },
+      { latitude: 51.507, longitude: -0.025 },
+    ];
+
+    const onFoot = await calculateRouteForApp(client, stops, { profile: 'walking' });
+    const byRoad = await calculateRouteForApp(client, stops);
+
+    expect(fake.requests.map((request) => request.profile)).toEqual(['walking', 'driving']);
+    expect(
+      (onFoot?.durationSeconds ?? 0) > (byRoad?.durationSeconds ?? Number.MAX_SAFE_INTEGER),
+    ).toBe(true);
   });
 
   it('is what the app calls: the route back, and null (never an error) when it cannot be had', async () => {

@@ -21,7 +21,7 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 4.5)
+## What exists now (through Module 4.6)
 
 | Area            | Location                                  | State                                                                                                                                                                                                                                                                                                                                                              |
 | --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -600,7 +600,7 @@ self-hosted provider before launch); route calculation runs **server-side** in a
 legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic), the whole route as
   an encoded polyline (Google's format, 5 decimals) and one leg for each pair of stops. Status is
   `found`, `none` (no road route, or a stop over 1,000 m from any road), `unavailable` or `busy`.
-  Driving is the only profile; walking (4.6) adds an entry to `ROUTE_PROFILES` and one base URL.
+  Driving and walking are the two profiles (`ROUTE_PROFILES`; walking is Module 4.6, below).
   The client wrapper is `calculateRoute` in `packages/firebase` (never throws, rounds the stops,
   waits at most 12 s).
 - **One provider interface.** `RoutingProvider.route(stops, profile)` returns a route, null (none) or
@@ -624,6 +624,30 @@ legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic),
   tests call `calculateRoute` directly with a stand-in provider and a controlled clock (rounding, the
   cache, the limits, failures) and through the real callable against the fake (the request that
   leaves, the answers, the timeout). There is no end-to-end test because there is no screen yet.
+
+### Walking routes (Module 4.6)
+
+- **What it is.** `calculateRoute` takes `profile: 'walking'` (the default stays `driving`, and an
+  absent or null profile is a road route). The route comes back in the same form: metres, seconds
+  (about 1.25 m/s, that is 4.5 km/h, from the foot server) and the line. The app's
+  `calculateRoute` (`packages/firebase`) takes `{profile}` and says nothing about it for a road route.
+- **A server for each way of travelling.** `OsrmConfig.baseUrls` names one server per profile
+  (required by the type, so a profile cannot be added without one). The defaults are the
+  community server's `routed-car` and `routed-foot`; `ROUTING_BASE_URL_WALKING` overrides the second.
+  The URL word is `driving` or `foot` (`OSRM_PROFILE_WORDS`), though the community server ignores it: it
+  is the server that decides. This was checked against the real servers: for the same two places a
+  few hundred metres apart the foot server gave 649 m in 519 s and the car server 1,204 m in 201 s,
+  and the provider code (not only curl) parsed both.
+- **Nothing shows it yet, on purpose (decided for this module).** A walking route is between a
+  passenger and a pickup point, and pickup points are assigned by matching (Phase 5); today the
+  pickup is exactly where the passenger chose, so there is nothing to walk. Phase 5 will use it for
+  the walking distance to a pickup and to check it against the passenger's limit
+  (`maxWalkingDistance`: 200, 500 or 1,000 m by flexibility level).
+- **In the tests.** The fake OSRM is a car server and a foot server (`/routed-car`, `/routed-foot`)
+  with the pace of each, and refuses a request that asks a server for the wrong word. Tests cover
+  the URL and server for each profile, a walk and a drive between the same places being cached apart
+  and asked apart, both counting against the same limits, the walking pace through the real
+  callable, and the app's wrapper.
 
 ### Trip estimate (Modules 4.4 and 4.5)
 

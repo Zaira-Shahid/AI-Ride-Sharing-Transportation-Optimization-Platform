@@ -15,8 +15,18 @@ import { claimLookup, type LookupLimits } from './lookupLimits.js';
 export const GEOCODE_DECIMALS = 4;
 export const ROUTE_STOPS_MIN = 2;
 export const ROUTE_STOPS_MAX = 10;
-export const ROUTE_PROFILES = ['driving'] as const;
+export const ROUTE_PROFILES = ['driving', 'walking'] as const;
 export type RouteProfile = (typeof ROUTE_PROFILES)[number];
+
+/**
+ * The word for a profile in an OSRM URL (/route/v1/{word}/...). The community server ignores it (its
+ * foot server answers a walking route for any word, checked against the real server), but the real
+ * name is used so that the request says what it means, and so that a server that does read it works.
+ */
+export const OSRM_PROFILE_WORDS: Record<RouteProfile, string> = {
+  driving: 'driving',
+  walking: 'foot',
+};
 
 export const ROUTE_LIMITS = {
   globalSpacingMs: 1_100,
@@ -137,7 +147,11 @@ export function parseOsrmRoute(
 }
 
 export interface OsrmConfig {
-  /** Where OSRM is for each way of travelling (a server of our own later; a path is allowed). */
+  /**
+   * Where OSRM is for each way of travelling (a server of our own later; a path is allowed). Each
+   * profile needs a server that is built for it: a walking route from the car server would be a
+   * driving route with driving times, and nothing in the answer would say so.
+   */
   baseUrls: Record<RouteProfile, string>;
   /** Its usage policy asks for a User-Agent that identifies the application and how to reach it. */
   userAgent: string;
@@ -153,7 +167,7 @@ export function createOsrmProvider(config: OsrmConfig): RoutingProvider {
       // OSRM takes longitude first, and the stops as one list.
       const coordinates = stops.map((stop) => `${stop.longitude},${stop.latitude}`).join(';');
       const base = config.baseUrls[profile].replace(/\/+$/, '');
-      const url = new URL(`${base}/route/v1/${profile}/${coordinates}`);
+      const url = new URL(`${base}/route/v1/${OSRM_PROFILE_WORDS[profile]}/${coordinates}`);
       url.searchParams.set('overview', 'full');
       url.searchParams.set('geometries', 'polyline');
       url.searchParams.set('steps', 'false');
@@ -184,8 +198,9 @@ export function createOsrmProvider(config: OsrmConfig): RoutingProvider {
 }
 
 /**
- * The provider the deployed function uses, from its environment: ROUTING_BASE_URL_DRIVING (default
- * the community server routing.openstreetmap.de, which has separate car, foot and bike servers) and
+ * The provider the deployed function uses, from its environment: ROUTING_BASE_URL_DRIVING and
+ * ROUTING_BASE_URL_WALKING (defaults: the car and foot servers of the community server
+ * routing.openstreetmap.de, which has a separate server for each way of travelling) and
  * ROUTING_USER_AGENT, which falls back to GEOCODING_USER_AGENT so the one contact is set once. The
  * server's policy needs a User-Agent with a way to contact us (docs/development.md).
  */
@@ -198,12 +213,19 @@ export function routingUserAgentFromEnvironment(env: NodeJS.ProcessEnv = process
   );
 }
 
+/** The server for each profile: the environment's, else the community server's own for that way of travelling. */
+export function routingBaseUrlsFromEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<RouteProfile, string> {
+  return {
+    driving: env.ROUTING_BASE_URL_DRIVING?.trim() || 'https://routing.openstreetmap.de/routed-car',
+    walking: env.ROUTING_BASE_URL_WALKING?.trim() || 'https://routing.openstreetmap.de/routed-foot',
+  };
+}
+
 export function osrmFromEnvironment(env: NodeJS.ProcessEnv = process.env): RoutingProvider {
   return createOsrmProvider({
-    baseUrls: {
-      driving:
-        env.ROUTING_BASE_URL_DRIVING?.trim() || 'https://routing.openstreetmap.de/routed-car',
-    },
+    baseUrls: routingBaseUrlsFromEnvironment(env),
     userAgent: routingUserAgentFromEnvironment(env),
   });
 }

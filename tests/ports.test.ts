@@ -9,7 +9,7 @@ import {
   parsePortOffset,
 } from '../packages/config/src';
 import { FAKE_NOMINATIM_PORT } from './fake-nominatim';
-import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_PORT } from './fake-osrm';
+import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_FOOT_BASE_PATH, FAKE_OSRM_PORT } from './fake-osrm';
 import { TEST_PORTS } from './test-ports';
 
 const root = resolve(__dirname, '..');
@@ -154,6 +154,15 @@ describe('the fake route server the tests use', () => {
     );
     expect(env).not.toContain('openstreetmap.de');
     expect(env).not.toContain('project-osrm');
+  });
+
+  it('has a foot server as well as a car server, on the same fake and never the real one', () => {
+    // A walking route is a walking route because of which server is asked, so the tests' emulators
+    // are given a foot server of their own, apart from the car server.
+    expect(setting('ROUTING_BASE_URL_WALKING')).toBe(
+      `http://127.0.0.1:${FAKE_OSRM_PORT}${FAKE_OSRM_FOOT_BASE_PATH}`,
+    );
+    expect(setting('ROUTING_BASE_URL_WALKING')).not.toBe(setting('ROUTING_BASE_URL_DRIVING'));
   });
 
   it('does not use a port anything else in the tests uses', () => {
