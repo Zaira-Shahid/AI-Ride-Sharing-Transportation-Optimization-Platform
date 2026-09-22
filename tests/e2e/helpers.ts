@@ -373,6 +373,27 @@ export const PLACES = {
     latitude: -33.8568,
     longitude: 151.2153,
   },
+  // Well away from every other place here (Modules 5.2-5.5): a driver's journey a matching test
+  // creates for itself must be the only one anywhere near its own pickup, whatever other tests have
+  // left an AVAILABLE driver near the office/station route.
+  farNorthStart: {
+    id: 'place-far-north-start',
+    text: 'Kelpie Point, UK',
+    main: 'Kelpie Point',
+    secondary: 'UK',
+    address: 'Kelpie Point, UK',
+    latitude: 58,
+    longitude: -1,
+  },
+  farNorthEnd: {
+    id: 'place-far-north-end',
+    text: 'Thistle Point, UK',
+    main: 'Thistle Point',
+    secondary: 'UK',
+    address: 'Thistle Point, UK',
+    latitude: 58.05,
+    longitude: -0.95,
+  },
   // A position that was never filled in: exactly 0, 0. It passes the shape rules but is no place.
   nowhere: {
     id: 'place-nowhere',

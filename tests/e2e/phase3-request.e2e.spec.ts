@@ -166,7 +166,9 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
     });
 
     // Where it stands, and what is not known yet: no fare, driver or plan.
-    expect(trip.status).toBe('REQUESTED');
+    // The search-starting trigger (Modules 5.2 and 5.3) moves every request on to SEARCHING moments
+    // after creation, future-dated ones included (they get no candidates yet, but still move on).
+    expect(['REQUESTED', 'SEARCHING']).toContain(trip.status);
     expect(trip.estimatedFare).toBeNull();
     expect(trip.assignedPlanId).toBeNull();
     // The distance and time of the trip are worked out by the server a moment after the request is
@@ -190,11 +192,15 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
       [
         'arrivalDeadline',
         'assignedPlanId',
+        // Filled in by matching (Modules 5.2, 5.3 and 5.5) once the request starts SEARCHING.
+        'candidateCount',
         'createdAt',
         'destination',
         'estimatedDistance',
         'estimatedDuration',
         'estimatedFare',
+        'matchedDriverId',
+        'matchedJourneyId',
         'origin',
         'passengerId',
         'passengerPreferences',

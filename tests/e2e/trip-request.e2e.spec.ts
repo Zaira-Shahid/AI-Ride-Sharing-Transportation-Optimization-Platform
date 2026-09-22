@@ -17,7 +17,21 @@ import {
   tripsOf,
 } from './trip-helpers';
 
-const { office, station } = PLACES;
+const { office, station, farNorthStart, farNorthEnd } = PLACES;
+
+/**
+ * A passenger with both places chosen, ready to request a ride - like readyToRequest, but at a
+ * corner of the world no other e2e spec's driver is ever near (Modules 5.2-5.5), for a test that
+ * needs its request to stay free to cancel and never be matched for real.
+ */
+async function readyToRequestUnmatchable(page: Page, prefix: string) {
+  await mockPlaces(page);
+  const watch = await watchMap(page);
+  const { uid } = await newPassenger(page, prefix);
+  await chooseDestination(page, 'thistle', farNorthEnd.text);
+  await choosePickup(page, 'kelpie', farNorthStart.text);
+  return { uid, watch };
+}
 
 const map = (page: Page) => page.getByRole('region', { name: 'Map' });
 const pickupMarker = (page: Page) => map(page).getByTitle('Pickup', { exact: true });
@@ -92,7 +106,9 @@ test.describe('passenger app: requesting a ride', () => {
 
     const trips = await tripsOf(uid);
     expect(trips).toHaveLength(1);
-    expect(statusOf(trips[0])).toBe('REQUESTED');
+    // The search-starting trigger (Modules 5.2 and 5.3) may already have moved this on to
+    // SEARCHING by now.
+    expect(['REQUESTED', 'SEARCHING']).toContain(statusOf(trips[0]));
   });
 
   test('keeps showing the request after the app is reloaded', async ({ page }) => {
@@ -111,7 +127,8 @@ test.describe('passenger app: requesting a ride', () => {
   test('keeps the request when the passenger changes their mind about cancelling', async ({
     page,
   }) => {
-    const { uid } = await readyToRequest(page, 'req-keep');
+    // No driver is ever near this request (Modules 5.2-5.5), so it stays free to cancel throughout.
+    const { uid } = await readyToRequestUnmatchable(page, 'req-keep');
     await requestRide(page).click();
     await confirm(page).click();
     await expect(requestedCard(page)).toBeVisible();
@@ -122,13 +139,16 @@ test.describe('passenger app: requesting a ride', () => {
 
     await expect(page.getByRole('alertdialog')).toHaveCount(0);
     await expect(requestedCard(page)).toBeVisible();
-    expect(statusOf((await tripsOf(uid))[0])).toBe('REQUESTED');
+    // The search-starting trigger (Modules 5.2 and 5.3) moves every request on to SEARCHING moments
+    // after creation, whether or not a candidate is found.
+    expect(['REQUESTED', 'SEARCHING']).toContain(statusOf((await tripsOf(uid))[0]));
   });
 
   test('cancels the request after confirming, and returns to planning with the choices kept', async ({
     page,
   }) => {
-    const { uid } = await readyToRequest(page, 'req-cancel');
+    // No driver is ever near this request (Modules 5.2-5.5), so it stays free to cancel throughout.
+    const { uid } = await readyToRequestUnmatchable(page, 'req-cancel');
     await requestRide(page).click();
     await confirm(page).click();
     await expect(requestedCard(page)).toBeVisible();
@@ -137,8 +157,8 @@ test.describe('passenger app: requesting a ride', () => {
     await page.getByRole('button', { name: 'Yes, cancel it', exact: true }).click();
 
     await expect(requestedCard(page)).toHaveCount(0);
-    await expect(destinationCard(page).getByText(office.address)).toBeVisible();
-    await expect(pickupCard(page).getByText(station.address)).toBeVisible();
+    await expect(destinationCard(page).getByText(farNorthEnd.address)).toBeVisible();
+    await expect(pickupCard(page).getByText(farNorthStart.address)).toBeVisible();
     await expect(requestRide(page)).toBeEnabled();
     expect(statusOf((await tripsOf(uid))[0])).toBe('CANCELLED');
 

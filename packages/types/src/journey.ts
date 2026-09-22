@@ -87,6 +87,19 @@ export interface SetJourneyDetourResult {
   status: 'updated' | 'unchanged';
 }
 
+// A journey's DRAFT parts (destination, seats, detour, start) stay editable once the driver goes
+// online and the journey becomes an AVAILABLE match candidate (Module 5.1) - going online does not
+// freeze them. MATCHING/ACTIVE (once matched, Module 5.5 onwards) are not editable this way. Mirrors
+// EDITABLE_JOURNEY_STATUSES in functions/src/journeys.ts, which enforces the same rule server-side;
+// there is no parity test for it (functions does not import this package), so a change here must be
+// made there too.
+const EDITABLE_JOURNEY_STATUSES: ReadonlySet<DriverJourneyStatus> = new Set(['DRAFT', 'AVAILABLE']);
+
+/** Whether a journey's DRAFT parts can still be changed, given its status. */
+export function isEditableJourneyStatus(status: DriverJourneyStatus): boolean {
+  return EDITABLE_JOURNEY_STATUSES.has(status);
+}
+
 // driverJourneys/{journeyId} (spec section 10). A driver has at most one open journey, pointed to
 // by drivers/{uid}.currentJourneyId. It starts as a DRAFT holding the destination; seats on offer
 // (Module 2.7, never more than the vehicle's seatCapacity) and the detour limits (Module 2.8, on the
