@@ -4,6 +4,7 @@ import {
   osrmFromEnvironment,
   parseOsrmRoute,
   routeCacheKey,
+  routingBaseUrlsFromEnvironment,
   routingLimitsFromEnvironment,
   routingUserAgentFromEnvironment,
 } from './routing';
@@ -94,7 +95,10 @@ describe('the OSRM provider', () => {
     { latitude: 51.5049, longitude: -0.0195 },
   ];
   const config = {
-    baseUrls: { driving: 'https://osrm.example.test/routed-car' },
+    baseUrls: {
+      driving: 'https://osrm.example.test/routed-car',
+      walking: 'https://osrm-foot.example.test/routed-foot',
+    },
     userAgent: 'RideMesh-unit (test)',
   };
 
@@ -133,10 +137,32 @@ describe('the OSRM provider', () => {
     const { calls, fetchImpl } = stub(() => json(okBody()));
     await createOsrmProvider({
       ...config,
-      baseUrls: { driving: 'https://maps.example.test/osrm/' },
+      baseUrls: {
+        driving: 'https://maps.example.test/osrm/',
+        walking: 'https://maps.example.test/osrm-foot/',
+      },
       fetchImpl,
     }).route(stops, 'driving');
     expect(calls[0]?.url.pathname.startsWith('/osrm/route/v1/driving/')).toBe(true);
+  });
+
+  it('asks the foot server, not the car server, for a walking route, and says "foot"', async () => {
+    const { calls, fetchImpl } = stub(() => json(okBody()));
+    const provider = createOsrmProvider({ ...config, fetchImpl });
+
+    await provider.route(stops, 'walking');
+    await provider.route(stops, 'driving');
+
+    const [walking, driving] = calls;
+    // The community server ignores the word, so it is the server that makes a route a walking one.
+    expect(walking?.url.origin).toBe('https://osrm-foot.example.test');
+    expect(walking?.url.pathname).toBe(
+      '/routed-foot/route/v1/foot/-2.5813,51.4494;-0.0195,51.5049',
+    );
+    expect(driving?.url.origin).toBe('https://osrm.example.test');
+    expect(driving?.url.pathname).toBe(
+      '/routed-car/route/v1/driving/-2.5813,51.4494;-0.0195,51.5049',
+    );
   });
 
   it('puts every stop in the request, in order', async () => {
@@ -259,5 +285,41 @@ describe('configuration from the environment', () => {
       routingUserAgentFromEnvironment({ ROUTING_USER_AGENT: '  ', GEOCODING_USER_AGENT: 'places' }),
     ).toBe('places');
     expect(routingUserAgentFromEnvironment({})).toBe('RideMesh (contact not configured)');
+  });
+});
+
+describe('the servers, by way of travelling', () => {
+  it("are the community server's car and foot servers unless the environment says otherwise", () => {
+    expect(routingBaseUrlsFromEnvironment({})).toEqual({
+      driving: 'https://routing.openstreetmap.de/routed-car',
+      walking: 'https://routing.openstreetmap.de/routed-foot',
+    });
+  });
+
+  it('can each be set on their own, and a blank setting is the default', () => {
+    expect(
+      routingBaseUrlsFromEnvironment({
+        ROUTING_BASE_URL_DRIVING: 'http://car.test/x',
+        ROUTING_BASE_URL_WALKING: 'http://foot.test/y',
+      }),
+    ).toEqual({ driving: 'http://car.test/x', walking: 'http://foot.test/y' });
+    expect(
+      routingBaseUrlsFromEnvironment({ ROUTING_BASE_URL_WALKING: 'http://foot.test/y' }),
+    ).toEqual({
+      driving: 'https://routing.openstreetmap.de/routed-car',
+      walking: 'http://foot.test/y',
+    });
+    expect(
+      routingBaseUrlsFromEnvironment({
+        ROUTING_BASE_URL_DRIVING: '  ',
+        ROUTING_BASE_URL_WALKING: '',
+      }),
+    ).toEqual(routingBaseUrlsFromEnvironment({}));
+  });
+
+  it('never use the car server for walking by default', () => {
+    const urls = routingBaseUrlsFromEnvironment({});
+    expect(urls.walking).not.toBe(urls.driving);
+    expect(urls.walking).toContain('foot');
   });
 });

@@ -12,8 +12,14 @@ import { roundForGeocoding, type GeocodePoint } from './geocoding';
 export const ROUTE_STOPS_MIN = 2;
 export const ROUTE_STOPS_MAX = 10;
 
-/** How a route is travelled. Walking arrives with Module 4.6, as one more entry here. */
-export const ROUTE_PROFILES = ['driving'] as const;
+/**
+ * How a route is travelled: by road in a car, or on foot (Module 4.6). Walking is what matching will
+ * use for the walk to a pickup point (Phase 5); nothing shows it yet. The profile chooses the routing
+ * SERVER, not a word in the request: the community foot server answers the same walking route
+ * whatever profile name the URL carries, so which server is asked is what decides (see
+ * functions/src/routing.ts).
+ */
+export const ROUTE_PROFILES = ['driving', 'walking'] as const;
 export type RouteProfile = (typeof ROUTE_PROFILES)[number];
 
 export const ROUTE_LIMITS = {
