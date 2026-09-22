@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
-import NativeMap, { Marker, UrlTile } from 'react-native-maps';
+import NativeMap, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import { DESTINATION_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
 import { TILE_ATTRIBUTION_TEXT, TILE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles';
 import type { MapViewProps } from './types';
@@ -10,16 +10,20 @@ import { WORLD_CENTER, WORLD_ZOOM, clampInsets, frameMap, frameMargin } from './
 const POINT_SPAN = 0.01;
 const NO_INSETS = { top: 0, bottom: 0 };
 const WORLD_SPAN = 360 / 2 ** (WORLD_ZOOM - 1);
+// How the route line looks (Module 4.7): a blue distinct from the pickup/destination/location dots.
+const ROUTE_LINE_COLOR = '#3b82f6';
 
 /**
  * The map on phones: react-native-maps with OpenStreetMap tiles drawn over it (see tiles.ts). It
  * fills its parent, and shows the destination and the device's location when there are any, framed
- * so both can be seen. The web build has its own file (MapView.web.tsx).
+ * so both can be seen, with the route line between pickup and destination when one has been found
+ * (Module 4.7). The web build has its own file (MapView.web.tsx).
  */
 export function MapView({
   pickup,
   destination,
   currentLocation,
+  route,
   insets = NO_INSETS,
 }: MapViewProps) {
   const map = useRef<NativeMap | null>(null);
@@ -31,7 +35,9 @@ export function MapView({
   useEffect(() => {
     const instance = map.current;
     if (!instance) return;
-    const framing = frameMap([pickup, destination, currentLocation]);
+    // The whole route is framed when there is one, not just its two ends: a road route can bow out
+    // past the straight line between them.
+    const framing = frameMap([pickup, destination, currentLocation, ...(route ?? [])]);
     if (framing.kind === 'bounds') {
       const { top, bottom } = clampInsets(latestInsets.current, height.current);
       const margin = frameMargin(height.current - top - bottom);
@@ -62,7 +68,7 @@ export function MapView({
         longitudeDelta: WORLD_SPAN,
       });
     }
-  }, [pickup, destination, currentLocation]);
+  }, [pickup, destination, currentLocation, route]);
 
   return (
     <View
@@ -88,6 +94,9 @@ export function MapView({
         showsUserLocation={false}
       >
         <UrlTile urlTemplate={TILE_URL_TEMPLATE} maximumZ={TILE_MAX_ZOOM} shouldReplaceMapContent />
+        {route && route.length > 1 ? (
+          <Polyline coordinates={[...route]} strokeColor={ROUTE_LINE_COLOR} strokeWidth={4} />
+        ) : null}
         {pickup ? (
           <Marker coordinate={pickup} title={PICKUP_MARKER.label} pinColor={PICKUP_MARKER.color} />
         ) : null}

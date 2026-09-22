@@ -21,7 +21,7 @@ Firebase Cloud Functions orchestrate. Heavy optimization runs in a dedicated Pyt
 is used for prediction; deterministic optimization makes the assignment decisions. An LLM never
 controls routing or safety constraints.
 
-## What exists now (through Module 4.6)
+## What exists now (through Module 4.7)
 
 | Area            | Location                                  | State                                                                                                                                                                                                                                                                                                                                                              |
 | --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -32,7 +32,7 @@ controls routing or safety constraints.
 | Firebase config | `firebase.json`, `.firebaserc`, `*.rules` | Project pinned, emulators configured, role-based rules for `users`, all else closed.                                                                                                                                                                                                                                                                               |
 | Shared types    | `packages/types`                          | Roles, user and driver profile, state enumerations, `Location`, with Zod schemas.                                                                                                                                                                                                                                                                                  |
 | Design tokens   | `packages/ui`                             | Specification palette, semantic light and dark themes, spacing, radius, type, motion.                                                                                                                                                                                                                                                                              |
-| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones). No key needed.                                                                                                                                                                                                                                          |
+| Map             | `packages/map`                            | The map and the device location, on OpenStreetMap tiles (Leaflet on the web, react-native-maps on phones); draws the route line between pickup and destination when there is one (Module 4.7). No key needed.                                                                                                                                                      |
 | Maps client     | `packages/maps`                           | Google Places (New) place search for drivers and passengers, using plain `fetch`. Routing and geocoding follow in Phase 4.                                                                                                                                                                                                                                         |
 | Firebase client | `packages/firebase`                       | Config validation, client factory, auth and profile flows, `AuthProvider`.                                                                                                                                                                                                                                                                                         |
 | Mobile auth     | `packages/mobile-auth`                    | Shared auth screens (Welcome, Login, Register, Verify, Forgot password, Profile), client.                                                                                                                                                                                                                                                                          |
@@ -615,9 +615,9 @@ legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic),
   `routeLimits/{uid}`; the shared `claimLookup` in `lookupLimits.ts`), ask the provider, cache the
   answer and return it. Privacy and the pre-launch items are in docs/security.md, "Route
   calculation".
-- **Where it is used.** Module 4.3 only provided it; the trip estimate (4.4 and 4.5, below) is its
-  first use. Still to come: walking with 4.6, drawing the line on the map with 4.7 (which will
-  decode `geometry`), and a driver's route and the optimizer's distances with Phases 5 and 6.
+- **Where it is used.** Module 4.3 only provided it; the trip estimate (4.4 and 4.5, below) was its
+  first use, then walking (4.6) and the map's route line (4.7, below). Still to come: a driver's
+  route and the optimizer's distances, with Phases 5 and 6.
 - **In the tests.** The functions emulator the tests start reads `functions/.env.demo-ridemesh`, which
   points `ROUTING_BASE_URL_DRIVING` at a fake OSRM on port 18890 (`tests/fake-osrm.ts`, with its own
   polyline encoder) and turns the spacing off (`tests/ports.test.ts` checks the file). Integration
@@ -649,6 +649,32 @@ legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic),
   and asked apart, both counting against the same limits, the walking pace through the real
   callable, and the app's wrapper.
 
+### Route polyline (Module 4.7)
+
+- **What it is.** The passenger map draws the road route between pickup and destination as a line,
+  at the review (before confirming) and on the ride requested card, once one has been found. It is
+  not stored anywhere: the app asks `calculateRoute` again for the same rounded stops, which is
+  almost always answered from the cache the review's own lookup, or the estimate trigger's (4.4),
+  already filled - so drawing the line costs no extra route lookup in the common case. When a route
+  is unavailable the map falls back to just the two places, as it always did; there is nothing to
+  retry.
+- **Decoding.** `Route.geometry` is Google's encoded polyline format at 5 decimal places (what OSRM
+  returns for `geometries=polyline`); `decodePolyline` (`packages/map/src/polyline.ts`) turns it back
+  into points. It is the published algorithm, not something of our own, so it needed no new
+  dependency; `MapViewProps.route` takes the decoded points directly.
+- **Drawing.** `MapView` gains a `route: readonly MapPoint[] | null` prop, drawn under the pickup and
+  destination dots as a solid blue line (`#3b82f6`, 4 px) - Leaflet's `L.polyline` on the web
+  (`MapView.web.tsx`), react-native-maps' `Polyline` on phones (`MapView.tsx`). `frameMap` is given
+  the route's points alongside the two places, so the map frames the whole road route, not just a
+  straight line between its ends (a road can bow out past that box). `PassengerHomeScreen` decodes
+  whichever route is current - the review's while reviewing, the open request's once made - with
+  `useMemo`, so decoding does not repeat on every render.
+- **Drivers have no map, so nothing changes there.** This is passenger-only, like the map itself.
+- **In the tests.** `decodePolyline` is unit-tested against the format's own published example.
+  The e2e trip-request spec checks the line appears at review (drawn from the estimate's own lookup,
+  not a second one) and again on the requested card, using the line's own CSS class
+  (`.ridemesh-route-line`) since Leaflet gives it no title or role.
+
 ### Trip estimate (Modules 4.4 and 4.5)
 
 - **What is stored.** `tripRequests.estimatedDistance` in **metres** and `estimatedDuration` in
@@ -679,8 +705,8 @@ legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic),
   the trigger normally finds it in the route cache. All the pure parts (reading, wording, the arrival
   check, the waiting rule) are in `packages/types/src/trip-estimate.ts` with unit tests.
 - **Not yet:** the driver's ETA to the pickup (needs matching and a live position, Phase 5), the
-  estimated walking distance (walking routes, 4.6), the line on the map (4.7), an estimate for old
-  requests made before this module (none is backfilled), and a fare (pricing).
+  estimated walking distance (walking routes, 4.6), an estimate for old requests made before this
+  module (none is backfilled), and a fare (pricing).
 - **In the tests.** `estimateTripRequest` is tested directly on requests made by hand in another
   collection (so the trigger does not race the test; the function takes the collection as an optional
   dependency for this), with a stand-in provider, a controlled clock and a recorded sleep: what is
