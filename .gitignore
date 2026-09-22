@@ -45,3 +45,10 @@ next-env.d.ts
 # Playwright
 test-results/
 playwright-report/
+
+# Python (services/optimization)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
