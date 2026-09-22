@@ -1,7 +1,12 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-import { auditTakenOffline, offlineFields } from './availability.js';
+import {
+  auditTakenOffline,
+  journeyOfflineFields,
+  offlineFields,
+  readOwnJourney,
+} from './availability.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
@@ -91,6 +96,9 @@ export async function saveVehicle(
       tx.get(vehicleRef),
       tx.get(samePlate),
     ]);
+    // Read now (Module 5.1): all of a transaction's reads must happen before any of its writes, and
+    // this function's first write is only a few lines below.
+    const ownJourney = await readOwnJourney(tx, firestore, caller.uid, driver);
 
     if (!user.exists || user.get('status') !== 'ACTIVE' || !driver.exists) {
       throw new HttpsError('failed-precondition', 'This account cannot save a vehicle right now.');
@@ -146,6 +154,10 @@ export async function saveVehicle(
     const offline = offlineFields(driver);
     if (offline) {
       tx.update(driverRef, offline);
+      const journeyOffline = journeyOfflineFields(ownJourney);
+      if (journeyOffline && ownJourney) {
+        tx.update(ownJourney.ref, { ...journeyOffline, updatedAt: FieldValue.serverTimestamp() });
+      }
       auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle details changed');
     }
     return { status: 'updated' };
@@ -193,12 +205,7 @@ export async function setVehicleCapacity(
     if (previous === seatCapacity) return { status: 'unchanged' };
 
     // Seats on offer live on the driver's own open journey; read it now, before any write.
-    const journeyId: unknown = driver.get('currentJourneyId');
-    const journeyRef =
-      typeof journeyId === 'string' && journeyId
-        ? firestore.collection('driverJourneys').doc(journeyId)
-        : null;
-    const journey = journeyRef ? await tx.get(journeyRef) : undefined;
+    const journey = await readOwnJourney(tx, firestore, caller.uid, driver);
 
     const raised = typeof previous !== 'number' || seatCapacity > previous;
     const previousAvailable: unknown = vehicle.get('availableSeats');
@@ -231,14 +238,8 @@ export async function setVehicleCapacity(
     });
     // A journey can never offer more seats than the vehicle holds.
     const offered: unknown = journey?.get('availableSeats');
-    if (
-      journeyRef &&
-      journey?.exists &&
-      journey.get('driverId') === caller.uid &&
-      typeof offered === 'number' &&
-      offered > seatCapacity
-    ) {
-      tx.update(journeyRef, {
+    if (journey && typeof offered === 'number' && offered > seatCapacity) {
+      tx.update(journey.ref, {
         availableSeats: seatCapacity,
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -247,6 +248,10 @@ export async function setVehicleCapacity(
     const offline = raised ? offlineFields(driver) : undefined;
     if (offline) {
       tx.update(driverRef, offline);
+      const journeyOffline = journeyOfflineFields(journey);
+      if (journeyOffline && journey) {
+        tx.update(journey.ref, { ...journeyOffline, updatedAt: FieldValue.serverTimestamp() });
+      }
       auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle seats raised');
     }
     return { status: 'updated' };
