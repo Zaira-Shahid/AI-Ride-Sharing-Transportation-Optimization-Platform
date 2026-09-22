@@ -1,7 +1,12 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
-import { auditTakenOffline, offlineFields } from './availability.js';
+import {
+  auditTakenOffline,
+  journeyOfflineFields,
+  offlineFields,
+  readOwnJourney,
+} from './availability.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
@@ -62,6 +67,8 @@ export async function reviewVerification(
 
   return firestore.runTransaction(async (tx): Promise<ReviewResult> => {
     const [snapshot, driverSnapshot] = await Promise.all([tx.get(ref), tx.get(driverRef)]);
+    // Read now (Module 5.1): all of a transaction's reads must happen before any of its writes.
+    const ownJourney = await readOwnJourney(tx, firestore, driverId, driverSnapshot);
     if (!snapshot.exists) {
       throw new HttpsError('not-found', `There is no ${target.toLowerCase()} with that ID.`);
     }
@@ -81,6 +88,10 @@ export async function reviewVerification(
     });
     if (offline) {
       if (target === 'VEHICLE') tx.update(driverRef, offline);
+      const journeyOffline = journeyOfflineFields(ownJourney);
+      if (journeyOffline && ownJourney) {
+        tx.update(ownJourney.ref, { ...journeyOffline, updatedAt: FieldValue.serverTimestamp() });
+      }
       auditTakenOffline(
         tx,
         firestore,
