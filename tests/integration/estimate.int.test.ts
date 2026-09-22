@@ -451,7 +451,10 @@ describe('the trigger: a new trip request gets its estimate (functions + firesto
     expect(trip.estimatedDuration).toBe(Math.round(expected?.duration ?? Number.NaN));
     expect(Number.isInteger(trip.estimatedDistance)).toBe(true);
     expect(trip.estimatedDistance).toBeGreaterThan(150_000);
-    expect(trip.status).toBe('REQUESTED');
+    // The search-starting trigger (Modules 5.2 and 5.3) runs independently of this one and usually
+    // finishes first (it never waits on a routing server), so this leave-now request is normally
+    // already SEARCHING by now.
+    expect(['REQUESTED', 'SEARCHING']).toContain(trip.status);
     // One lookup, for the rounded places, asked as the routing server's contact says.
     expect(fake.requests).toHaveLength(1);
     expect(fake.requests[0]?.stops).toEqual(rounded);
@@ -483,7 +486,9 @@ describe('the trigger: a new trip request gets its estimate (functions + firesto
     await waitFor(async () => (fake.requests.length > 0 ? true : undefined));
     await new Promise((resolve) => setTimeout(resolve, 1_500));
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
-    expect(trip?.status).toBe('REQUESTED');
+    // The search-starting trigger (Modules 5.2 and 5.3) does not depend on the routing server, so
+    // this leave-now request is normally already SEARCHING by now.
+    expect(['REQUESTED', 'SEARCHING']).toContain(trip?.status);
     expect(trip?.estimatedDistance).toBeNull();
     expect(trip?.estimatedDuration).toBeNull();
     expect((await tripsOf(passengerId)).length).toBe(1);

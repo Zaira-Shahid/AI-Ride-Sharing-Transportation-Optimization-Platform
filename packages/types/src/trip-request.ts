@@ -88,6 +88,13 @@ export interface TripRequest {
   /** Filled in by pricing (Phase 8 onwards); null until then. */
   estimatedFare: number | null;
   /**
+   * How many candidate driver journeys matching found (Modules 5.2/5.3) when the request started
+   * SEARCHING: null until then, and always for a request that has not left REQUESTED yet or was
+   * future-dated (no candidates are looked for until closer to departure - a later module's
+   * decision). A snapshot for a person to read, not a promise any of them are still available.
+   */
+  candidateCount: number | null;
+  /**
    * The road distance from the pickup to the destination in METRES, filled in by the server just after
    * the request is created (trip-estimate.ts); null until then, and when no route could be had.
    */
@@ -107,6 +114,7 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   estimatedDistance: null,
   estimatedDuration: null,
   assignedPlanId: null,
+  candidateCount: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary
