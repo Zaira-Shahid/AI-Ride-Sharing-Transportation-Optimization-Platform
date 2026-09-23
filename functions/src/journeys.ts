@@ -53,6 +53,9 @@ export const NEW_JOURNEY_DEFAULTS = {
   // The trip request this journey was assigned (Module 5.5), once its status is MATCHING; null
   // until then.
   matchedTripRequestId: null,
+  // Every request this journey was assigned by a Phase 6 batch optimization run (Module 6.9), once
+  // its status is MATCHING; empty until then.
+  matchedTripRequestIds: [],
 } as const;
 
 // A journey's DRAFT parts (destination, seats, detour, start) stay editable once the driver goes
