@@ -123,6 +123,13 @@ export interface DriverJourney {
   currentRoute: unknown;
   /** The trip request this journey was assigned (Module 5.5), once MATCHING; null until then. */
   matchedTripRequestId: string | null;
+  /**
+   * Every request this journey was assigned by a Phase 6 batch optimization run (Module 6.9), once
+   * MATCHING; empty until then. A journey can carry more than one at once (module 6.5's plan
+   * generation may share a route); the batch run's own journeyPlans/{planId} document (Cloud
+   * Functions only, not mirrored here) holds the actual stop order.
+   */
+  matchedTripRequestIds: string[];
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -139,4 +146,5 @@ export const NEW_JOURNEY_DEFAULTS = {
   currentLocation: null,
   currentRoute: null,
   matchedTripRequestId: null,
+  matchedTripRequestIds: [],
 } as const;
