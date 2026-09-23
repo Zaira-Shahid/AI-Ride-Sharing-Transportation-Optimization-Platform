@@ -12,6 +12,7 @@ import {
 import type { FirebaseClient } from './client';
 import { subscribeToDriverProfile, type DriverProfileSnapshot } from './driver';
 import { subscribeToJourney, type JourneySnapshot } from './journey';
+import { subscribeToJourneyPlanStops, type JourneyPlanStopsSnapshot } from './journeyPlan';
 import { subscribeToProfile, type ProfileSnapshot } from './profile';
 import { deriveSessionStatus, type SessionStatus } from './session';
 import {
@@ -186,6 +187,19 @@ export type JourneyState = LiveState<JourneySnapshot>;
 export function useJourney(journeyId: string | null): JourneyState & { retry: () => void } {
   const live = useLiveSubscription(subscribeToJourney, journeyId ?? undefined);
   return journeyId ? live : { status: 'missing', retry: live.retry };
+}
+
+export type JourneyPlanStopsState = LiveState<JourneyPlanStopsSnapshot>;
+
+/**
+ * The stops of journey `journeyId`'s current plan (Module 7.1), kept up to date. 'none' while it has
+ * no matched passengers yet. Use it in driver screens only.
+ */
+export function useJourneyPlanStops(
+  journeyId: string | null,
+): JourneyPlanStopsState & { retry: () => void } {
+  const live = useLiveSubscription(subscribeToJourneyPlanStops, journeyId ?? undefined);
+  return journeyId ? live : { status: 'none', retry: live.retry };
 }
 
 export type TripRequestState = LiveState<TripRequestSnapshot>;

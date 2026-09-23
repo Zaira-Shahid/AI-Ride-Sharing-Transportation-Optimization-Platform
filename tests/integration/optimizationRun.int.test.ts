@@ -217,7 +217,7 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
     expect(outcome.matchedJourneyCount).toBe(1);
 
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
-    expect(trip?.status).toBe('MATCHED');
+    expect(trip?.status).toBe('PICKUP_ASSIGNED');
     expect(trip?.matchedJourneyId).toBe(journeyId);
     expect(trip?.matchedDriverId).toBe(driverId);
     expect(typeof trip?.assignedPlanId).toBe('string');
