@@ -11,21 +11,29 @@ import {
   setVehicleCapacity,
 } from '../../packages/firebase/src';
 import {
+  assignSearchingTripRequest,
   buildJourneyStopMatrix,
   checkCandidateRoute,
   findCandidateJourneysNow,
 } from '../../functions/src/matching';
-import type { Route, RoutePoint, RoutingProvider } from '../../functions/src/routing';
-import { startFakeOsrm, type FakeOsrm } from '../fake-osrm';
+import {
+  createOsrmProvider,
+  type Route,
+  type RoutePoint,
+  type RoutingProvider,
+} from '../../functions/src/routing';
+import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_PORT, startFakeOsrm, type FakeOsrm } from '../fake-osrm';
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
 
 // Candidate discovery (Module 5.2): the first describe block calls findCandidateJourneysNow
 // directly. Starting the search (Module 5.3, the trigger that runs it automatically and moves a
 // trip request on to SEARCHING) is the second describe block, end to end. Route compatibility
 // (Module 5.4, checkCandidateRoute) is the third, with a stand-in routing provider - the same way
-// routing.int.test.ts tests calculateRoute's own logic. Assignment (Module 5.5) is the fourth, end
-// to end against a real fake OSRM (as estimate.int.test.ts does for the estimate trigger), since the
-// trigger it is wired into (matchTripRequestOnCreate) asks for real routes through it.
+// routing.int.test.ts tests calculateRoute's own logic. Assignment (Module 5.5) is the fourth: since
+// the periodic batch optimization run (Module 6.9/6.10) replaced its automatic trigger wiring,
+// assignSearchingTripRequest is now a pure/untriggered function like 5.2 and 5.4 - called directly
+// here, against a real fake OSRM (the same one 5.4's own network-dependent behaviour would use in
+// production), once the trigger's own discovery step (5.2/5.3) has put the request into SEARCHING.
 
 let fake: FakeOsrm;
 beforeAll(async () => {
@@ -431,6 +439,8 @@ describe('buildJourneyStopMatrix (functions + firestore emulators, a stand-in pr
 });
 
 describe('assignment end to end (Module 5.5, functions + firestore emulators, a real fake OSRM)', () => {
+  const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+
   // Its own corner of the world, well away from every other describe block's coordinates in this
   // file, so no leftover driver from another test is ever a candidate here.
   const A_ORIGIN = { latitude: 58, longitude: -1 };
@@ -502,14 +512,6 @@ describe('assignment end to end (Module 5.5, functions + firestore emulators, a 
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
-  const matchedTrip = (tripId: string) => async () => {
-    const data = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
-    // Only MATCHED settles this: SEARCHING is also what a leave-now request looks like the moment
-    // discovery (Stage 1) finishes and before assignment (Stage 2 onwards), which runs a little
-    // longer, in the same trigger invocation - waiting on it too would return before assignment had
-    // its chance to run.
-    return data?.status === 'MATCHED' ? data : undefined;
-  };
   const searchingTrip = (tripId: string) => async () => {
     const data = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
     return data?.status === 'SEARCHING' ? data : undefined;
@@ -529,13 +531,29 @@ describe('assignment end to end (Module 5.5, functions + firestore emulators, a 
       preferences: BALANCED,
     });
 
-    const trip = await waitFor(matchedTrip(tripId), 30_000);
-    expect(trip.status).toBe('MATCHED');
-    expect(trip.matchedDriverId).toBe(driver.uid);
-    expect(trip.matchedJourneyId).toEqual(expect.any(String));
+    // Discovery (5.2/5.3) still runs automatically via the trigger; assignment (5.5) no longer does
+    // (the periodic batch run replaced it), so it is called directly once discovery has finished.
+    await waitFor(searchingTrip(tripId), 30_000);
+    const provider = createOsrmProvider({
+      baseUrls: {
+        driving: `http://127.0.0.1:${FAKE_OSRM_PORT}${FAKE_OSRM_BASE_PATH}`,
+        walking: '',
+      },
+      userAgent: 'RideMesh-tests',
+    });
+    const outcome = await assignSearchingTripRequest(
+      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      tripId,
+    );
+    expect(outcome).toBe('matched');
+
+    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    expect(trip?.status).toBe('MATCHED');
+    expect(trip?.matchedDriverId).toBe(driver.uid);
+    expect(trip?.matchedJourneyId).toEqual(expect.any(String));
 
     const journey = (
-      await admin().firestore.doc(`driverJourneys/${trip.matchedJourneyId}`).get()
+      await admin().firestore.doc(`driverJourneys/${trip?.matchedJourneyId}`).get()
     ).data();
     expect(journey?.status).toBe('MATCHING');
     expect(journey?.matchedTripRequestId).toBe(tripId);
