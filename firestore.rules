@@ -74,12 +74,24 @@ service cloud.firestore {
 
     // A passenger's trip request. The document ID is generated, so ownership comes from passengerId.
     // Only server functions create or change it (Module 3.7). It holds exact pickup and destination
-    // coordinates of a private person, so only the passenger who made it can read it: not staff
-    // (their access will come through audited functions), and not drivers.
+    // coordinates of a private person, so only the passenger who made it, or the driver it has been
+    // matched to (Module 7.1, matchedDriverId - null until matched, so nobody can read someone else's
+    // still-searching request), can read it: not staff (their access will come through audited
+    // functions).
     match /tripRequests/{tripId} {
       allow read: if isVerified()
-                  && request.auth.uid == resource.data.passengerId
-                  && role() == 'PASSENGER';
+                  && ((request.auth.uid == resource.data.passengerId && role() == 'PASSENGER')
+                      || (request.auth.uid == resource.data.matchedDriverId && role() == 'DRIVER'));
+      allow write: if false;
+    }
+
+    // A shared route plan the optimization engine produced (Module 6.9), holding the stop order for
+    // one journey. Server-written only; the driver it belongs to can read it to see their passengers'
+    // pickup/dropoff order (Module 7.1).
+    match /journeyPlans/{planId} {
+      allow read: if isVerified()
+                  && ((request.auth.uid == resource.data.driverId && role() == 'DRIVER')
+                      || isStaff());
       allow write: if false;
     }
 

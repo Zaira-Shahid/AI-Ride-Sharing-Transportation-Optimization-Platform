@@ -9,9 +9,11 @@ import {
   useAuth,
   useDriverProfile,
   useJourney,
+  useJourneyPlanStops,
   useProfile,
   useVehicle,
 } from '@ridemesh/firebase/react';
+import type { JourneyPlanStop } from '@ridemesh/firebase';
 import {
   evaluateGoOnline,
   isEditableJourneyStatus,
@@ -104,6 +106,32 @@ function Checklist({ checks, facts }: { checks: GoOnlineCheck[]; facts: Facts })
   );
 }
 
+const STOP_LABEL: Record<JourneyPlanStop['kind'], string> = {
+  pickup: 'Pick up',
+  dropoff: 'Drop off',
+};
+
+/** The matched journey's stop order (Module 7.1): who to pick up and drop off, and where, in order. */
+function PassengersCard({ stops }: { stops: JourneyPlanStop[] }) {
+  const theme = useAuthTheme();
+  return (
+    <View
+      style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
+      accessibilityLabel="Your passengers"
+    >
+      <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Your passengers</Text>
+      {stops.map((stop, index) => (
+        <View key={`${stop.requestId}-${stop.kind}`} style={styles.item}>
+          <Text style={[styles.itemText, { color: theme.textPrimary }]}>
+            {index + 1}. {STOP_LABEL[stop.kind]} {stop.passengerName}
+            {stop.address ? ` - ${stop.address}` : ''}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** The driver's Home: whether they are online, going online or offline, and what is missing. */
 export function DriverHomeScreen({
   theme,
@@ -118,6 +146,7 @@ export function DriverHomeScreen({
   const vehicle = useVehicle();
   const currentJourneyId = driver.status === 'ready' ? driver.driver.currentJourneyId : null;
   const journey = useJourney(currentJourneyId);
+  const planStops = useJourneyPlanStops(currentJourneyId);
   const [failure, setFailure] = useState<AuthFailure | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -235,6 +264,9 @@ export function DriverHomeScreen({
               {eligible ? null : <Checklist checks={checks} facts={facts} />}
             </>
           )}
+          {planStops.status === 'ready' && planStops.stops.length > 0 ? (
+            <PassengersCard stops={planStops.stops} />
+          ) : null}
           <DestinationSection
             placesApiKey={placesApiKey}
             destination={destination}

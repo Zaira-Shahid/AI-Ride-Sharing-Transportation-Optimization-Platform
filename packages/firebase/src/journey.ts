@@ -29,6 +29,8 @@ export interface JourneyData {
   maxDetourMinutes: number | null;
   /** Extra kilometres the driver accepts for passengers; null until they choose. */
   maxDetourDistance: number | null;
+  /** The trip requests assigned to this journey (Module 6.9); empty until MATCHING. */
+  matchedTripRequestIds: string[];
 }
 
 export type JourneySnapshot = { status: 'ready'; journey: JourneyData } | { status: 'missing' };
@@ -85,6 +87,9 @@ export function subscribeToJourney(
           maxDetourDistance: Number.isInteger(data.maxDetourDistance)
             ? (data.maxDetourDistance as number)
             : null,
+          matchedTripRequestIds: Array.isArray(data.matchedTripRequestIds)
+            ? data.matchedTripRequestIds.filter((id): id is string => typeof id === 'string')
+            : [],
         },
       });
     },

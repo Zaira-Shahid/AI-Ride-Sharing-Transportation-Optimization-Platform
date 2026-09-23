@@ -203,6 +203,8 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
         'matchedJourneyId',
         'origin',
         'passengerId',
+        // The passenger's first name only (Module 7.1), copied in at creation for a matched driver.
+        'passengerName',
         'passengerPreferences',
         'requestedAt',
         'requestedDepartureTime',

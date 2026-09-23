@@ -214,6 +214,12 @@ function isOpen(status: unknown): boolean {
  * The request holds exact coordinates of a private person, so the audit entry carries the status
  * only, and the function logs nothing about the places.
  */
+/** The first whitespace-separated word of `name` (module 7.1: all a matched driver ever sees). */
+function firstNameOf(name: unknown): string {
+  const first = typeof name === 'string' ? name.trim().split(/\s+/)[0] : undefined;
+  return first || 'Passenger';
+}
+
 export async function createTripRequest(
   deps: { firestore: Firestore; now?: () => number },
   caller: PassengerCaller,
@@ -288,6 +294,7 @@ export async function createTripRequest(
     const tripRef = trips.doc();
     tx.create(tripRef, {
       passengerId: caller.uid,
+      passengerName: firstNameOf(user.get('name')),
       origin,
       destination,
       requestedAt: FieldValue.serverTimestamp(),
@@ -381,7 +388,11 @@ export async function cancelTripRequest(
 // @ridemesh/types; tests/roles-parity.test.ts fails if they diverge.
 export const TRIP_STATUS_TRANSITIONS: Record<string, readonly string[]> = {
   REQUESTED: ['SEARCHING', 'CANCELLED'],
-  SEARCHING: ['MATCHED', 'CANCELLED'],
+  // PICKUP_ASSIGNED directly: the batch optimization run (Module 6.9/6.10, Phase 7) assigns a
+  // request and fixes its place in the driver's stop order in the same step, so there is no separate
+  // moment where it is "matched" but not yet "pickup assigned" - MATCHED stays a valid status (kept
+  // for module 5.5's own still-exported assignSearchingTripRequest) but is not the only next step.
+  SEARCHING: ['MATCHED', 'PICKUP_ASSIGNED', 'CANCELLED'],
   MATCHED: ['PICKUP_ASSIGNED', 'CANCELLED'],
   PICKUP_ASSIGNED: ['DRIVER_ARRIVING', 'CANCELLED'],
   DRIVER_ARRIVING: ['PICKED_UP', 'CANCELLED'],

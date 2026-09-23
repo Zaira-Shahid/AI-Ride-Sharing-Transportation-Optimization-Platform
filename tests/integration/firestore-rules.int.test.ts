@@ -553,11 +553,13 @@ describe('driverJourneys', () => {
 });
 
 describe('tripRequests', () => {
-  const trip = (passengerId: string) => ({
+  const trip = (passengerId: string, overrides: Record<string, unknown> = {}) => ({
     passengerId,
     origin: { latitude: 51.5, longitude: -0.1, formattedAddress: 'A', placeId: null },
     destination: { latitude: 51.6, longitude: -0.2, formattedAddress: 'B', placeId: null },
     status: 'REQUESTED',
+    matchedDriverId: null,
+    ...overrides,
   });
   const as = (uid: string, claims: Record<string, unknown>) =>
     env.authenticatedContext(uid, claims).firestore();
@@ -582,11 +584,29 @@ describe('tripRequests', () => {
     await assertFails(getDoc(doc(as('passenger-2', verified('PASSENGER')), 'tripRequests/trip-1')));
   });
 
-  it('does not let drivers or staff read a request, even one that names them', async () => {
+  it('does not let drivers or staff read an unmatched request, even one that names them', async () => {
     for (const role of ['DRIVER', 'SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
       await assertFails(getDoc(doc(as('staff-1', verified(role)), 'tripRequests/trip-1')));
       await assertFails(getDoc(doc(as('passenger-1', verified(role)), 'tripRequests/trip-1')));
     }
+  });
+
+  it('lets the matched driver read the request, once matchedDriverId names them (Module 7.1)', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(
+        doc(context.firestore(), 'tripRequests/trip-matched'),
+        trip('passenger-1', { status: 'PICKUP_ASSIGNED', matchedDriverId: 'driver-1' }),
+      );
+    });
+    const snapshot = await assertSucceeds(
+      getDoc(doc(as('driver-1', verified('DRIVER')), 'tripRequests/trip-matched')),
+    );
+    expect(snapshot.get('matchedDriverId')).toBe('driver-1');
+    // A different driver, and staff, still cannot.
+    await assertFails(getDoc(doc(as('driver-2', verified('DRIVER')), 'tripRequests/trip-matched')));
+    await assertFails(
+      getDoc(doc(as('staff-1', verified('SUPER_ADMIN')), 'tripRequests/trip-matched')),
+    );
   });
 
   it('requires a verified email', async () => {
@@ -653,5 +673,59 @@ describe('tripRequests', () => {
         updatedAt: serverTimestamp(),
       }),
     );
+  });
+});
+
+describe('journeyPlans (Module 7.1)', () => {
+  const plan = (driverId: string) => ({
+    journeyId: 'journey-1',
+    driverId,
+    requestIds: ['trip-1'],
+    stops: [
+      { kind: 'pickup', requestId: 'trip-1' },
+      { kind: 'dropoff', requestId: 'trip-1' },
+    ],
+    totalDistanceMeters: 1000,
+    totalDurationSeconds: 200,
+    createdAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+  });
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore();
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'journeyPlans/plan-1'), plan('driver-1'));
+    });
+  });
+
+  it('lets the driver it belongs to read it', async () => {
+    const snapshot = await assertSucceeds(
+      getDoc(doc(as('driver-1', verified('DRIVER')), 'journeyPlans/plan-1')),
+    );
+    expect(snapshot.get('driverId')).toBe('driver-1');
+  });
+
+  it('does not let a different driver or a passenger read it', async () => {
+    await assertFails(getDoc(doc(as('driver-2', verified('DRIVER')), 'journeyPlans/plan-1')));
+    await assertFails(getDoc(doc(as('driver-1', verified('PASSENGER')), 'journeyPlans/plan-1')));
+  });
+
+  it('lets verified staff read any plan', async () => {
+    for (const role of ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      await assertSucceeds(getDoc(doc(as('staff-1', verified(role)), 'journeyPlans/plan-1')));
+    }
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = as('driver-1', { email_verified: false, role: 'DRIVER' });
+    await assertFails(getDoc(doc(unverified, 'journeyPlans/plan-1')));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'journeyPlans/plan-1')));
+  });
+
+  it('denies every client write', async () => {
+    const db = as('driver-1', verified('DRIVER'));
+    await assertFails(updateDoc(doc(db, 'journeyPlans/plan-1'), { driverId: 'driver-2' }));
+    await assertFails(setDoc(doc(db, 'journeyPlans/new-one'), plan('driver-1')));
+    await assertFails(deleteDoc(doc(db, 'journeyPlans/plan-1')));
   });
 });
