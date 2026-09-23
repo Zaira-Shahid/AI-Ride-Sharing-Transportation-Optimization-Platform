@@ -25,6 +25,10 @@ import {
   cancelTripRequest as cancelPassengerTripRequest,
   createTripRequest as createPassengerTripRequest,
 } from './tripRequests.js';
+import {
+  confirmPickup as driverConfirmPickup,
+  headToPickup as driverHeadToPickup,
+} from './tripExecution.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
   saveVehicle as saveDriverVehicle,
@@ -126,6 +130,14 @@ export const createTripRequest = onCall((request) =>
 
 export const cancelTripRequest = onCall((request) =>
   cancelPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const headToPickup = onCall((request) =>
+  driverHeadToPickup({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const confirmPickup = onCall((request) =>
+  driverConfirmPickup({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
 export const setJourneyOrigin = onCall((request) =>

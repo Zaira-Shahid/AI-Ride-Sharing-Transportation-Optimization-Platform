@@ -1,8 +1,11 @@
 import {
+  confirmPickup,
   describeAuthError,
+  headToPickup,
   setAvailability,
   type AuthFailure,
   type DriverProfileData,
+  type FirebaseClient,
   type VehicleData,
 } from '@ridemesh/firebase';
 import {
@@ -111,21 +114,63 @@ const STOP_LABEL: Record<JourneyPlanStop['kind'], string> = {
   dropoff: 'Drop off',
 };
 
-/** The matched journey's stop order (Module 7.1): who to pick up and drop off, and where, in order. */
-function PassengersCard({ stops }: { stops: JourneyPlanStop[] }) {
+/**
+ * The matched journey's stop order (Module 7.1): who to pick up and drop off, and where, in order.
+ * A pickup stop still PICKUP_ASSIGNED or DRIVER_ARRIVING (Module 7.2) gets a button to move it on -
+ * both driver-initiated, never automatic (user decision). Dropoff stops have no action yet.
+ */
+function PassengersCard({
+  stops,
+  client,
+}: {
+  stops: JourneyPlanStop[];
+  client: Pick<FirebaseClient, 'functions'>;
+}) {
   const theme = useAuthTheme();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const act = async (tripId: string, action: 'head' | 'confirm') => {
+    setFailure(null);
+    setBusyId(tripId);
+    try {
+      await (action === 'head' ? headToPickup(client, tripId) : confirmPickup(client, tripId));
+    } catch (error) {
+      setFailure(describeAuthError(error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <View
       style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
       accessibilityLabel="Your passengers"
     >
       <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Your passengers</Text>
+      {failure ? <Notice tone="error">{failure}</Notice> : null}
       {stops.map((stop, index) => (
         <View key={`${stop.requestId}-${stop.kind}`} style={styles.item}>
           <Text style={[styles.itemText, { color: theme.textPrimary }]}>
             {index + 1}. {STOP_LABEL[stop.kind]} {stop.passengerName}
             {stop.address ? ` - ${stop.address}` : ''}
           </Text>
+          {stop.kind === 'pickup' && stop.status === 'PICKUP_ASSIGNED' ? (
+            <SecondaryButton
+              label="Head to pickup"
+              onPress={() => void act(stop.requestId, 'head')}
+              loading={busyId === stop.requestId}
+              disabled={busyId !== null}
+            />
+          ) : null}
+          {stop.kind === 'pickup' && stop.status === 'DRIVER_ARRIVING' ? (
+            <PrimaryButton
+              label="Confirm pickup"
+              onPress={() => void act(stop.requestId, 'confirm')}
+              loading={busyId === stop.requestId}
+              disabled={busyId !== null}
+            />
+          ) : null}
         </View>
       ))}
     </View>
@@ -265,7 +310,7 @@ export function DriverHomeScreen({
             </>
           )}
           {planStops.status === 'ready' && planStops.stops.length > 0 ? (
-            <PassengersCard stops={planStops.stops} />
+            <PassengersCard stops={planStops.stops} client={client} />
           ) : null}
           <DestinationSection
             placesApiKey={placesApiKey}
