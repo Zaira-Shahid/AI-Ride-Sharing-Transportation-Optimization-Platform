@@ -4,9 +4,12 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { estimateTripRequest } from './estimates.js';
 import { buildHealthResponse } from './health.js';
-import { assignSearchingTripRequest, matchTripRequest } from './matching.js';
+import { matchTripRequest } from './matching.js';
+import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
+import { runBatchOptimization } from './optimizationRun.js';
 import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
@@ -172,23 +175,19 @@ export const estimateTripRequestOnCreate = onDocumentCreated(
 );
 
 /**
- * Starts the search for a new trip request and, when it finds candidates, tries to match it
- * straight away (Modules 5.2, 5.3 and 5.5): moves it from REQUESTED to SEARCHING, running candidate
- * discovery first when it leaves now, then assignment if that discovery found anyone. Never throws:
- * a request that stays SEARCHING (matched or not) is normal (the trigger can be retried), and
- * nothing about the request's places is logged.
+ * Starts the search for a new trip request (Modules 5.2 and 5.3): moves it from REQUESTED to
+ * SEARCHING, running candidate discovery first when it leaves now (stored as candidateCount only).
+ * Actual matching no longer happens here - Module 5.5's instant per-request assignment was replaced
+ * by the periodic batch optimization run (batchOptimizationRun below) once that was wired up, so a
+ * SEARCHING request now waits for the next scheduled run instead of being assigned immediately. Never
+ * throws: a request that stays SEARCHING is normal (the trigger can be retried), and nothing about
+ * the request's places is logged.
  */
 export const matchTripRequestOnCreate = onDocumentCreated(
   { document: 'tripRequests/{tripId}', timeoutSeconds: 120 },
   async (event) => {
     try {
-      const outcome = await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
-      if (outcome === 'searching') {
-        await assignSearchingTripRequest(
-          { firestore: getFirestore(), provider: osrmFromEnvironment() },
-          event.params.tripId,
-        );
-      }
+      await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
     } catch {
       logger.warn('The search for a trip request could not be started.', {
         tripId: event.params.tripId,
@@ -196,3 +195,29 @@ export const matchTripRequestOnCreate = onDocumentCreated(
     }
   },
 );
+
+/**
+ * The periodic batch optimization run (Module 6.9/6.10): every 2 minutes, re-optimizes every
+ * SEARCHING trip request against every AVAILABLE journey together (real pooling, unlike the old
+ * per-request assignment above) and writes any resulting matches straight to Firestore. Does nothing
+ * when OPTIMIZATION_SERVICE_URL is not configured (Spark-plan/local environments without the Python
+ * service running) - logs and returns rather than failing the invocation. Never throws otherwise: a
+ * run that matches nothing is normal, and nothing about requests' or journeys' places is logged.
+ */
+export const batchOptimizationRun = onSchedule('every 2 minutes', async () => {
+  const baseUrl = optimizationServiceUrlFromEnvironment();
+  if (!baseUrl) {
+    logger.warn('OPTIMIZATION_SERVICE_URL is not set; skipping this batch optimization run.');
+    return;
+  }
+  try {
+    const outcome = await runBatchOptimization({
+      firestore: getFirestore(),
+      provider: osrmFromEnvironment(),
+      optimizationService: { baseUrl },
+    });
+    logger.info('Batch optimization run finished.', outcome);
+  } catch {
+    logger.warn('The batch optimization run failed.');
+  }
+});
