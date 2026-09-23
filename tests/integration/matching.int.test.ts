@@ -10,7 +10,11 @@ import {
   setJourneySeats,
   setVehicleCapacity,
 } from '../../packages/firebase/src';
-import { checkCandidateRoute, findCandidateJourneysNow } from '../../functions/src/matching';
+import {
+  buildJourneyStopMatrix,
+  checkCandidateRoute,
+  findCandidateJourneysNow,
+} from '../../functions/src/matching';
 import type { Route, RoutePoint, RoutingProvider } from '../../functions/src/routing';
 import { startFakeOsrm, type FakeOsrm } from '../fake-osrm';
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
@@ -333,6 +337,93 @@ describe('checkCandidateRoute (functions + firestore emulators, a stand-in provi
     const result = await checkCandidateRoute(
       { firestore: admin().firestore, provider, limits: NO_LIMITS },
       { driverId: 'driver-rc-4', passengerId: 'passenger-rc-4', ...points(), ...LIMITS },
+    );
+
+    expect(result).toEqual({ status: 'unavailable' });
+  });
+});
+
+describe('buildJourneyStopMatrix (functions + firestore emulators, a stand-in provider)', () => {
+  const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+
+  let matrixCounter = 0;
+  /** A different base latitude for every test, so no test's routes share a cache entry. */
+  function base(): number {
+    matrixCounter += 1;
+    return 20 + matrixCounter * 2;
+  }
+
+  /** Distance is just how far apart the two points are on the latitude axis - lets a test assert an
+   * exact expected leg without hand-building a lookup table for every ordered pair. */
+  function positionalProvider(): RoutingProvider {
+    return {
+      route: (stops: RoutePoint[]) => {
+        const distance = Math.round(Math.abs(stops[0]!.latitude - stops[1]!.latitude) * 100_000);
+        return Promise.resolve({
+          distanceMeters: distance,
+          durationSeconds: distance,
+          geometry: '_p~iF~ps|U',
+          legs: [{ distanceMeters: distance, durationSeconds: distance }],
+        });
+      },
+    };
+  }
+
+  it('computes a leg for every ordered pair of stops', async () => {
+    const at = base();
+    const driverOrigin = { latitude: at, longitude: 0 };
+    const driverDestination = { latitude: at + 10, longitude: 0 };
+    const pickup = { latitude: at + 2, longitude: 0 };
+    const destination = { latitude: at + 8, longitude: 0 };
+
+    const result = await buildJourneyStopMatrix(
+      { firestore: admin().firestore, provider: positionalProvider(), limits: NO_LIMITS },
+      {
+        driverId: 'driver-matrix-1',
+        driverOrigin,
+        driverDestination,
+        requests: [{ requestId: 'r1', pickup, destination }],
+      },
+    );
+
+    expect(result.status).toBe('computed');
+    if (result.status !== 'computed') return;
+    // 4 stops (origin, destination, pickup:r1, dropoff:r1) -> 4 * 3 ordered pairs.
+    expect(result.legs).toHaveLength(12);
+
+    const originToPickup = result.legs.find(
+      (leg) => leg.fromStop === 'origin' && leg.toStop === 'pickup:r1',
+    );
+    expect(originToPickup).toEqual({
+      fromStop: 'origin',
+      toStop: 'pickup:r1',
+      distanceMeters: 200_000,
+      durationSeconds: 200_000,
+    });
+
+    const pickupToDropoff = result.legs.find(
+      (leg) => leg.fromStop === 'pickup:r1' && leg.toStop === 'dropoff:r1',
+    );
+    expect(pickupToDropoff).toEqual({
+      fromStop: 'pickup:r1',
+      toStop: 'dropoff:r1',
+      distanceMeters: 600_000,
+      durationSeconds: 600_000,
+    });
+  });
+
+  it('is unavailable as soon as any single pair has no route', async () => {
+    const at = base();
+    const provider: RoutingProvider = { route: () => Promise.resolve(null) };
+
+    const result = await buildJourneyStopMatrix(
+      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      {
+        driverId: 'driver-matrix-2',
+        driverOrigin: { latitude: at, longitude: 0 },
+        driverDestination: { latitude: at + 10, longitude: 0 },
+        requests: [],
+      },
     );
 
     expect(result).toEqual({ status: 'unavailable' });

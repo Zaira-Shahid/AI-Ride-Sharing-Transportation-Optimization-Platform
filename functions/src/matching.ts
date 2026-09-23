@@ -525,3 +525,97 @@ export async function assignSearchingTripRequest(
     return 'matched';
   });
 }
+
+// Journey stop matrix (Module 6.9, Cloud Functions side, part 1): the leg-by-leg distance/duration
+// matrix the optimization service's plan generation (services/optimization/app/plan.py, Module 6.5)
+// needs to pick a journey's stop order once it may carry more than one passenger - Python never calls
+// a routing server itself, so this is what supplies it, the same way checkCandidateRoute already
+// supplies a single candidate's added distance. One calculateRoute call per ordered pair of stops
+// (never in parallel - the same shared rate-limit reason as checkCandidateRoute); most repeat calls
+// land in calculateRoute's own cache once a journey's stops have been asked about once.
+//
+// The stop id format ("origin", "destination", "pickup:<requestId>", "dropoff:<requestId>") must
+// match the Python side's exactly (app/plan.py's ORIGIN_STOP/DESTINATION_STOP and pickup/dropoff
+// stop helpers) - it is the shared vocabulary between the two services.
+
+export interface JourneyStopMatrixRequest {
+  requestId: string;
+  pickup: RoutePoint;
+  destination: RoutePoint;
+}
+
+export interface RouteMatrixLeg {
+  fromStop: string;
+  toStop: string;
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
+export type JourneyStopMatrixOutcome =
+  { status: 'computed'; legs: RouteMatrixLeg[] } | { status: 'unavailable' };
+
+const ORIGIN_STOP = 'origin';
+const DESTINATION_STOP = 'destination';
+const pickupStop = (requestId: string) => `pickup:${requestId}`;
+const dropoffStop = (requestId: string) => `dropoff:${requestId}`;
+
+/**
+ * Every leg module 6.5's plan generation might need for `journeyId`: one entry for every ORDERED
+ * pair among the driver's own origin and destination and each of `requests`' pickup and drop-off -
+ * asked for through calculateRoute (Module 4.3, so cached, rounded and limited the same as every
+ * other route lookup), on the driver's own behalf. 'unavailable' as soon as any single pair could not
+ * be had, since module 6.5 needs the whole matrix to pick a stop order - the journey is left out of
+ * this batch run, to be retried the next time.
+ */
+export async function buildJourneyStopMatrix(
+  deps: {
+    firestore: Firestore;
+    provider: RoutingProvider;
+    limits?: LookupLimits;
+    now?: () => number;
+  },
+  input: {
+    driverId: string;
+    driverOrigin: RoutePoint;
+    driverDestination: RoutePoint;
+    requests: readonly JourneyStopMatrixRequest[];
+  },
+): Promise<JourneyStopMatrixOutcome> {
+  const { firestore, provider } = deps;
+  const routeDeps = {
+    firestore,
+    provider,
+    ...(deps.limits ? { limits: deps.limits } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
+  };
+  const driverCaller = { uid: input.driverId, role: 'DRIVER', emailVerified: true };
+
+  const stops: Array<{ id: string; point: RoutePoint }> = [
+    { id: ORIGIN_STOP, point: input.driverOrigin },
+    { id: DESTINATION_STOP, point: input.driverDestination },
+  ];
+  for (const request of input.requests) {
+    stops.push({ id: pickupStop(request.requestId), point: request.pickup });
+    stops.push({ id: dropoffStop(request.requestId), point: request.destination });
+  }
+
+  const legs: RouteMatrixLeg[] = [];
+  // Sequential, never Promise.all: see checkCandidateRoute's own note on the shared rate limit.
+  for (const from of stops) {
+    for (const to of stops) {
+      if (from.id === to.id) continue;
+      const result = await calculateRoute(routeDeps, driverCaller, {
+        stops: [from.point, to.point],
+      });
+      if (result.status !== 'found' || !result.route) return { status: 'unavailable' };
+      legs.push({
+        fromStop: from.id,
+        toStop: to.id,
+        distanceMeters: result.route.distanceMeters,
+        durationSeconds: result.route.durationSeconds,
+      });
+    }
+  }
+
+  return { status: 'computed', legs };
+}
