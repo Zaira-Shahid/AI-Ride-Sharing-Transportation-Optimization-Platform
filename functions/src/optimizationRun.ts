@@ -1,8 +1,8 @@
 // The batch optimization run (Module 6.9, Cloud Functions side, part 2): gathers every SEARCHING
 // trip request and AVAILABLE journey, calls the optimization service's two endpoints
-// (optimizationClient.ts), and writes the results back to Firestore. Not wired to anything yet - a
-// later module adds the scheduled trigger that actually calls this periodically, and disables Module
-// 5.5's automatic per-request matching (the batch replaces it going forward, once wired).
+// (optimizationClient.ts), and writes the results back to Firestore. Wired to a scheduled trigger in
+// index.ts (Module 6.10); it replaced Module 5.5's automatic per-request matching, which is no longer
+// called from anywhere in production.
 //
 // The route cost per candidate reuses checkCandidateRoute (Module 5.4) - same calculateRoute calls,
 // just without deciding compatibility itself, since that decision now belongs to the optimization
@@ -14,8 +14,11 @@
 // A kept plan is written as its own journeyPlans/{planId} document (holding the actual stop order -
 // tripRequests.assignedPlanId, added in Module 3.7, was always waiting for exactly this), plus the
 // usual matchedJourneyId/matchedDriverId on each trip request and matchedTripRequestIds on the
-// journey - same MATCHED/MATCHING status transition Module 5.5 already uses, just for more than one
-// request at once. A transaction re-checks the journey is still AVAILABLE and every one of its
+// journey - same MATCHING status the journey has always used, just for more than one request at once.
+// A trip request goes straight to PICKUP_ASSIGNED, not MATCHED (Module 7.1): its place in the stop
+// order is already fixed by the plan at the moment of assignment, so there is no separate "matched
+// but pickup not yet set" moment to represent (see the TRIP_STATUS_TRANSITIONS comment in
+// tripRequests.ts). A transaction re-checks the journey is still AVAILABLE and every one of its
 // requests is still SEARCHING and unassigned before writing, since the pool may have moved on since
 // the batch snapshot was taken.
 
@@ -305,7 +308,7 @@ export async function runBatchOptimization(deps: {
       });
       for (const tripRef of tripRefs) {
         tx.update(tripRef, {
-          status: 'MATCHED',
+          status: 'PICKUP_ASSIGNED',
           matchedJourneyId: plan.journey_id,
           matchedDriverId: plan.driver_id,
           assignedPlanId: planRef.id,

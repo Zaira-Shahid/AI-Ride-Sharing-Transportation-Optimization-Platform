@@ -500,6 +500,7 @@ describe('setJourneySeats: seats on offer (functions + firestore emulators)', ()
             availableSeats: 3,
             maxDetourMinutes: null,
             maxDetourDistance: null,
+            matchedTripRequestIds: [],
           },
         });
     } finally {
@@ -751,6 +752,7 @@ describe('setJourneyDetour: maximum detour (functions + firestore emulators)', (
             availableSeats: null,
             maxDetourMinutes: 15,
             maxDetourDistance: 10,
+            matchedTripRequestIds: [],
           },
         });
     } finally {
@@ -918,6 +920,7 @@ describe('reading a journey as the driver (real auth tokens)', () => {
             availableSeats: null,
             maxDetourMinutes: null,
             maxDetourDistance: null,
+            matchedTripRequestIds: [],
           },
         });
 
@@ -933,6 +936,7 @@ describe('reading a journey as the driver (real auth tokens)', () => {
             availableSeats: null,
             maxDetourMinutes: null,
             maxDetourDistance: null,
+            matchedTripRequestIds: [],
           },
         });
     } finally {

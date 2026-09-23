@@ -6,6 +6,7 @@ export * from './config';
 export * from './driver';
 export * from './geocoding';
 export * from './journey';
+export * from './journeyPlan';
 export * from './password-reset';
 export * from './profile';
 export * from './register';

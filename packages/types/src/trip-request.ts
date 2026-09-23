@@ -77,6 +77,12 @@ export interface CancelTripRequestResult {
 
 export interface TripRequest {
   passengerId: string;
+  /**
+   * The passenger's first name only (never the full name or any other profile field), copied in at
+   * creation so the driver they end up matched with (Module 7.1) can see who they are picking up
+   * without needing read access to the passenger's own user profile.
+   */
+  passengerName: string;
   origin: StoredDestination;
   destination: StoredDestination;
   requestedAt: FirestoreTimestamp;
@@ -129,7 +135,11 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
 // functions/src/tripRequests.ts (tests/roles-parity.test.ts fails if the two diverge).
 export const TRIP_STATUS_TRANSITIONS: Record<TripRequestStatus, readonly TripRequestStatus[]> = {
   REQUESTED: ['SEARCHING', 'CANCELLED'],
-  SEARCHING: ['MATCHED', 'CANCELLED'],
+  // PICKUP_ASSIGNED directly: the batch optimization run (Module 6.9/6.10, Phase 7) assigns a
+  // request and fixes its place in the driver's stop order in the same step, so there is no separate
+  // moment where it is "matched" but not yet "pickup assigned" - MATCHED stays a valid status (kept
+  // for module 5.5's own still-exported assignSearchingTripRequest) but is not the only next step.
+  SEARCHING: ['MATCHED', 'PICKUP_ASSIGNED', 'CANCELLED'],
   MATCHED: ['PICKUP_ASSIGNED', 'CANCELLED'],
   PICKUP_ASSIGNED: ['DRIVER_ARRIVING', 'CANCELLED'],
   DRIVER_ARRIVING: ['PICKED_UP', 'CANCELLED'],

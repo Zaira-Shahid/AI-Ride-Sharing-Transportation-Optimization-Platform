@@ -15,6 +15,7 @@ import {
   writeVehicleDoc,
 } from './helpers';
 import { newPassenger, watchMap } from './map-helpers';
+import { triggerBatchOptimization } from './trigger-batch';
 import {
   choosePickup,
   chooseDestination,
@@ -24,12 +25,19 @@ import {
   tripsOf,
 } from './trip-helpers';
 
-// Phase 5 acceptance (spec: "the system can automatically match simple shared trips"). Each module
-// (5.1-5.5) already has its own tests; this drives the whole phase together through the real screens:
-// a driver goes online with an eligible journey, a passenger requests a ride nearby heading the same
-// way, and the request is matched to that driver with no one telling the system to match them - the
-// candidate discovery (5.2), the search starting (5.3), the route check (5.4) and the assignment
-// (5.5) all happen on their own, moments after the request is made.
+// Phase 5/6 acceptance (spec: "the system can automatically match simple shared trips"). Each module
+// already has its own tests; this drives the whole pipeline together through the real screens: a
+// driver goes online with an eligible journey, a passenger requests a ride nearby heading the same
+// way, candidate discovery and the search starting (Modules 5.2/5.3) happen on their own, moments
+// after the request is made - nobody in this test tells the system who to match.
+//
+// Actual assignment is no longer instant (Module 6.10 replaced Module 5.5's per-request auto-match
+// with a periodic batch run, every 2 minutes in production): this test fires that batch run directly
+// (triggerBatchOptimization) rather than waiting for its real schedule, the same way the integration
+// tests do. The optimization service itself is scripted there, not the real Python service - that is
+// Phase 6's own acceptance test's job (tests/integration/phase6-acceptance.int.test.ts); this test is
+// about the real screens and the real Firestore trigger chain around the batch, not the optimizer's
+// own logic.
 //
 // Its own corner of the world (PLACES.farNorthStart/End), well away from the office/station route
 // most other e2e specs use for their own drivers: many of them leave a driver ONLINE (an AVAILABLE
@@ -82,16 +90,30 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
     await confirm(passengerPage).click();
     await expect(requestedCard(passengerPage)).toBeVisible();
 
-    // Nobody here tells the system who to match: candidate discovery, starting the search, the route
-    // check and the assignment (Modules 5.2-5.5) all run on their own, moments after the request was
-    // made.
-    await expect(requestedCard(passengerPage).getByText('Driver found')).toBeVisible({
+    // Nobody here tells the system to start searching: candidate discovery and starting the search
+    // (Modules 5.2/5.3) run on their own, moments after the request was made.
+    await expect(requestedCard(passengerPage).getByText('Finding your ride')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const tripId = (await tripsOf(passengerUid))[0]?.name.split('/').pop();
+    expect(tripId).toEqual(expect.any(String));
+
+    // Fires the periodic batch run directly (see the file header comment) rather than waiting up to
+    // 2 minutes for its real schedule.
+    await triggerBatchOptimization({
+      tripId: tripId as string,
+      journeyId: journeyId(driverUid),
+      driverId: driverUid,
+    });
+
+    await expect(requestedCard(passengerPage).getByText('Pickup arranged')).toBeVisible({
       timeout: 30_000,
     });
 
     const trips = await tripsOf(passengerUid);
     const trip = trips[0];
-    expect(trip?.fields.status?.stringValue).toBe('MATCHED');
+    expect(trip?.fields.status?.stringValue).toBe('PICKUP_ASSIGNED');
     expect(trip?.fields.matchedDriverId?.stringValue).toBe(driverUid);
     expect(trip?.fields.matchedJourneyId?.stringValue).toBe(journeyId(driverUid));
 
