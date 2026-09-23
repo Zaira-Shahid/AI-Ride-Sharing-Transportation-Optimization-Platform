@@ -10,6 +10,7 @@ import {
 } from '../packages/config/src';
 import { FAKE_NOMINATIM_PORT } from './fake-nominatim';
 import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_FOOT_BASE_PATH, FAKE_OSRM_PORT } from './fake-osrm';
+import { OPTIMIZATION_SERVICE_PORT } from './optimization-service';
 import { TEST_PORTS } from './test-ports';
 
 const root = resolve(__dirname, '..');
@@ -177,5 +178,27 @@ describe('the fake route server the tests use', () => {
 
   it('turns the spacing between routes off, so tests side by side cannot make each other busy', () => {
     expect(setting('ROUTING_MIN_SPACING_MS')).toBe('0');
+  });
+});
+
+describe('the real optimization service the Phase 6 acceptance test starts', () => {
+  const env = readFileSync(join(root, 'functions/.env.demo-ridemesh'), 'utf8');
+  const setting = (name: string) => new RegExp(`^${name}=(.*)$`, 'm').exec(env)?.[1]?.trim();
+
+  it('is where the tests are told the optimization service is, always on localhost', () => {
+    expect(setting('OPTIMIZATION_SERVICE_URL')).toBe(
+      `http://127.0.0.1:${OPTIMIZATION_SERVICE_PORT}`,
+    );
+  });
+
+  it('does not use a port anything else in the tests uses', () => {
+    const used = [
+      ...Object.values(TEST_PORTS),
+      ...portsOf(readJson('firebase.test.json')),
+      ...portsOf(readJson('firebase.json')),
+      FAKE_NOMINATIM_PORT,
+      FAKE_OSRM_PORT,
+    ];
+    expect(used).not.toContain(OPTIMIZATION_SERVICE_PORT);
   });
 });
