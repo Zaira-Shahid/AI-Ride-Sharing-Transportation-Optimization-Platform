@@ -33,6 +33,7 @@ import type { StoredDestination } from '@ridemesh/types';
 import type { AuthScreenProps } from '../app-info';
 import {
   AuthFrame,
+  ConfirmDialog,
   Heading,
   Notice,
   PrimaryButton,
@@ -132,6 +133,12 @@ function stopIsDone(stop: JourneyPlanStop): boolean {
     ? PICKUP_DONE_STATUSES.has(stop.status ?? '')
     : stop.status === 'COMPLETED';
 }
+
+// Module 8.5 (driver cancellation): a passenger already in the vehicle cannot be released by going
+// offline (the server refuses it - see availability.ts's ONBOARD_TRIP_STATUSES); one only matched and
+// still waiting for pickup can be, and going offline releases them back to SEARCHING.
+const ONBOARD_TRIP_STATUSES = new Set(['PICKED_UP', 'IN_TRANSIT', 'DROPOFF_APPROACHING']);
+const WAITING_FOR_PICKUP_STATUSES = new Set(['PICKUP_ASSIGNED', 'DRIVER_ARRIVING']);
 
 /**
  * The matched journey's stop order (Module 7.1): who to pick up and drop off, and where, in order.
@@ -253,6 +260,18 @@ export function DriverHomeScreen({
   const planStops = useJourneyPlanStops(currentJourneyId);
   const [failure, setFailure] = useState<AuthFailure | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingOffline, setConfirmingOffline] = useState(false);
+  // Module 8.5: whether going offline right now would touch a matched passenger, and how.
+  const stopsNow = planStops.status === 'ready' ? planStops.stops : [];
+  const hasOnboardPassenger = stopsNow.some(
+    (stop) => stop.status !== null && ONBOARD_TRIP_STATUSES.has(stop.status),
+  );
+  const waitingPassengerCount = stopsNow.filter(
+    (stop) =>
+      stop.kind === 'pickup' &&
+      stop.status !== null &&
+      WAITING_FOR_PICKUP_STATUSES.has(stop.status),
+  ).length;
 
   const states = [profile.status, driver.status, vehicle.status, journey.status];
   const failed = states.includes('error');
@@ -352,11 +371,22 @@ export function DriverHomeScreen({
             <Notice tone="info">Sharing your location while online.</Notice>
           ) : null}
           {online ? (
-            <SecondaryButton
-              label={busy ? 'Going offline' : 'Go offline'}
-              onPress={() => void change('OFFLINE')}
-              disabled={busy}
-            />
+            <>
+              {hasOnboardPassenger ? (
+                <Notice tone="info">
+                  You have a passenger already in your vehicle. Complete their drop-off before going
+                  offline.
+                </Notice>
+              ) : null}
+              <SecondaryButton
+                label={busy ? 'Going offline' : 'Go offline'}
+                onPress={() => {
+                  if (waitingPassengerCount > 0) setConfirmingOffline(true);
+                  else void change('OFFLINE');
+                }}
+                disabled={busy || hasOnboardPassenger}
+              />
+            </>
           ) : (
             <>
               <PrimaryButton
@@ -371,6 +401,19 @@ export function DriverHomeScreen({
           {planStops.status === 'ready' && planStops.stops.length > 0 ? (
             <PassengersCard stops={planStops.stops} client={client} />
           ) : null}
+          <ConfirmDialog
+            visible={confirmingOffline}
+            title="Go offline?"
+            message={`You have ${waitingPassengerCount} passenger${waitingPassengerCount === 1 ? '' : 's'} waiting for pickup. Going offline will cancel their match so they can be matched with another driver.`}
+            confirmLabel="Yes, go offline"
+            cancelLabel="Stay online"
+            busy={busy}
+            onConfirm={() => {
+              setConfirmingOffline(false);
+              void change('OFFLINE');
+            }}
+            onCancel={() => setConfirmingOffline(false)}
+          />
           <DestinationSection
             placesApiKey={placesApiKey}
             destination={destination}

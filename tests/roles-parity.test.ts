@@ -40,6 +40,7 @@ import {
 import {
   AVAILABILITY_TARGETS as functionsAvailabilityTargets,
   GO_ONLINE_REQUIREMENTS as functionsRequirements,
+  SET_AVAILABILITY_REFUSALS as functionsAvailabilityRefusals,
   evaluateGoOnline as functionsEvaluate,
   setAvailabilityInputSchema as functionsAvailabilitySchema,
 } from '../functions/src/availability';
@@ -88,6 +89,7 @@ import {
   updateDriverLocationInputSchema as sharedLocationSchema,
   AVAILABILITY_TARGETS,
   GO_ONLINE_REQUIREMENTS,
+  SET_AVAILABILITY_REFUSALS,
   evaluateGoOnline,
   setAvailabilityInputSchema as sharedAvailabilitySchema,
   DRIVER_AVAILABILITY_STATUSES,
@@ -307,6 +309,7 @@ describe('functions and shared types stay aligned', () => {
     expect([...functionsAvailabilityTargets]).toEqual([...AVAILABILITY_TARGETS]);
     expect([...AVAILABILITY_TARGETS].sort()).toEqual([...DRIVER_AVAILABILITY_STATUSES].sort());
     expect([...functionsRequirements]).toEqual([...GO_ONLINE_REQUIREMENTS]);
+    expect([...functionsAvailabilityRefusals]).toEqual([...SET_AVAILABILITY_REFUSALS]);
     for (const input of [
       { status: 'ONLINE' },
       { status: 'OFFLINE' },

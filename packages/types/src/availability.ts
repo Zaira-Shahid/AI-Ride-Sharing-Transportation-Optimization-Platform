@@ -12,6 +12,10 @@ export interface SetAvailabilityResult {
   status: 'updated' | 'unchanged';
 }
 
+/** Why the server refused to go offline (Module 8.5), as details.reason. */
+export const SET_AVAILABILITY_REFUSALS = ['PASSENGERS_ONBOARD'] as const;
+export type SetAvailabilityRefusal = (typeof SET_AVAILABILITY_REFUSALS)[number];
+
 /** What a driver needs before going online. Later Phase 2 modules add to this list. */
 export const GO_ONLINE_REQUIREMENTS = [
   'accountActive',

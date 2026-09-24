@@ -183,8 +183,11 @@ export const TRIP_STATUS_TRANSITIONS: Record<TripRequestStatus, readonly TripReq
   // for module 5.5's own still-exported assignSearchingTripRequest) but is not the only next step.
   SEARCHING: ['MATCHED', 'PICKUP_ASSIGNED', 'CANCELLED'],
   MATCHED: ['PICKUP_ASSIGNED', 'CANCELLED'],
-  PICKUP_ASSIGNED: ['DRIVER_ARRIVING', 'CANCELLED'],
-  DRIVER_ARRIVING: ['PICKED_UP', 'CANCELLED'],
+  // SEARCHING too (Module 8.5, driver cancellation): the driver going offline before this passenger
+  // is picked up releases them back to be matched again, rather than leaving them stranded on a
+  // driver who never arrives.
+  PICKUP_ASSIGNED: ['DRIVER_ARRIVING', 'SEARCHING', 'CANCELLED'],
+  DRIVER_ARRIVING: ['PICKED_UP', 'SEARCHING', 'CANCELLED'],
   PICKED_UP: ['IN_TRANSIT'],
   IN_TRANSIT: ['DROPOFF_APPROACHING'],
   DROPOFF_APPROACHING: ['COMPLETED'],

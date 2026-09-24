@@ -394,6 +394,26 @@ export const PLACES = {
     latitude: 58.05,
     longitude: -0.95,
   },
+  // Its own isolated corner too (Module 8.5's own test), well away from farNorthStart/End so the two
+  // matching scenarios never see each other's driver or request.
+  farWestStart: {
+    id: 'place-far-west-start',
+    text: 'Selkie Point, UK',
+    main: 'Selkie Point',
+    secondary: 'UK',
+    address: 'Selkie Point, UK',
+    latitude: 60,
+    longitude: -3,
+  },
+  farWestEnd: {
+    id: 'place-far-west-end',
+    text: 'Bracken Point, UK',
+    main: 'Bracken Point',
+    secondary: 'UK',
+    address: 'Bracken Point, UK',
+    latitude: 60.05,
+    longitude: -2.95,
+  },
   // A position that was never filled in: exactly 0, 0. It passes the shape rules but is no place.
   nowhere: {
     id: 'place-nowhere',
