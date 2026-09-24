@@ -525,42 +525,42 @@ describe('the journey becomes a match candidate while its driver is online (Modu
   });
 });
 
+/** A tripRequests fixture matched to `driverId` and their own journey, at `status`. */
+async function matchedTripAt(status: string, driverId: string, journeyId: string) {
+  const ref = admin().firestore.collection('tripRequests').doc();
+  await ref.set({
+    passengerId: 'passenger-fixture',
+    passengerName: 'Pat',
+    origin: OFFICE,
+    destination: OFFICE,
+    status,
+    matchedDriverId: driverId,
+    matchedJourneyId: journeyId,
+    driverName: 'Test Driver',
+    vehicleType: 'CAR',
+    vehicleMake: 'Toyota',
+    vehicleModel: 'Corolla',
+    vehiclePlateNumber: 'X1',
+    driverLocation: { latitude: 1, longitude: 1 },
+    assignedPlanId: 'plan-fixture',
+  });
+  return ref.id;
+}
+
+/** Sets `driverId`'s own journey to `status`, matched to `tripIds`. Returns the journey's id. */
+async function matchJourneyTo(driverId: string, status: string, tripIds: string[]) {
+  const journeyId = (await driverDoc(driverId))?.currentJourneyId as string;
+  await admin()
+    .firestore.doc(`driverJourneys/${journeyId}`)
+    .update({ status, matchedTripRequestIds: tripIds });
+  return journeyId;
+}
+
 describe('driver cancellation: going offline mid-match (Module 8.5)', () => {
   async function onlineDriver(prefix: string) {
     const driver = await eligibleDriver(prefix);
     await setAvailability(driver.client, 'ONLINE');
     return driver;
-  }
-
-  /** A tripRequests fixture matched to `driverId` and their own journey, at `status`. */
-  async function matchedTripAt(status: string, driverId: string, journeyId: string) {
-    const ref = admin().firestore.collection('tripRequests').doc();
-    await ref.set({
-      passengerId: 'passenger-fixture',
-      passengerName: 'Pat',
-      origin: OFFICE,
-      destination: OFFICE,
-      status,
-      matchedDriverId: driverId,
-      matchedJourneyId: journeyId,
-      driverName: 'Test Driver',
-      vehicleType: 'CAR',
-      vehicleMake: 'Toyota',
-      vehicleModel: 'Corolla',
-      vehiclePlateNumber: 'X1',
-      driverLocation: { latitude: 1, longitude: 1 },
-      assignedPlanId: 'plan-fixture',
-    });
-    return ref.id;
-  }
-
-  /** Sets the driver's own journey to `status`, matched to `tripIds`. Returns the journey's id. */
-  async function matchJourneyTo(driverId: string, status: string, tripIds: string[]) {
-    const journeyId = (await driverDoc(driverId))?.currentJourneyId as string;
-    await admin()
-      .firestore.doc(`driverJourneys/${journeyId}`)
-      .update({ status, matchedTripRequestIds: tripIds });
-    return journeyId;
   }
 
   it('releases a matched-but-not-yet-picked-up passenger back to SEARCHING', async () => {
@@ -704,4 +704,96 @@ describe('driver cancellation: going offline mid-match (Module 8.5)', () => {
     expect(await offlineAudit(driver.uid)).toHaveLength(0);
     expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
   });
+});
+
+describe('driver cancellation: system-forced offline mid-match (Module 8.5)', () => {
+  async function onlineDriver(prefix: string) {
+    const driver = await eligibleDriver(prefix);
+    await setAvailability(driver.client, 'ONLINE');
+    return driver;
+  }
+
+  it('releases a waiting passenger when saving vehicle details forces the driver offline', async () => {
+    const driver = await onlineDriver('avl-forced-vehicle');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const tripId = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'MATCHING', [tripId]);
+
+    await saveVehicle(driver.client, {
+      type: 'CAR',
+      make: 'Toyota',
+      model: 'Yaris',
+      plateNumber: uniquePlate(),
+    });
+
+    expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('OFFLINE');
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+    expect((await admin().firestore.doc(`tripRequests/${tripId}`).get()).data()).toMatchObject({
+      status: 'SEARCHING',
+      matchedDriverId: null,
+    });
+  });
+
+  it('leaves an onboard passenger running when saving vehicle details forces the driver offline', async () => {
+    const driver = await onlineDriver('avl-forced-vehicle-onboard');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const tripId = await matchedTripAt('PICKED_UP', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'ACTIVE', [tripId]);
+
+    await saveVehicle(driver.client, {
+      type: 'CAR',
+      make: 'Toyota',
+      model: 'Yaris',
+      plateNumber: uniquePlate(),
+    });
+
+    // The driver is offline (cannot be matched with anyone new), but the trip already under way is
+    // not interrupted: there is no safe way to release someone already in the vehicle.
+    expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('OFFLINE');
+    expect((await journeyDoc(driver.uid))?.status).toBe('ACTIVE');
+    expect((await admin().firestore.doc(`tripRequests/${tripId}`).get()).data()?.status).toBe(
+      'PICKED_UP',
+    );
+  });
+
+  it('releases a waiting passenger when raising seats forces the driver offline', async () => {
+    const driver = await onlineDriver('avl-forced-seats');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const tripId = await matchedTripAt('DRIVER_ARRIVING', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'MATCHING', [tripId]);
+
+    await setVehicleCapacity(driver.client, 5);
+
+    expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('OFFLINE');
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+    expect((await admin().firestore.doc(`tripRequests/${tripId}`).get()).data()?.status).toBe(
+      'SEARCHING',
+    );
+  });
+
+  it.each([
+    ['driver', 'reviewDriver'],
+    ['vehicle', 'reviewVehicle'],
+  ] as const)(
+    'releases a waiting passenger when staff reject the %s',
+    async (_what, reviewFunction) => {
+      const reviewer = await staff(`avl-forced-reject-${_what}`);
+      const driver = await onlineDriver(`avl-forced-reject-${_what}-d`);
+      const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+      const tripId = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+      await matchJourneyTo(driver.uid, 'MATCHING', [tripId]);
+
+      await call(reviewer.client, reviewFunction, {
+        driverId: driver.uid,
+        decision: 'REJECTED',
+        reason: 'Not good enough.',
+      });
+
+      expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('OFFLINE');
+      expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+      expect((await admin().firestore.doc(`tripRequests/${tripId}`).get()).data()?.status).toBe(
+        'SEARCHING',
+      );
+    },
+  );
 });

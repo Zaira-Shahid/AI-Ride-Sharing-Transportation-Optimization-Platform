@@ -6,6 +6,8 @@ import {
   journeyOfflineFields,
   offlineFields,
   readOwnJourney,
+  readReleasableMatchedTrips,
+  releaseMatchedTrips,
 } from './availability.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 
@@ -69,6 +71,8 @@ export async function reviewVerification(
     const [snapshot, driverSnapshot] = await Promise.all([tx.get(ref), tx.get(driverRef)]);
     // Read now (Module 5.1): all of a transaction's reads must happen before any of its writes.
     const ownJourney = await readOwnJourney(tx, firestore, driverId, driverSnapshot);
+    // Module 8.5 (driver cancellation): see vehicles.ts's saveVehicle for the same comment.
+    const { releasable } = await readReleasableMatchedTrips(tx, firestore, ownJourney);
     if (!snapshot.exists) {
       throw new HttpsError('not-found', `There is no ${target.toLowerCase()} with that ID.`);
     }
@@ -88,9 +92,22 @@ export async function reviewVerification(
     });
     if (offline) {
       if (target === 'VEHICLE') tx.update(driverRef, offline);
-      const journeyOffline = journeyOfflineFields(ownJourney);
-      if (journeyOffline && ownJourney) {
-        tx.update(ownJourney.ref, { ...journeyOffline, updatedAt: FieldValue.serverTimestamp() });
+      if (ownJourney) {
+        const journeyUpdate =
+          releasable.length > 0
+            ? { status: 'DRAFT' as const, matchedTripRequestIds: [] }
+            : journeyOfflineFields(ownJourney);
+        if (journeyUpdate) {
+          tx.update(ownJourney.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
+        }
+        releaseMatchedTrips(
+          tx,
+          firestore,
+          ownJourney,
+          releasable,
+          actor,
+          `The ${target.toLowerCase()} is no longer verified`,
+        );
       }
       auditTakenOffline(
         tx,
