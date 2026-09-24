@@ -23,6 +23,14 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up the optimization service (Phase 6 acceptance needs it running for real)
+        working-directory: services/optimization
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
