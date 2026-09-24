@@ -47,3 +47,19 @@ export async function confirmPickup(
     throw explainRefusal(error);
   }
 }
+
+/** The signed-in driver confirms they are now driving with tripId's passenger aboard (Module 7.4). */
+export async function startTransit(
+  client: Pick<FirebaseClient, 'functions'>,
+  tripId: string,
+): Promise<AdvanceTripResult['status']> {
+  try {
+    const result = await httpsCallable<AdvanceTripInput, AdvanceTripResult>(
+      client.functions,
+      'startTransit',
+    )({ tripId });
+    return result.data.status;
+  } catch (error) {
+    throw explainRefusal(error);
+  }
+}
