@@ -76,6 +76,13 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
     await openLogin(driverPage, driverApp.url, driverApp.title);
     await submitLogin(driverPage, driverEmail, PASSWORD);
 
+    // Module 7.6: the driver shares their position automatically while online (Module 4.1), which
+    // matched passengers now see live. Permission only for now, no position set yet: the app's own
+    // client-side throttle (shouldSendLocation) waits at least 30s between sends UNLESS there is no
+    // earlier reading at all, so the first-ever position is set below, after the match, rather than
+    // here - that way it counts as the first reading and is sent immediately, not gated by the wait.
+    await driverPage.context().grantPermissions(['geolocation']);
+
     await expect(goOnline(driverPage)).toBeEnabled();
     await goOnline(driverPage).click();
     await expect.poll(async () => (await readDriverJourney(driverUid))?.status).toBe('AVAILABLE');
@@ -127,6 +134,16 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
 
     const journey = await readDriverJourney(driverUid);
     expect(journey?.status).toBe('MATCHING');
+
+    // Module 7.6: the driver's first-ever position, set only now (see the comment above): with no
+    // earlier reading to throttle against it is sent immediately, and reaches the passenger's own map
+    // and live ETA note now that this request is one of the journey's own matchedTripRequestIds.
+    await driverPage
+      .context()
+      .setGeolocation({ latitude: farNorthStart.latitude, longitude: farNorthStart.longitude });
+    await expect(
+      requestedCard(passengerPage).getByLabel('Live estimated arrival', { exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
 
     // Module 7.1/7.2: the driver's Home shows the matched passenger, and can move the request on
     // through two manual actions of their own (no GPS/automatic inference, per user decision).

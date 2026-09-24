@@ -1,7 +1,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef } from 'react';
-import { DESTINATION_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
+import { DESTINATION_MARKER, DRIVER_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
 import { TILE_ATTRIBUTION_HTML, TILE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles';
 import type { MapPoint, MapViewProps } from './types';
 import { clampInsets, frameMap, frameMargin } from './view';
@@ -50,6 +50,7 @@ export function MapView({
   pickup,
   destination,
   currentLocation,
+  driverLocation = null,
   route,
   insets = NO_INSETS,
 }: MapViewProps) {
@@ -107,12 +108,19 @@ export function MapView({
     if (route && route.length > 1) L.polyline(route.map(toLatLng), ROUTE_LINE).addTo(group);
     // Drawn in this order, so a pickup taken from the device's location covers its own dot.
     if (currentLocation) dotMarker(currentLocation, LOCATION_MARKER, 18).addTo(group);
+    if (driverLocation) dotMarker(driverLocation, DRIVER_MARKER, 20).addTo(group);
     if (destination) dotMarker(destination, DESTINATION_MARKER, 24).addTo(group);
     if (pickup) dotMarker(pickup, PICKUP_MARKER, 22).addTo(group);
 
     // The whole route is framed when there is one, not just its two ends: a road route can bow out
     // past the straight line between them.
-    const framing = frameMap([pickup, destination, currentLocation, ...(route ?? [])]);
+    const framing = frameMap([
+      pickup,
+      destination,
+      currentLocation,
+      driverLocation,
+      ...(route ?? []),
+    ]);
     if (framing.kind === 'world') {
       instance.setView(toLatLng(framing.center), framing.zoom);
       return;
@@ -131,7 +139,7 @@ export function MapView({
       paddingBottomRight: [margin, bottom + margin],
       maxZoom: framing.kind === 'point' ? framing.zoom : 16,
     });
-  }, [pickup, destination, currentLocation, route]);
+  }, [pickup, destination, currentLocation, driverLocation, route]);
 
   return (
     <div

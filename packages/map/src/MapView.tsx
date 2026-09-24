@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import NativeMap, { Marker, Polyline, UrlTile } from 'react-native-maps';
-import { DESTINATION_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
+import { DESTINATION_MARKER, DRIVER_MARKER, LOCATION_MARKER, PICKUP_MARKER } from './markers';
 import { TILE_ATTRIBUTION_TEXT, TILE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles';
 import type { MapViewProps } from './types';
 import { WORLD_CENTER, WORLD_ZOOM, clampInsets, frameMap, frameMargin } from './view';
@@ -23,6 +23,7 @@ export function MapView({
   pickup,
   destination,
   currentLocation,
+  driverLocation = null,
   route,
   insets = NO_INSETS,
 }: MapViewProps) {
@@ -37,7 +38,13 @@ export function MapView({
     if (!instance) return;
     // The whole route is framed when there is one, not just its two ends: a road route can bow out
     // past the straight line between them.
-    const framing = frameMap([pickup, destination, currentLocation, ...(route ?? [])]);
+    const framing = frameMap([
+      pickup,
+      destination,
+      currentLocation,
+      driverLocation,
+      ...(route ?? []),
+    ]);
     if (framing.kind === 'bounds') {
       const { top, bottom } = clampInsets(latestInsets.current, height.current);
       const margin = frameMargin(height.current - top - bottom);
@@ -68,7 +75,7 @@ export function MapView({
         longitudeDelta: WORLD_SPAN,
       });
     }
-  }, [pickup, destination, currentLocation, route]);
+  }, [pickup, destination, currentLocation, driverLocation, route]);
 
   return (
     <View
@@ -118,6 +125,21 @@ export function MapView({
               style={[
                 styles.dot,
                 { backgroundColor: LOCATION_MARKER.color, shadowColor: LOCATION_MARKER.ring },
+              ]}
+            />
+          </Marker>
+        ) : null}
+        {driverLocation ? (
+          <Marker
+            coordinate={driverLocation}
+            title={DRIVER_MARKER.label}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View
+              style={[
+                styles.dot,
+                { backgroundColor: DRIVER_MARKER.color, shadowColor: DRIVER_MARKER.ring },
               ]}
             />
           </Marker>
