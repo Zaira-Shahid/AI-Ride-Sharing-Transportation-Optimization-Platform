@@ -26,6 +26,8 @@ import {
   createTripRequest as createPassengerTripRequest,
 } from './tripRequests.js';
 import {
+  approachDropoff as driverApproachDropoff,
+  completeDropoff as driverCompleteDropoff,
   confirmPickup as driverConfirmPickup,
   headToPickup as driverHeadToPickup,
   startTransit as driverStartTransit,
@@ -143,6 +145,14 @@ export const confirmPickup = onCall((request) =>
 
 export const startTransit = onCall((request) =>
   driverStartTransit({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const approachDropoff = onCall((request) =>
+  driverApproachDropoff({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const completeDropoff = onCall((request) =>
+  driverCompleteDropoff({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
 export const setJourneyOrigin = onCall((request) =>
