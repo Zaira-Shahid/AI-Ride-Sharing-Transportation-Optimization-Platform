@@ -28,6 +28,7 @@ import {
 import {
   confirmPickup as driverConfirmPickup,
   headToPickup as driverHeadToPickup,
+  startTransit as driverStartTransit,
 } from './tripExecution.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
@@ -138,6 +139,10 @@ export const headToPickup = onCall((request) =>
 
 export const confirmPickup = onCall((request) =>
   driverConfirmPickup({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const startTransit = onCall((request) =>
+  driverStartTransit({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
 export const setJourneyOrigin = onCall((request) =>

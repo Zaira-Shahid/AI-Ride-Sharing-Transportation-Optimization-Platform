@@ -146,6 +146,19 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
     const pickedUpTrip = (await tripsOf(passengerUid))[0];
     expect(pickedUpTrip?.fields.status?.stringValue).toBe('PICKED_UP');
 
+    // Module 7.4: the journey itself becomes ACTIVE on this first confirmed pickup.
+    expect((await readDriverJourney(driverUid))?.status).toBe('ACTIVE');
+
+    await passengersCard.getByRole('button', { name: 'Start trip' }).click();
+    await expect(
+      requestedCard(passengerPage).getByRole('heading', { name: 'On your way' }),
+    ).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const inTransitTrip = (await tripsOf(passengerUid))[0];
+    expect(inTransitTrip?.fields.status?.stringValue).toBe('IN_TRANSIT');
+
     await driverContext.close();
     await passengerContext.close();
   });
