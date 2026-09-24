@@ -46,6 +46,13 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   // Who this request was assigned to (Module 5.5), once its status is MATCHED; null until then.
   matchedJourneyId: null,
   matchedDriverId: null,
+  // The matched driver's first name and vehicle details (Module 7.3), copied in alongside
+  // matchedDriverId; null until then.
+  driverName: null,
+  vehicleType: null,
+  vehicleMake: null,
+  vehicleModel: null,
+  vehiclePlateNumber: null,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;
@@ -214,10 +221,14 @@ function isOpen(status: unknown): boolean {
  * The request holds exact coordinates of a private person, so the audit entry carries the status
  * only, and the function logs nothing about the places.
  */
-/** The first whitespace-separated word of `name` (module 7.1: all a matched driver ever sees). */
-function firstNameOf(name: unknown): string {
+/**
+ * The first whitespace-separated word of `name` (module 7.1: all a matched driver ever sees), or
+ * `fallback` if there is no usable name. Module 7.3 reuses this for the driver's own name shown to
+ * the matched passenger, with a different fallback.
+ */
+export function firstNameOf(name: unknown, fallback = 'Passenger'): string {
   const first = typeof name === 'string' ? name.trim().split(/\s+/)[0] : undefined;
-  return first || 'Passenger';
+  return first || fallback;
 }
 
 export async function createTripRequest(

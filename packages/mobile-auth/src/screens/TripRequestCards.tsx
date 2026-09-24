@@ -5,11 +5,42 @@ import {
   type TripEstimate,
   type TripRequestStatus,
 } from '@ridemesh/types';
+import type { MatchedDriverInfo } from '@ridemesh/firebase';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { StyleSheet, Text, View } from 'react-native';
 import { Notice, PrimaryButton, SecondaryButton, useAuthTheme } from '../components';
 import { formatWhen } from './timeFormat';
 import { TRIP_STATUS_TEXT } from './tripStatusText';
+
+const VEHICLE_TYPE_NAMES: Record<string, string> = {
+  CAR: 'Car',
+  VAN: 'Van',
+  MINIBUS: 'Minibus',
+};
+
+/** The matched driver's name and vehicle, once assigned. Shown from PICKUP_ASSIGNED onwards. */
+function DriverInfoCard({ driver }: { driver: MatchedDriverInfo }) {
+  const theme = useAuthTheme();
+  const vehicle = [
+    driver.vehicleType ? VEHICLE_TYPE_NAMES[driver.vehicleType] ?? driver.vehicleType : null,
+    driver.vehicleMake,
+    driver.vehicleModel,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <View style={styles.line} accessibilityLabel="Your driver">
+      <Text style={[styles.caption, { color: theme.textSecondary }]}>Your driver</Text>
+      <Text style={[styles.value, { color: theme.textPrimary }]}>{driver.name}</Text>
+      {vehicle ? (
+        <Text style={[styles.caption, { color: theme.textSecondary }]}>
+          {vehicle}
+          {driver.vehiclePlateNumber ? ` · ${driver.vehiclePlateNumber}` : ''}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 const LEVEL_NAMES: Record<FlexibilityLevel, string> = {
   STRICT: 'Strict',
@@ -146,6 +177,7 @@ export function RequestedCard({
   summary,
   now,
   estimate,
+  driver,
   cancellable,
   problem,
   onCancel,
@@ -155,6 +187,8 @@ export function RequestedCard({
   now: number;
   /** The estimated time and distance of the trip, as far as it is known. */
   estimate: EstimateView;
+  /** The matched driver and vehicle (Module 7.3), or null before a driver is assigned. */
+  driver: MatchedDriverInfo | null;
   /** Whether the passenger may cancel from this status (canPassengerCancel). */
   cancellable: boolean;
   problem: string | null;
@@ -169,6 +203,7 @@ export function RequestedCard({
       <Text style={[styles.caption, { color: theme.textSecondary }]}>
         {TRIP_STATUS_TEXT[status].detail}
       </Text>
+      {driver ? <DriverInfoCard driver={driver} /> : null}
       <TripSummary summary={summary} now={now} />
       <EstimateNote view={estimate} />
       {problem ? <Notice tone="error">{problem}</Notice> : null}

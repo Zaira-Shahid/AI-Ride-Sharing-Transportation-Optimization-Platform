@@ -33,6 +33,7 @@ import {
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
+import { firstNameOf } from './tripRequests.js';
 
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -275,11 +276,15 @@ export async function runBatchOptimization(deps: {
     const journeyRef = firestore.collection('driverJourneys').doc(plan.journey_id);
     const tripRefs = plan.request_ids.map((id) => firestore.collection('tripRequests').doc(id));
     const planRef = firestore.collection('journeyPlans').doc();
+    const driverUserRef = firestore.collection('users').doc(plan.driver_id);
+    const vehicleRef = firestore.collection('vehicles').doc(plan.driver_id);
 
     const applied = await firestore.runTransaction(async (tx) => {
-      const [journeySnap, tripSnaps] = await Promise.all([
+      const [journeySnap, tripSnaps, driverUserSnap, vehicleSnap] = await Promise.all([
         tx.get(journeyRef),
         Promise.all(tripRefs.map((ref) => tx.get(ref))),
+        tx.get(driverUserRef),
+        tx.get(vehicleRef),
       ]);
       if (!journeySnap.exists || journeySnap.get('status') !== 'AVAILABLE') return false;
       for (const tripSnap of tripSnaps) {
@@ -291,6 +296,12 @@ export async function runBatchOptimization(deps: {
           return false;
         }
       }
+
+      const driverName = firstNameOf(driverUserSnap.get('name'), 'Driver');
+      const vehicleType = (vehicleSnap.get('type') as string | undefined) ?? null;
+      const vehicleMake = (vehicleSnap.get('make') as string | undefined) ?? null;
+      const vehicleModel = (vehicleSnap.get('model') as string | undefined) ?? null;
+      const vehiclePlateNumber = (vehicleSnap.get('plateNumber') as string | undefined) ?? null;
 
       tx.set(planRef, {
         journeyId: plan.journey_id,
@@ -312,6 +323,11 @@ export async function runBatchOptimization(deps: {
           matchedJourneyId: plan.journey_id,
           matchedDriverId: plan.driver_id,
           assignedPlanId: planRef.id,
+          driverName,
+          vehicleType,
+          vehicleMake,
+          vehicleModel,
+          vehiclePlateNumber,
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
