@@ -502,6 +502,20 @@ interface FirestoreValue {
   mapValue?: { fields: Record<string, FirestoreValue> };
 }
 
+/**
+ * A driverJourneys/{id} document's own status, read directly by id rather than through
+ * drivers/{uid}.currentJourneyId - needed once a journey completes (Module 7.5), since completing it
+ * clears that pointer so the driver can start a new one.
+ */
+export async function readJourneyStatus(id: string): Promise<string | undefined> {
+  const response = await fetch(`${firestoreDocs}/driverJourneys/${id}`, {
+    headers: { authorization: 'Bearer owner' },
+  });
+  if (response.status === 404) return undefined;
+  const { fields } = (await response.json()) as { fields?: Record<string, FirestoreValue> };
+  return fields?.status?.stringValue;
+}
+
 /** The driver's stored journey, found through drivers/{uid}.currentJourneyId, or undefined. */
 export async function readDriverJourney(uid: string) {
   const headers = { authorization: 'Bearer owner' };

@@ -1,4 +1,6 @@
 import {
+  approachDropoff,
+  completeDropoff,
   confirmPickup,
   describeAuthError,
   headToPickup,
@@ -115,16 +117,30 @@ const STOP_LABEL: Record<JourneyPlanStop['kind'], string> = {
   dropoff: 'Drop off',
 };
 
-// A pickup stop not yet PICKED_UP: still waiting for headToPickup/confirmPickup.
-const PENDING_PICKUP_STATUSES = new Set(['PICKUP_ASSIGNED', 'DRIVER_ARRIVING']);
+// A pickup stop counts as done (out of the way, for ordering purposes) once its request has actually
+// been picked up; a dropoff stop only once its request is COMPLETED. Mirrors the server's own
+// earlierStopsDone (functions/src/tripExecution.ts) so the app never offers a button the server would
+// refuse for being out of the plan's order.
+const PICKUP_DONE_STATUSES = new Set([
+  'PICKED_UP',
+  'IN_TRANSIT',
+  'DROPOFF_APPROACHING',
+  'COMPLETED',
+]);
+function stopIsDone(stop: JourneyPlanStop): boolean {
+  return stop.kind === 'pickup'
+    ? PICKUP_DONE_STATUSES.has(stop.status ?? '')
+    : stop.status === 'COMPLETED';
+}
 
 /**
  * The matched journey's stop order (Module 7.1): who to pick up and drop off, and where, in order.
- * Only the EARLIEST pending pickup gets a Head to pickup/Confirm pickup button (Module 7.4: the
- * server itself refuses these out of plan order, so the app never offers a button it would refuse).
- * Any pickup already PICKED_UP gets a Start trip button (PICKED_UP -> IN_TRANSIT), with no such
- * ordering - a passenger already aboard cannot be jumping ahead of anyone still waiting. All three
- * actions are driver-initiated, never automatic (user decision). Dropoff stops have no action yet.
+ * Only the single earliest not-yet-done stop (pickup or dropoff) gets a Head to pickup/Confirm
+ * pickup/Approaching drop-off/Complete drop-off button (Modules 7.2/7.4/7.5: the server itself
+ * refuses these out of plan order, so the app never offers a button it would refuse). Any pickup
+ * already PICKED_UP gets a Start trip button (PICKED_UP -> IN_TRANSIT) regardless of order - a
+ * passenger already aboard cannot be jumping ahead of anyone still waiting. All actions are
+ * driver-initiated, never automatic (user decision).
  */
 function PassengersCard({
   stops,
@@ -137,13 +153,18 @@ function PassengersCard({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const act = async (tripId: string, action: 'head' | 'confirm' | 'transit') => {
+  const act = async (
+    tripId: string,
+    action: 'head' | 'confirm' | 'transit' | 'approach' | 'complete',
+  ) => {
     setFailure(null);
     setBusyId(tripId);
     try {
       if (action === 'head') await headToPickup(client, tripId);
       else if (action === 'confirm') await confirmPickup(client, tripId);
-      else await startTransit(client, tripId);
+      else if (action === 'transit') await startTransit(client, tripId);
+      else if (action === 'approach') await approachDropoff(client, tripId);
+      else await completeDropoff(client, tripId);
     } catch (error) {
       setFailure(describeAuthError(error).message);
     } finally {
@@ -151,9 +172,7 @@ function PassengersCard({
     }
   };
 
-  const nextPendingPickupId =
-    stops.find((stop) => stop.kind === 'pickup' && PENDING_PICKUP_STATUSES.has(stop.status ?? ''))
-      ?.requestId ?? null;
+  const nextStop = stops.find((stop) => !stopIsDone(stop)) ?? null;
 
   return (
     <View
@@ -162,42 +181,57 @@ function PassengersCard({
     >
       <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>Your passengers</Text>
       {failure ? <Notice tone="error">{failure}</Notice> : null}
-      {stops.map((stop, index) => (
-        <View key={`${stop.requestId}-${stop.kind}`} style={styles.item}>
-          <Text style={[styles.itemText, { color: theme.textPrimary }]}>
-            {index + 1}. {STOP_LABEL[stop.kind]} {stop.passengerName}
-            {stop.address ? ` - ${stop.address}` : ''}
-          </Text>
-          {stop.kind === 'pickup' &&
-          stop.status === 'PICKUP_ASSIGNED' &&
-          stop.requestId === nextPendingPickupId ? (
-            <SecondaryButton
-              label="Head to pickup"
-              onPress={() => void act(stop.requestId, 'head')}
-              loading={busyId === stop.requestId}
-              disabled={busyId !== null}
-            />
-          ) : null}
-          {stop.kind === 'pickup' &&
-          stop.status === 'DRIVER_ARRIVING' &&
-          stop.requestId === nextPendingPickupId ? (
-            <PrimaryButton
-              label="Confirm pickup"
-              onPress={() => void act(stop.requestId, 'confirm')}
-              loading={busyId === stop.requestId}
-              disabled={busyId !== null}
-            />
-          ) : null}
-          {stop.kind === 'pickup' && stop.status === 'PICKED_UP' ? (
-            <PrimaryButton
-              label="Start trip"
-              onPress={() => void act(stop.requestId, 'transit')}
-              loading={busyId === stop.requestId}
-              disabled={busyId !== null}
-            />
-          ) : null}
-        </View>
-      ))}
+      {stops.map((stop, index) => {
+        const isNext = nextStop?.kind === stop.kind && nextStop.requestId === stop.requestId;
+        return (
+          <View key={`${stop.requestId}-${stop.kind}`} style={styles.item}>
+            <Text style={[styles.itemText, { color: theme.textPrimary }]}>
+              {index + 1}. {STOP_LABEL[stop.kind]} {stop.passengerName}
+              {stop.address ? ` - ${stop.address}` : ''}
+            </Text>
+            {stop.kind === 'pickup' && stop.status === 'PICKUP_ASSIGNED' && isNext ? (
+              <SecondaryButton
+                label="Head to pickup"
+                onPress={() => void act(stop.requestId, 'head')}
+                loading={busyId === stop.requestId}
+                disabled={busyId !== null}
+              />
+            ) : null}
+            {stop.kind === 'pickup' && stop.status === 'DRIVER_ARRIVING' && isNext ? (
+              <PrimaryButton
+                label="Confirm pickup"
+                onPress={() => void act(stop.requestId, 'confirm')}
+                loading={busyId === stop.requestId}
+                disabled={busyId !== null}
+              />
+            ) : null}
+            {stop.kind === 'pickup' && stop.status === 'PICKED_UP' ? (
+              <PrimaryButton
+                label="Start trip"
+                onPress={() => void act(stop.requestId, 'transit')}
+                loading={busyId === stop.requestId}
+                disabled={busyId !== null}
+              />
+            ) : null}
+            {stop.kind === 'dropoff' && stop.status === 'IN_TRANSIT' && isNext ? (
+              <SecondaryButton
+                label="Approaching drop-off"
+                onPress={() => void act(stop.requestId, 'approach')}
+                loading={busyId === stop.requestId}
+                disabled={busyId !== null}
+              />
+            ) : null}
+            {stop.kind === 'dropoff' && stop.status === 'DROPOFF_APPROACHING' && isNext ? (
+              <PrimaryButton
+                label="Complete drop-off"
+                onPress={() => void act(stop.requestId, 'complete')}
+                loading={busyId === stop.requestId}
+                disabled={busyId !== null}
+              />
+            ) : null}
+          </View>
+        );
+      })}
     </View>
   );
 }

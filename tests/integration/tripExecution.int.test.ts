@@ -4,11 +4,14 @@ import { admin, createClient, signUp, verifyEmail } from './support';
 
 // Module 7.2: headToPickup (PICKUP_ASSIGNED -> DRIVER_ARRIVING) and confirmPickup (DRIVER_ARRIVING ->
 // PICKED_UP). Module 7.4 adds startTransit (PICKED_UP -> IN_TRANSIT), stop-order enforcement for the
-// two pickup actions, and the journey's own MATCHING -> ACTIVE move on the first confirmed pickup.
-// All three actions are manual driver actions. A request is faked straight into the status under test
-// via the admin SDK (bypassing the whole matching/optimization pipeline, which has its own tests) so
-// this file is only about the callables' own rules: who may call them, from which status, and that a
-// repeat call is harmless.
+// pickup actions, and the journey's own MATCHING -> ACTIVE move on the first confirmed pickup. Module
+// 7.5 adds approachDropoff (IN_TRANSIT -> DROPOFF_APPROACHING) and completeDropoff
+// (DROPOFF_APPROACHING -> COMPLETED), widens stop-order enforcement to cover dropoff stops too, clears
+// the passenger's own open-request pointer on completion, and completes the JOURNEY (freeing the
+// driver's currentJourneyId) once every matched request is COMPLETED. All actions are manual driver
+// actions. A request is faked straight into the status under test via the admin SDK (bypassing the
+// whole matching/optimization pipeline, which has its own tests) so this file is only about the
+// callables' own rules: who may call them, from which status, and that a repeat call is harmless.
 
 const PLACE = { latitude: 51.5, longitude: -0.1, formattedAddress: 'A place', placeId: null };
 
@@ -25,11 +28,11 @@ async function person(role: 'DRIVER' | 'PASSENGER', prefix: string) {
 async function tripAt(
   status: string,
   driverId: string | null,
-  extra: { journeyId?: string; assignedPlanId?: string } = {},
+  extra: { journeyId?: string; assignedPlanId?: string; passengerId?: string } = {},
 ) {
   const ref = admin().firestore.collection('tripRequests').doc();
   await ref.set({
-    passengerId: 'passenger-fixture',
+    passengerId: extra.passengerId ?? 'passenger-fixture',
     passengerName: 'Pat',
     origin: PLACE,
     destination: PLACE,
@@ -250,5 +253,184 @@ describe('stop-order enforcement (Module 7.4, functions + firestore emulators)',
 
     const result = await driver.call('startTransit', { tripId: second });
     expect((result.data as { status: string }).status).toBe('updated');
+  });
+
+  it('refuses a later pickup stop while an earlier DROPOFF stop is still pending (Module 7.5)', async () => {
+    const driver = await person('DRIVER', 'order-dropoff-blocks-pickup');
+    const first = await tripAt('DROPOFF_APPROACHING', driver.uid, {
+      journeyId: 'journey-order-3',
+    });
+    const second = await tripAt('PICKUP_ASSIGNED', driver.uid, { journeyId: 'journey-order-3' });
+    const planRef = admin().firestore.collection('journeyPlans').doc();
+    await planRef.set({
+      journeyId: 'journey-order-3',
+      driverId: driver.uid,
+      stops: [
+        { kind: 'dropoff', requestId: first },
+        { kind: 'pickup', requestId: second },
+      ],
+    });
+    await admin().firestore.doc(`tripRequests/${second}`).update({ assignedPlanId: planRef.id });
+
+    expect(await refusal(driver.call('headToPickup', { tripId: second }))).toBe('WRONG_STATUS');
+  });
+});
+
+describe('approachDropoff (functions + firestore emulators)', () => {
+  it('moves the matched driver own request from IN_TRANSIT to DROPOFF_APPROACHING', async () => {
+    const driver = await person('DRIVER', 'approach-ok');
+    const tripId = await tripAt('IN_TRANSIT', driver.uid);
+
+    const result = await driver.call('approachDropoff', { tripId });
+    expect((result.data as { status: string }).status).toBe('updated');
+
+    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    expect(trip?.status).toBe('DROPOFF_APPROACHING');
+  });
+
+  it('is unchanged, not an error, when already DROPOFF_APPROACHING', async () => {
+    const driver = await person('DRIVER', 'approach-again');
+    const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+
+    const result = await driver.call('approachDropoff', { tripId });
+    expect((result.data as { status: string }).status).toBe('unchanged');
+  });
+
+  it('refuses a request still only PICKED_UP (must start the trip first)', async () => {
+    const driver = await person('DRIVER', 'approach-early');
+    const tripId = await tripAt('PICKED_UP', driver.uid);
+
+    expect(await refusal(driver.call('approachDropoff', { tripId }))).toBe('WRONG_STATUS');
+  });
+
+  it("reports someone else's request as not found", async () => {
+    const driver = await person('DRIVER', 'approach-owner');
+    const other = await person('DRIVER', 'approach-other');
+    const tripId = await tripAt('IN_TRANSIT', driver.uid);
+
+    expect(await refusal(other.call('approachDropoff', { tripId }))).toBe('NOT_FOUND');
+  });
+
+  it('refuses a dropoff stop while an earlier one in the plan is still pending', async () => {
+    const driver = await person('DRIVER', 'approach-order');
+    const first = await tripAt('IN_TRANSIT', driver.uid, { journeyId: 'journey-order-4' });
+    const second = await tripAt('IN_TRANSIT', driver.uid, { journeyId: 'journey-order-4' });
+    const planRef = admin().firestore.collection('journeyPlans').doc();
+    await planRef.set({
+      journeyId: 'journey-order-4',
+      driverId: driver.uid,
+      stops: [
+        { kind: 'dropoff', requestId: first },
+        { kind: 'dropoff', requestId: second },
+      ],
+    });
+    await admin().firestore.doc(`tripRequests/${first}`).update({ assignedPlanId: planRef.id });
+    await admin().firestore.doc(`tripRequests/${second}`).update({ assignedPlanId: planRef.id });
+
+    expect(await refusal(driver.call('approachDropoff', { tripId: second }))).toBe('WRONG_STATUS');
+  });
+});
+
+describe('completeDropoff (functions + firestore emulators)', () => {
+  it('moves the matched driver own request from DROPOFF_APPROACHING to COMPLETED', async () => {
+    const driver = await person('DRIVER', 'complete-ok');
+    const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+
+    const result = await driver.call('completeDropoff', { tripId });
+    expect((result.data as { status: string }).status).toBe('updated');
+
+    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    expect(trip?.status).toBe('COMPLETED');
+  });
+
+  it('is unchanged, not an error, when already COMPLETED', async () => {
+    const driver = await person('DRIVER', 'complete-again');
+    const tripId = await tripAt('COMPLETED', driver.uid);
+
+    const result = await driver.call('completeDropoff', { tripId });
+    expect((result.data as { status: string }).status).toBe('unchanged');
+  });
+
+  it('refuses a request still only IN_TRANSIT (must approach drop-off first)', async () => {
+    const driver = await person('DRIVER', 'complete-early');
+    const tripId = await tripAt('IN_TRANSIT', driver.uid);
+
+    expect(await refusal(driver.call('completeDropoff', { tripId }))).toBe('WRONG_STATUS');
+  });
+
+  it("reports someone else's request as not found", async () => {
+    const driver = await person('DRIVER', 'complete-owner');
+    const other = await person('DRIVER', 'complete-other');
+    const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+
+    expect(await refusal(other.call('completeDropoff', { tripId }))).toBe('NOT_FOUND');
+  });
+
+  it('clears the passenger own currentTripRequestId when it still points here (Module 7.5)', async () => {
+    const driver = await person('DRIVER', 'complete-clears-passenger');
+    const passenger = await person('PASSENGER', 'complete-clears-passenger-p');
+    const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid, { passengerId: passenger.uid });
+    await admin().firestore.doc(`users/${passenger.uid}`).update({ currentTripRequestId: tripId });
+
+    await driver.call('completeDropoff', { tripId });
+
+    const user = (await admin().firestore.doc(`users/${passenger.uid}`).get()).data();
+    expect(user?.currentTripRequestId).toBeNull();
+  });
+
+  it("leaves the passenger's pointer alone when it already moved on to a newer request", async () => {
+    const driver = await person('DRIVER', 'complete-keeps-newer-passenger');
+    const passenger = await person('PASSENGER', 'complete-keeps-newer-passenger-p');
+    const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid, { passengerId: passenger.uid });
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ currentTripRequestId: 'some-newer-request' });
+
+    await driver.call('completeDropoff', { tripId });
+
+    const user = (await admin().firestore.doc(`users/${passenger.uid}`).get()).data();
+    expect(user?.currentTripRequestId).toBe('some-newer-request');
+  });
+
+  it('completes the journey and frees the driver once every matched request is COMPLETED', async () => {
+    const driver = await person('DRIVER', 'complete-finishes-journey');
+    const journeyRef = admin().firestore.collection('driverJourneys').doc();
+    const first = await tripAt('DROPOFF_APPROACHING', driver.uid, { journeyId: journeyRef.id });
+    const second = await tripAt('COMPLETED', driver.uid, { journeyId: journeyRef.id });
+    await journeyRef.set({
+      driverId: driver.uid,
+      status: 'ACTIVE',
+      matchedTripRequestIds: [first, second],
+    });
+    await admin()
+      .firestore.doc(`drivers/${driver.uid}`)
+      .update({ currentJourneyId: journeyRef.id });
+
+    await driver.call('completeDropoff', { tripId: first });
+
+    expect((await journeyRef.get()).data()?.status).toBe('COMPLETED');
+    const driverDoc = (await admin().firestore.doc(`drivers/${driver.uid}`).get()).data();
+    expect(driverDoc?.currentJourneyId).toBeNull();
+  });
+
+  it('leaves the journey alone while another matched request is still open', async () => {
+    const driver = await person('DRIVER', 'complete-journey-not-yet');
+    const journeyRef = admin().firestore.collection('driverJourneys').doc();
+    const first = await tripAt('DROPOFF_APPROACHING', driver.uid, { journeyId: journeyRef.id });
+    const second = await tripAt('IN_TRANSIT', driver.uid, { journeyId: journeyRef.id });
+    await journeyRef.set({
+      driverId: driver.uid,
+      status: 'ACTIVE',
+      matchedTripRequestIds: [first, second],
+    });
+    await admin()
+      .firestore.doc(`drivers/${driver.uid}`)
+      .update({ currentJourneyId: journeyRef.id });
+
+    await driver.call('completeDropoff', { tripId: first });
+
+    expect((await journeyRef.get()).data()?.status).toBe('ACTIVE');
+    const driverDoc = (await admin().firestore.doc(`drivers/${driver.uid}`).get()).data();
+    expect(driverDoc?.currentJourneyId).toBe(journeyRef.id);
   });
 });
