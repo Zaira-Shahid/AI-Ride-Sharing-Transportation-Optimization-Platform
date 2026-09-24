@@ -12,6 +12,15 @@ import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 // tests/roles-parity.test.ts fails if they diverge.
 export const AVAILABILITY_TARGETS = ['ONLINE', 'OFFLINE'] as const;
 export const setAvailabilityInputSchema = z.object({ status: z.enum(AVAILABILITY_TARGETS) });
+export const SET_AVAILABILITY_REFUSALS = ['PASSENGERS_ONBOARD'] as const;
+
+// A matched request the driver has already picked up: going offline can never release these back to
+// SEARCHING (Module 8.5, driver cancellation) - unlike one still only PICKUP_ASSIGNED/DRIVER_ARRIVING,
+// there is no safe way to "unmatch" someone already in the vehicle.
+const ONBOARD_TRIP_STATUSES = new Set(['PICKED_UP', 'IN_TRANSIT', 'DROPOFF_APPROACHING']);
+// The only two statuses going offline may actually release: a request already COMPLETED or CANCELLED
+// can still be sitting in matchedTripRequestIds (nothing trims it once done) and must be left alone.
+const RELEASABLE_TRIP_STATUSES = new Set(['PICKUP_ASSIGNED', 'DRIVER_ARRIVING']);
 
 export const GO_ONLINE_REQUIREMENTS = [
   'accountActive',
@@ -144,6 +153,35 @@ export async function setAvailability(
       }
     }
 
+    // Module 8.5 (driver cancellation): a MATCHING/ACTIVE journey's own matched requests must be read
+    // (before any write, per the transaction rule) to decide whether going offline is even allowed.
+    let tripsToRelease: DocumentSnapshot[] = [];
+    if (status === 'OFFLINE' && ownJourney) {
+      const journeyStatus = ownJourney.get('status');
+      if (journeyStatus === 'MATCHING' || journeyStatus === 'ACTIVE') {
+        const matchedIds = ownJourney.get('matchedTripRequestIds');
+        const ids = (Array.isArray(matchedIds) ? matchedIds : []).filter(
+          (id): id is string => typeof id === 'string' && id.length > 0,
+        );
+        const snaps = await Promise.all(
+          ids.map((id) => tx.get(firestore.collection('tripRequests').doc(id))),
+        );
+        const onboard = snaps.some(
+          (snap) => snap.exists && ONBOARD_TRIP_STATUSES.has(snap.get('status')),
+        );
+        if (onboard) {
+          throw new HttpsError(
+            'failed-precondition',
+            'You have a passenger already in your vehicle. Complete their drop-off before going offline.',
+            { reason: 'PASSENGERS_ONBOARD' },
+          );
+        }
+        tripsToRelease = snaps.filter(
+          (snap) => snap.exists && RELEASABLE_TRIP_STATUSES.has(snap.get('status')),
+        );
+      }
+    }
+
     if (status === 'OFFLINE' && ownJourney) {
       // Going offline ends the sharing of the driver's position: the last one is removed, so it does
       // not sit on the journey as if it were current. (When the system takes a driver offline, see
@@ -151,11 +189,54 @@ export async function setAvailability(
       // and verified staff can read it, and docs/security.md lists this.)
       const journeyUpdate: Record<string, unknown> = {};
       if (ownJourney.get('currentLocation') != null) journeyUpdate.currentLocation = null;
-      // Only a journey nobody has been matched to yet stops being a candidate; one already MATCHING
-      // or ACTIVE keeps its status here (Module 5.6 decides what going offline mid-match should do).
-      Object.assign(journeyUpdate, journeyOfflineFields(ownJourney));
+      // Only a journey nobody has been matched to yet stops being a candidate this way; one already
+      // MATCHING or ACTIVE (and known by now to have no onboard passenger) is cancelled here instead
+      // (Module 8.5) - back to DRAFT, same as a routine offline toggle, so the driver can reuse the
+      // same destination/seats/detour once they go online again.
+      if (tripsToRelease.length > 0) {
+        journeyUpdate.status = 'DRAFT';
+        journeyUpdate.matchedTripRequestIds = [];
+      } else {
+        Object.assign(journeyUpdate, journeyOfflineFields(ownJourney));
+      }
       if (Object.keys(journeyUpdate).length > 0) {
         tx.update(ownJourney.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
+      }
+      for (const trip of tripsToRelease) {
+        const previousStatus = trip.get('status');
+        tx.update(trip.ref, {
+          status: 'SEARCHING',
+          matchedJourneyId: null,
+          matchedDriverId: null,
+          driverName: null,
+          vehicleType: null,
+          vehicleMake: null,
+          vehicleModel: null,
+          vehiclePlateNumber: null,
+          driverLocation: null,
+          assignedPlanId: null,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.create(firestore.collection('auditLogs').doc(), {
+          timestamp: FieldValue.serverTimestamp(),
+          actor: caller.uid,
+          action: 'TRIP_UNMATCHED_DRIVER_CANCELLED',
+          entity: `tripRequests/${trip.id}`,
+          previousState: { status: previousStatus },
+          newState: { status: 'SEARCHING' },
+          reason: 'Driver went offline before pickup',
+        });
+      }
+      if (tripsToRelease.length > 0) {
+        tx.create(firestore.collection('auditLogs').doc(), {
+          timestamp: FieldValue.serverTimestamp(),
+          actor: caller.uid,
+          action: 'JOURNEY_CANCELLED_DRIVER_OFFLINE',
+          entity: `driverJourneys/${ownJourney.id}`,
+          previousState: { status: ownJourney.get('status') },
+          newState: { status: 'DRAFT' },
+          reason: `Driver went offline with ${tripsToRelease.length} matched passenger(s) not yet picked up`,
+        });
       }
     }
 

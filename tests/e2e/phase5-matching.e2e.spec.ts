@@ -202,4 +202,71 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
     await driverContext.close();
     await passengerContext.close();
   });
+
+  test('a driver going offline before pickup releases their matched passenger back to searching (Module 8.5)', async ({
+    browser,
+  }) => {
+    const driverContext = await browser.newContext();
+    const driverPage = await driverContext.newPage();
+    const passengerContext = await browser.newContext();
+    const passengerPage = await passengerContext.newPage();
+
+    const { farWestStart, farWestEnd } = PLACES;
+
+    const driverEmail = uniqueEmail('phase8-drv');
+    const driverUid = await createAccount(driverEmail, driverApp.role, true, 'Cal Driver', {
+      name: 'Cal Driver',
+      phone: '+44 7700 900124',
+    });
+    await writeJourneyDoc(driverUid, farWestEnd, 3, { minutes: 10, km: 5 }, farWestStart);
+    await writeDriverDoc(driverUid, {
+      verificationStatus: 'VERIFIED',
+      currentJourneyId: journeyId(driverUid),
+    });
+    await writeVehicleDoc(driverUid, { verificationStatus: 'VERIFIED', seatCapacity: 4 });
+    await openLogin(driverPage, driverApp.url, driverApp.title);
+    await submitLogin(driverPage, driverEmail, PASSWORD);
+    await expect(goOnline(driverPage)).toBeEnabled();
+    await goOnline(driverPage).click();
+    await expect.poll(async () => (await readDriverJourney(driverUid))?.status).toBe('AVAILABLE');
+
+    await mockPlaces(passengerPage);
+    await watchMap(passengerPage);
+    const { uid: passengerUid } = await newPassenger(passengerPage, 'phase8-psg');
+    await chooseDestination(passengerPage, 'bracken', farWestEnd.text);
+    await choosePickup(passengerPage, 'selkie', farWestStart.text);
+    await requestRide(passengerPage).click();
+    await confirm(passengerPage).click();
+    await expect(requestedCard(passengerPage).getByText('Finding your ride')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const tripId = (await tripsOf(passengerUid))[0]?.name.split('/').pop();
+    await triggerBatchOptimization({
+      tripId: tripId as string,
+      journeyId: journeyId(driverUid),
+      driverId: driverUid,
+    });
+    await expect(requestedCard(passengerPage).getByText('Pickup arranged')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // The driver goes offline before ever heading to pickup: a confirmation names the waiting
+    // passenger, and confirming releases them rather than leaving them stranded.
+    const goOffline = driverPage.getByRole('button', { name: 'Go offline', exact: true });
+    await goOffline.click();
+    await expect(driverPage.getByText('1 passenger waiting for pickup')).toBeVisible();
+    await driverPage.getByRole('button', { name: 'Yes, go offline', exact: true }).click();
+
+    await expect(requestedCard(passengerPage).getByText('Finding your ride')).toBeVisible({
+      timeout: 15_000,
+    });
+    const releasedTrip = (await tripsOf(passengerUid))[0];
+    expect(releasedTrip?.fields.status?.stringValue).toBe('SEARCHING');
+    expect(releasedTrip?.fields.matchedDriverId?.stringValue).toBeUndefined();
+    expect(await readJourneyStatus(journeyId(driverUid))).toBe('DRAFT');
+
+    await driverContext.close();
+    await passengerContext.close();
+  });
 });

@@ -524,3 +524,184 @@ describe('the journey becomes a match candidate while its driver is online (Modu
     expect((await journeyDoc(driver.uid))?.status).toBe('AVAILABLE');
   });
 });
+
+describe('driver cancellation: going offline mid-match (Module 8.5)', () => {
+  async function onlineDriver(prefix: string) {
+    const driver = await eligibleDriver(prefix);
+    await setAvailability(driver.client, 'ONLINE');
+    return driver;
+  }
+
+  /** A tripRequests fixture matched to `driverId` and their own journey, at `status`. */
+  async function matchedTripAt(status: string, driverId: string, journeyId: string) {
+    const ref = admin().firestore.collection('tripRequests').doc();
+    await ref.set({
+      passengerId: 'passenger-fixture',
+      passengerName: 'Pat',
+      origin: OFFICE,
+      destination: OFFICE,
+      status,
+      matchedDriverId: driverId,
+      matchedJourneyId: journeyId,
+      driverName: 'Test Driver',
+      vehicleType: 'CAR',
+      vehicleMake: 'Toyota',
+      vehicleModel: 'Corolla',
+      vehiclePlateNumber: 'X1',
+      driverLocation: { latitude: 1, longitude: 1 },
+      assignedPlanId: 'plan-fixture',
+    });
+    return ref.id;
+  }
+
+  /** Sets the driver's own journey to `status`, matched to `tripIds`. Returns the journey's id. */
+  async function matchJourneyTo(driverId: string, status: string, tripIds: string[]) {
+    const journeyId = (await driverDoc(driverId))?.currentJourneyId as string;
+    await admin()
+      .firestore.doc(`driverJourneys/${journeyId}`)
+      .update({ status, matchedTripRequestIds: tripIds });
+    return journeyId;
+  }
+
+  it('releases a matched-but-not-yet-picked-up passenger back to SEARCHING', async () => {
+    const driver = await onlineDriver('avl-cancel-release');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const tripId = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'MATCHING', [tripId]);
+
+    expect(await setAvailability(driver.client, 'OFFLINE')).toBe('updated');
+
+    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    expect(trip).toMatchObject({
+      status: 'SEARCHING',
+      matchedJourneyId: null,
+      matchedDriverId: null,
+      driverName: null,
+      vehicleType: null,
+      vehicleMake: null,
+      vehicleModel: null,
+      vehiclePlateNumber: null,
+      driverLocation: null,
+      assignedPlanId: null,
+    });
+    expect(await journeyDoc(driver.uid)).toMatchObject({
+      status: 'DRAFT',
+      matchedTripRequestIds: [],
+    });
+  });
+
+  it.each(['DRIVER_ARRIVING'])(
+    'also releases a %s passenger, and works for an ACTIVE journey too',
+    async (status) => {
+      const driver = await onlineDriver('avl-cancel-active');
+      const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+      const tripId = await matchedTripAt(status, driver.uid, journeyId);
+      await matchJourneyTo(driver.uid, 'ACTIVE', [tripId]);
+
+      expect(await setAvailability(driver.client, 'OFFLINE')).toBe('updated');
+
+      expect((await admin().firestore.doc(`tripRequests/${tripId}`).get()).data()?.status).toBe(
+        'SEARCHING',
+      );
+    },
+  );
+
+  it.each(['PICKED_UP', 'IN_TRANSIT', 'DROPOFF_APPROACHING'])(
+    'refuses to go offline with a %s passenger already in the vehicle, and changes nothing',
+    async (status) => {
+      const driver = await onlineDriver('avl-cancel-blocked');
+      const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+      const tripId = await matchedTripAt(status, driver.uid, journeyId);
+      await matchJourneyTo(driver.uid, 'ACTIVE', [tripId]);
+
+      await expect(
+        call(driver.client, 'setAvailability', { status: 'OFFLINE' }),
+      ).rejects.toMatchObject({
+        code: 'functions/failed-precondition',
+        details: { reason: 'PASSENGERS_ONBOARD' },
+      });
+
+      expect((await driverDoc(driver.uid))?.availabilityStatus).toBe('ONLINE');
+      expect((await journeyDoc(driver.uid))?.status).toBe('ACTIVE');
+      expect((await admin().firestore.doc(`tripRequests/${tripId}`).get()).data()?.status).toBe(
+        status,
+      );
+    },
+  );
+
+  it('refuses to go offline if even one of several matched passengers is already onboard', async () => {
+    const driver = await onlineDriver('avl-cancel-mixed-block');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const waiting = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+    const onboard = await matchedTripAt('PICKED_UP', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'ACTIVE', [waiting, onboard]);
+
+    await expect(
+      call(driver.client, 'setAvailability', { status: 'OFFLINE' }),
+    ).rejects.toMatchObject({ details: { reason: 'PASSENGERS_ONBOARD' } });
+    expect((await admin().firestore.doc(`tripRequests/${waiting}`).get()).data()?.status).toBe(
+      'PICKUP_ASSIGNED',
+    );
+  });
+
+  it('leaves an already COMPLETED or CANCELLED passenger in matchedTripRequestIds alone', async () => {
+    const driver = await onlineDriver('avl-cancel-leftover');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const waiting = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+    const done = await matchedTripAt('COMPLETED', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'ACTIVE', [waiting, done]);
+
+    expect(await setAvailability(driver.client, 'OFFLINE')).toBe('updated');
+
+    expect((await admin().firestore.doc(`tripRequests/${waiting}`).get()).data()?.status).toBe(
+      'SEARCHING',
+    );
+    const doneTrip = (await admin().firestore.doc(`tripRequests/${done}`).get()).data();
+    expect(doneTrip?.status).toBe('COMPLETED');
+    expect(doneTrip?.driverName).toBe('Test Driver');
+  });
+
+  it('audits both the released request and the cancelled journey', async () => {
+    const driver = await onlineDriver('avl-cancel-audit');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const tripId = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'MATCHING', [tripId]);
+
+    await setAvailability(driver.client, 'OFFLINE');
+
+    const tripAudit = (
+      await admin()
+        .firestore.collection('auditLogs')
+        .where('entity', '==', `tripRequests/${tripId}`)
+        .get()
+    ).docs;
+    expect(tripAudit).toHaveLength(1);
+    expect(tripAudit[0]?.data()).toMatchObject({
+      actor: driver.uid,
+      action: 'TRIP_UNMATCHED_DRIVER_CANCELLED',
+      previousState: { status: 'PICKUP_ASSIGNED' },
+      newState: { status: 'SEARCHING' },
+    });
+
+    const journeyAudit = (
+      await admin()
+        .firestore.collection('auditLogs')
+        .where('entity', '==', `driverJourneys/${journeyId}`)
+        .where('action', '==', 'JOURNEY_CANCELLED_DRIVER_OFFLINE')
+        .get()
+    ).docs;
+    expect(journeyAudit).toHaveLength(1);
+    expect(journeyAudit[0]?.data()).toMatchObject({
+      actor: driver.uid,
+      previousState: { status: 'MATCHING' },
+      newState: { status: 'DRAFT' },
+    });
+  });
+
+  it('does not touch a journey that is only AVAILABLE (no matched passengers)', async () => {
+    const driver = await onlineDriver('avl-cancel-none');
+    expect(await setAvailability(driver.client, 'OFFLINE')).toBe('updated');
+    expect(await offlineAudit(driver.uid)).toHaveLength(0);
+    expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+  });
+});
