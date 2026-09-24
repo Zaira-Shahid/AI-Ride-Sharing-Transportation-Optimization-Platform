@@ -157,29 +157,15 @@ export async function setAvailability(
     // (before any write, per the transaction rule) to decide whether going offline is even allowed.
     let tripsToRelease: DocumentSnapshot[] = [];
     if (status === 'OFFLINE' && ownJourney) {
-      const journeyStatus = ownJourney.get('status');
-      if (journeyStatus === 'MATCHING' || journeyStatus === 'ACTIVE') {
-        const matchedIds = ownJourney.get('matchedTripRequestIds');
-        const ids = (Array.isArray(matchedIds) ? matchedIds : []).filter(
-          (id): id is string => typeof id === 'string' && id.length > 0,
-        );
-        const snaps = await Promise.all(
-          ids.map((id) => tx.get(firestore.collection('tripRequests').doc(id))),
-        );
-        const onboard = snaps.some(
-          (snap) => snap.exists && ONBOARD_TRIP_STATUSES.has(snap.get('status')),
-        );
-        if (onboard) {
-          throw new HttpsError(
-            'failed-precondition',
-            'You have a passenger already in your vehicle. Complete their drop-off before going offline.',
-            { reason: 'PASSENGERS_ONBOARD' },
-          );
-        }
-        tripsToRelease = snaps.filter(
-          (snap) => snap.exists && RELEASABLE_TRIP_STATUSES.has(snap.get('status')),
+      const { onboard, releasable } = await readReleasableMatchedTrips(tx, firestore, ownJourney);
+      if (onboard) {
+        throw new HttpsError(
+          'failed-precondition',
+          'You have a passenger already in your vehicle. Complete their drop-off before going offline.',
+          { reason: 'PASSENGERS_ONBOARD' },
         );
       }
+      tripsToRelease = releasable;
     }
 
     if (status === 'OFFLINE' && ownJourney) {
@@ -202,42 +188,14 @@ export async function setAvailability(
       if (Object.keys(journeyUpdate).length > 0) {
         tx.update(ownJourney.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
       }
-      for (const trip of tripsToRelease) {
-        const previousStatus = trip.get('status');
-        tx.update(trip.ref, {
-          status: 'SEARCHING',
-          matchedJourneyId: null,
-          matchedDriverId: null,
-          driverName: null,
-          vehicleType: null,
-          vehicleMake: null,
-          vehicleModel: null,
-          vehiclePlateNumber: null,
-          driverLocation: null,
-          assignedPlanId: null,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        tx.create(firestore.collection('auditLogs').doc(), {
-          timestamp: FieldValue.serverTimestamp(),
-          actor: caller.uid,
-          action: 'TRIP_UNMATCHED_DRIVER_CANCELLED',
-          entity: `tripRequests/${trip.id}`,
-          previousState: { status: previousStatus },
-          newState: { status: 'SEARCHING' },
-          reason: 'Driver went offline before pickup',
-        });
-      }
-      if (tripsToRelease.length > 0) {
-        tx.create(firestore.collection('auditLogs').doc(), {
-          timestamp: FieldValue.serverTimestamp(),
-          actor: caller.uid,
-          action: 'JOURNEY_CANCELLED_DRIVER_OFFLINE',
-          entity: `driverJourneys/${ownJourney.id}`,
-          previousState: { status: ownJourney.get('status') },
-          newState: { status: 'DRAFT' },
-          reason: `Driver went offline with ${tripsToRelease.length} matched passenger(s) not yet picked up`,
-        });
-      }
+      releaseMatchedTrips(
+        tx,
+        firestore,
+        ownJourney,
+        tripsToRelease,
+        caller.uid,
+        'Driver went offline before pickup',
+      );
     }
 
     tx.update(driverRef, {
@@ -290,6 +248,97 @@ export function offlineFields(
 ): { availabilityStatus: 'OFFLINE'; availabilityChangedAt: FieldValue } | undefined {
   if (!driver.exists || driver.get('availabilityStatus') !== 'ONLINE') return undefined;
   return { availabilityStatus: 'OFFLINE', availabilityChangedAt: FieldValue.serverTimestamp() };
+}
+
+export interface ReleasableMatchedTrips {
+  /** Whether any matched request is already PICKED_UP or later - never safe to release. */
+  onboard: boolean;
+  /** Matched requests still only PICKUP_ASSIGNED/DRIVER_ARRIVING - safe to release to SEARCHING. */
+  releasable: DocumentSnapshot[];
+}
+
+/**
+ * Reads a journey's own matchedTripRequestIds and splits them (Module 8.5, driver cancellation): a
+ * no-op (both empty) for any journey not MATCHING or ACTIVE, or when there is none. A request already
+ * COMPLETED/CANCELLED but still lingering in the array (nothing trims it once done) counts as
+ * neither. Read this before any write in the transaction.
+ */
+export async function readReleasableMatchedTrips(
+  tx: Transaction,
+  firestore: Firestore,
+  journey: DocumentSnapshot | undefined,
+): Promise<ReleasableMatchedTrips> {
+  const journeyStatus = journey?.get('status');
+  if (!journey || (journeyStatus !== 'MATCHING' && journeyStatus !== 'ACTIVE')) {
+    return { onboard: false, releasable: [] };
+  }
+  const matchedIds = journey.get('matchedTripRequestIds');
+  const ids = (Array.isArray(matchedIds) ? matchedIds : []).filter(
+    (id): id is string => typeof id === 'string' && id.length > 0,
+  );
+  const snaps = await Promise.all(
+    ids.map((id) => tx.get(firestore.collection('tripRequests').doc(id))),
+  );
+  return {
+    onboard: snaps.some((snap) => snap.exists && ONBOARD_TRIP_STATUSES.has(snap.get('status'))),
+    releasable: snaps.filter(
+      (snap) => snap.exists && RELEASABLE_TRIP_STATUSES.has(snap.get('status')),
+    ),
+  };
+}
+
+/**
+ * Writes the release of `releasable` requests back to SEARCHING, each with its own audit entry, plus
+ * one audit entry for the journey itself if any were released (the journey's own DRAFT/
+ * matchedTripRequestIds update is the caller's job, alongside whatever else it needs to write to the
+ * same document - Module 8.5, driver cancellation, shared by the driver's own offline toggle
+ * (availability.ts) and the system taking them offline (vehicles.ts, verification.ts). A no-op when
+ * `releasable` is empty. All reads for this must already be done.
+ */
+export function releaseMatchedTrips(
+  tx: Transaction,
+  firestore: Firestore,
+  journey: DocumentSnapshot,
+  releasable: DocumentSnapshot[],
+  actor: string,
+  reason: string,
+): void {
+  for (const trip of releasable) {
+    const previousStatus = trip.get('status');
+    tx.update(trip.ref, {
+      status: 'SEARCHING',
+      matchedJourneyId: null,
+      matchedDriverId: null,
+      driverName: null,
+      vehicleType: null,
+      vehicleMake: null,
+      vehicleModel: null,
+      vehiclePlateNumber: null,
+      driverLocation: null,
+      assignedPlanId: null,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.create(firestore.collection('auditLogs').doc(), {
+      timestamp: FieldValue.serverTimestamp(),
+      actor,
+      action: 'TRIP_UNMATCHED_DRIVER_CANCELLED',
+      entity: `tripRequests/${trip.id}`,
+      previousState: { status: previousStatus },
+      newState: { status: 'SEARCHING' },
+      reason,
+    });
+  }
+  if (releasable.length > 0) {
+    tx.create(firestore.collection('auditLogs').doc(), {
+      timestamp: FieldValue.serverTimestamp(),
+      actor,
+      action: 'JOURNEY_CANCELLED_DRIVER_OFFLINE',
+      entity: `driverJourneys/${journey.id}`,
+      previousState: { status: journey.get('status') },
+      newState: { status: 'DRAFT' },
+      reason: `${releasable.length} matched passenger(s) not yet picked up were released`,
+    });
+  }
 }
 
 export function auditTakenOffline(

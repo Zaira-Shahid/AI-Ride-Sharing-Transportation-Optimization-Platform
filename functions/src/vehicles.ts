@@ -6,6 +6,8 @@ import {
   journeyOfflineFields,
   offlineFields,
   readOwnJourney,
+  readReleasableMatchedTrips,
+  releaseMatchedTrips,
 } from './availability.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 
@@ -99,6 +101,11 @@ export async function saveVehicle(
     // Read now (Module 5.1): all of a transaction's reads must happen before any of its writes, and
     // this function's first write is only a few lines below.
     const ownJourney = await readOwnJourney(tx, firestore, caller.uid, driver);
+    // Module 8.5 (driver cancellation): if this change is about to force the driver offline, a
+    // matched-but-not-yet-picked-up passenger must be released rather than left stranded. An onboard
+    // one is not blocked here (unlike the driver's own explicit offline toggle) - the system has
+    // already decided the driver cannot stay online, so their trip simply continues uninterrupted.
+    const { releasable } = await readReleasableMatchedTrips(tx, firestore, ownJourney);
 
     if (!user.exists || user.get('status') !== 'ACTIVE' || !driver.exists) {
       throw new HttpsError('failed-precondition', 'This account cannot save a vehicle right now.');
@@ -154,9 +161,22 @@ export async function saveVehicle(
     const offline = offlineFields(driver);
     if (offline) {
       tx.update(driverRef, offline);
-      const journeyOffline = journeyOfflineFields(ownJourney);
-      if (journeyOffline && ownJourney) {
-        tx.update(ownJourney.ref, { ...journeyOffline, updatedAt: FieldValue.serverTimestamp() });
+      if (ownJourney) {
+        const journeyUpdate =
+          releasable.length > 0
+            ? { status: 'DRAFT' as const, matchedTripRequestIds: [] }
+            : journeyOfflineFields(ownJourney);
+        if (journeyUpdate) {
+          tx.update(ownJourney.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
+        }
+        releaseMatchedTrips(
+          tx,
+          firestore,
+          ownJourney,
+          releasable,
+          caller.uid,
+          'Vehicle details changed',
+        );
       }
       auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle details changed');
     }
@@ -206,6 +226,8 @@ export async function setVehicleCapacity(
 
     // Seats on offer live on the driver's own open journey; read it now, before any write.
     const journey = await readOwnJourney(tx, firestore, caller.uid, driver);
+    // Module 8.5 (driver cancellation): see saveVehicle's own comment on the same call.
+    const { releasable } = await readReleasableMatchedTrips(tx, firestore, journey);
 
     const raised = typeof previous !== 'number' || seatCapacity > previous;
     const previousAvailable: unknown = vehicle.get('availableSeats');
@@ -248,9 +270,15 @@ export async function setVehicleCapacity(
     const offline = raised ? offlineFields(driver) : undefined;
     if (offline) {
       tx.update(driverRef, offline);
-      const journeyOffline = journeyOfflineFields(journey);
-      if (journeyOffline && journey) {
-        tx.update(journey.ref, { ...journeyOffline, updatedAt: FieldValue.serverTimestamp() });
+      if (journey) {
+        const journeyUpdate =
+          releasable.length > 0
+            ? { status: 'DRAFT' as const, matchedTripRequestIds: [] }
+            : journeyOfflineFields(journey);
+        if (journeyUpdate) {
+          tx.update(journey.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
+        }
+        releaseMatchedTrips(tx, firestore, journey, releasable, caller.uid, 'Vehicle seats raised');
       }
       auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle seats raised');
     }
