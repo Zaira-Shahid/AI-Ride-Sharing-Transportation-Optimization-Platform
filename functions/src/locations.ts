@@ -41,6 +41,13 @@ export function isUsableAccuracy(accuracy: number | null | undefined): boolean {
  *   app does (a buggy or hostile client cannot write every second).
  * Ignored and throttled readings are normal outcomes and come back as such, not as errors. The
  * position is location data of a private person: it is never written to the audit log or logged.
+ *
+ * Module 7.6 (live map): the same reading is copied onto every one of the journey's own
+ * matchedTripRequestIds, so a matched passenger can see it without needing read access to
+ * driverJourneys itself (the same one-way snapshot pattern as driverName/vehicle, Module 7.3) - no
+ * new Firestore rule. Written to every id in that list regardless of the request's own current status
+ * (COMPLETED/CANCELLED ones too): harmless (nobody reads a closed request's location) and avoids an
+ * extra read per id just to filter them out.
  */
 export async function updateDriverLocation(
   deps: { firestore: Firestore; now?: () => number },
@@ -92,15 +99,24 @@ export async function updateDriverLocation(
       return { status: 'throttled' };
     }
 
-    tx.update(journeyRef, {
-      currentLocation: {
-        latitude,
-        longitude,
-        accuracy: accuracy ?? null,
-        updatedAt: FieldValue.serverTimestamp(),
-      },
+    const location = {
+      latitude,
+      longitude,
+      accuracy: accuracy ?? null,
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+    tx.update(journeyRef, { currentLocation: location, updatedAt: FieldValue.serverTimestamp() });
+
+    const matchedTripRequestIds = journey.get('matchedTripRequestIds');
+    if (Array.isArray(matchedTripRequestIds)) {
+      for (const tripId of matchedTripRequestIds) {
+        if (typeof tripId !== 'string' || !tripId) continue;
+        tx.update(firestore.collection('tripRequests').doc(tripId), {
+          driverLocation: location,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
     return { status: 'updated' };
   });
 }

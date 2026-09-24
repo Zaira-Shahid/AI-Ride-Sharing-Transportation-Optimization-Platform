@@ -351,4 +351,34 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
     expect(text).not.toContain('51.4601');
     expect(text).not.toContain('2.5802');
   });
+
+  it("copies the reading onto every one of the journey's own matchedTripRequestIds (Module 7.6)", async () => {
+    const driver = await onlineDriver('loc-fanout');
+    const { id: journeyId } = await journeyOf(driver.uid);
+    const tripRef = admin().firestore.collection('tripRequests').doc();
+    await tripRef.set({
+      status: 'PICKED_UP',
+      matchedDriverId: driver.uid,
+      matchedJourneyId: journeyId,
+      driverLocation: null,
+    });
+    await admin()
+      .firestore.doc(`driverJourneys/${journeyId}`)
+      .update({ matchedTripRequestIds: [tripRef.id] });
+
+    await updateDriverLocation(driver.client, { ...MOVED, accuracy: 12 });
+
+    const trip = (await tripRef.get()).data();
+    expect(trip?.driverLocation).toMatchObject({ ...MOVED, accuracy: 12 });
+  });
+
+  it("does not touch a trip request that is not this journey's own matchedTripRequestIds", async () => {
+    const driver = await onlineDriver('loc-fanout-unrelated');
+    const unrelated = admin().firestore.collection('tripRequests').doc();
+    await unrelated.set({ status: 'PICKED_UP', matchedDriverId: driver.uid, driverLocation: null });
+
+    await updateDriverLocation(driver.client, MOVED);
+
+    expect((await unrelated.get()).data()?.driverLocation).toBeNull();
+  });
 });

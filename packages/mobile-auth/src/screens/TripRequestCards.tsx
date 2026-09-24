@@ -1,7 +1,9 @@
 import {
   ESTIMATE_CAVEAT,
   describeEstimate,
+  formatDuration,
   type FlexibilityLevel,
+  type Route,
   type TripEstimate,
   type TripRequestStatus,
 } from '@ridemesh/types';
@@ -178,6 +180,7 @@ export function RequestedCard({
   now,
   estimate,
   driver,
+  liveEta,
   cancellable,
   problem,
   onCancel,
@@ -189,6 +192,8 @@ export function RequestedCard({
   estimate: EstimateView;
   /** The matched driver and vehicle (Module 7.3), or null before a driver is assigned. */
   driver: MatchedDriverInfo | null;
+  /** How long until the driver reaches the passenger's own next point (Module 7.6). */
+  liveEta: LiveEtaView;
   /** Whether the passenger may cancel from this status (canPassengerCancel). */
   cancellable: boolean;
   problem: string | null;
@@ -204,10 +209,43 @@ export function RequestedCard({
         {TRIP_STATUS_TEXT[status].detail}
       </Text>
       {driver ? <DriverInfoCard driver={driver} /> : null}
+      <LiveEtaNote view={liveEta} />
       <TripSummary summary={summary} now={now} />
       <EstimateNote view={estimate} />
       {problem ? <Notice tone="error">{problem}</Notice> : null}
       {cancellable ? <SecondaryButton label="Cancel ride request" onPress={onCancel} /> : null}
+    </View>
+  );
+}
+
+/** Where a live ETA to the driver (Module 7.6) stands, for the note that shows it. */
+export type LiveEtaView =
+  | { state: 'none' }
+  | { state: 'loading' }
+  | { state: 'ready'; route: Route; toPickup: boolean }
+  | { state: 'unavailable' };
+
+/**
+ * How long until the matched driver reaches the passenger's own next point, worked out fresh from
+ * the driver's last shared position (Module 7.6) - a direct route, without live traffic or any
+ * detour for other passengers sharing the ride. Shows nothing before a driver has shared a position.
+ */
+function LiveEtaNote({ view }: { view: LiveEtaView }) {
+  const theme = useAuthTheme();
+  if (view.state === 'none') return null;
+  return (
+    <View style={styles.line} accessibilityLabel="Live estimated arrival">
+      {view.state === 'ready' ? (
+        <Text style={[styles.value, { color: theme.textPrimary }]}>
+          {view.toPickup
+            ? `Your driver is about ${formatDuration(view.route.durationSeconds)} away`
+            : `About ${formatDuration(view.route.durationSeconds)} to your destination`}
+        </Text>
+      ) : (
+        <Text style={[styles.caption, { color: theme.textSecondary }]}>
+          {view.state === 'loading' ? 'Working out the time.' : 'We could not work out the time.'}
+        </Text>
+      )}
     </View>
   );
 }

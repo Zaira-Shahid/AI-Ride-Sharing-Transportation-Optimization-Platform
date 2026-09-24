@@ -45,6 +45,7 @@ import {
   RequestedCard,
   ReviewCard,
   type EstimateView,
+  type LiveEtaView,
   type TripSummaryData,
 } from './TripRequestCards';
 import { formatWhen } from './timeFormat';
@@ -64,6 +65,12 @@ const LOCATION_PROBLEMS: Partial<Record<LocationStatus, string>> = {
     'Location is turned off for this app. You can turn it on in your browser or phone settings.',
   unavailable: 'We could not find your location. Check your signal and try again.',
 };
+
+// The live ETA (Module 7.6) targets the passenger's own pickup before boarding, and their own
+// destination after - MATCHED is included for completeness (Module 5.5's own assignment path is no
+// longer called from anywhere in production, but a request could in principle still reach it).
+const AFTER_PICKUP_STATUSES = new Set(['PICKED_UP', 'IN_TRANSIT', 'DROPOFF_APPROACHING']);
+const BEFORE_PICKUP_STATUSES = new Set(['MATCHED', 'PICKUP_ASSIGNED', 'DRIVER_ARRIVING']);
 
 // The cards on top take at most this share of the screen and scroll beyond it, so that the map keeps
 // room for the places, the zoom buttons and the location button.
@@ -277,6 +284,35 @@ export function PassengerHomeScreen({
     };
   }, [openTrip, client]);
 
+  // Live ETA (Module 7.6): while the matched driver has shared a position, the road time from where
+  // they are right now to the passenger's own next point - their pickup before boarding, their own
+  // destination after. A direct route only, not the full shared-ride stop sequence (a real
+  // simplification: a driver detouring for another passenger first will make this read early).
+  // Recomputed whenever the driver's shared position (or anything else about the trip) changes.
+  const [liveEta, setLiveEta] = useState<LiveEtaView>({ state: 'none' });
+  useEffect(() => {
+    if (!openTrip || !openTrip.driverLocation) {
+      setLiveEta({ state: 'none' });
+      return undefined;
+    }
+    setLiveEta({ state: 'loading' });
+    const target = BEFORE_PICKUP_STATUSES.has(openTrip.status)
+      ? openTrip.origin
+      : openTrip.destination;
+    let current = true;
+    void calculateRoute(client, [openTrip.driverLocation, target]).then((route) => {
+      if (!current) return;
+      setLiveEta(
+        route
+          ? { state: 'ready', route, toPickup: !AFTER_PICKUP_STATUSES.has(openTrip.status) }
+          : { state: 'unavailable' },
+      );
+    });
+    return () => {
+      current = false;
+    };
+  }, [openTrip, client]);
+
   // An arrival time that leaves less than the estimated trip is a warning, never a refusal: the
   // estimate has no live traffic and no detour for sharing.
   const arrivalWarning = (() => {
@@ -358,6 +394,7 @@ export function PassengerHomeScreen({
             pickup={openTrip ? openTrip.origin : pickup}
             destination={openTrip ? openTrip.destination : destination}
             currentLocation={location.point}
+            driverLocation={openTrip?.driverLocation ?? null}
             route={routePoints}
             insets={{ top: topCover, bottom: bottomCover }}
           />
@@ -394,6 +431,7 @@ export function PassengerHomeScreen({
                 now={now}
                 estimate={estimateViewOf(openTrip, now)}
                 driver={openTrip.driver}
+                liveEta={liveEta}
                 cancellable={canPassengerCancel(openTrip.status)}
                 problem={cancelProblem}
                 onCancel={() => {

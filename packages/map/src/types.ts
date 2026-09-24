@@ -12,6 +12,11 @@ export interface MapViewProps {
   /** Where the device is, when the person has allowed it and it has been found. */
   currentLocation: MapPoint | null;
   /**
+   * Where the matched driver currently is (Module 7.6), while the request is open with one assigned;
+   * null before then, or when the driver has not shared a position yet.
+   */
+  driverLocation?: MapPoint | null;
+  /**
    * The road route between pickup and destination, as the points it passes through (Module 4.7;
    * decode a route's `geometry` with `decodePolyline`). Null while there is none to show yet, or when
    * one could not be had - the map still shows the two places on their own, as it always did.
