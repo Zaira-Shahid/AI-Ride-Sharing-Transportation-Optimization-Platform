@@ -12,6 +12,7 @@
       "collectionGroup": "journeyPlans",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "driverId", "order": "ASCENDING" },
         { "fieldPath": "journeyId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]

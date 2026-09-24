@@ -137,6 +137,10 @@ import {
   isValidFlexibilityPreferences as functionsIsValidPreferences,
 } from '../functions/src/tripRequests';
 import {
+  TRIP_EXECUTION_REFUSALS as functionsExecutionRefusals,
+  advanceTripInputSchema as functionsAdvanceSchema,
+} from '../functions/src/tripExecution';
+import {
   FLEXIBILITY_LEVEL_LIMITS,
   MAX_AHEAD_DAYS,
   MIN_ARRIVAL_GAP_MINUTES,
@@ -157,6 +161,8 @@ import {
   isSamePlace as sharedIsSamePlace,
   isValidFlexibilityPreferences as sharedIsValidPreferences,
   TRIP_REQUEST_STATUSES,
+  TRIP_EXECUTION_REFUSALS,
+  advanceTripInputSchema as sharedAdvanceSchema,
 } from '@ridemesh/types';
 
 describe('functions and shared types stay aligned', () => {
@@ -449,6 +455,7 @@ describe('trip requests: functions and shared types stay aligned', () => {
     expect([...functionsOpenStatuses]).toEqual([...OPEN_TRIP_STATUSES]);
     for (const status of OPEN_TRIP_STATUSES) expect(TRIP_REQUEST_STATUSES).toContain(status);
     expect([...functionsRefusals]).toEqual([...TRIP_REQUEST_REFUSALS]);
+    expect([...functionsExecutionRefusals]).toEqual([...TRIP_EXECUTION_REFUSALS]);
     expect(functionsTripDefaults).toEqual(NEW_TRIP_REQUEST_DEFAULTS);
     expect(TRIP_REQUEST_STATUSES).toContain(functionsTripDefaults.status);
     expect([
@@ -500,6 +507,9 @@ describe('trip requests: functions and shared types stay aligned', () => {
     for (const input of [{ tripId: 'abc' }, { tripId: '' }, { tripId: 'x'.repeat(201) }, {}]) {
       expect(functionsCancelSchema.safeParse(input).success).toBe(
         sharedCancelSchema.safeParse(input).success,
+      );
+      expect(functionsAdvanceSchema.safeParse(input).success).toBe(
+        sharedAdvanceSchema.safeParse(input).success,
       );
     }
   });

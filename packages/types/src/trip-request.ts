@@ -75,6 +75,22 @@ export interface CancelTripRequestResult {
   status: 'cancelled' | 'unchanged';
 }
 
+/** Why the server refused to advance a request's pickup status (Module 7.2), as details.reason. */
+export const TRIP_EXECUTION_REFUSALS = ['INVALID', 'NOT_FOUND', 'WRONG_STATUS'] as const;
+export type TripExecutionRefusal = (typeof TRIP_EXECUTION_REFUSALS)[number];
+
+/**
+ * Advances the matched driver's own request `tripId` one step (headToPickup: PICKUP_ASSIGNED ->
+ * DRIVER_ARRIVING; confirmPickup: DRIVER_ARRIVING -> PICKED_UP). Same shape for both - only the
+ * function name and the transition it allows differ.
+ */
+export const advanceTripInputSchema = z.object({ tripId: z.string().min(1).max(200) });
+export type AdvanceTripInput = z.infer<typeof advanceTripInputSchema>;
+
+export interface AdvanceTripResult {
+  status: 'updated' | 'unchanged';
+}
+
 export interface TripRequest {
   passengerId: string;
   /**
