@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { estimateTripRequest } from './estimates.js';
@@ -10,6 +10,7 @@ import { buildHealthResponse } from './health.js';
 import { matchTripRequest } from './matching.js';
 import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
 import { runBatchOptimization } from './optimizationRun.js';
+import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
 import { registerUser } from './registration.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
@@ -248,3 +249,33 @@ export const batchOptimizationRun = onSchedule('every 2 minutes', async () => {
     logger.warn('The batch optimization run failed.');
   }
 });
+
+/**
+ * Event-triggered batch optimization (Phase 8, modules 8.1/8.2): a trip request reaching SEARCHING -
+ * a brand new request (matchTripRequestOnCreate above), or one released back to it by a driver
+ * cancellation (Module 8.5, functions/src/availability.ts) - starts a run right away rather than
+ * waiting for the schedule above, which keeps running unchanged as a backstop. Debounced
+ * (optimizationTrigger.ts) so a burst of several such requests still shares one run. Does nothing
+ * when OPTIMIZATION_SERVICE_URL is not configured, same as the scheduled run; never throws.
+ */
+export const optimizationRunOnSearching = onDocumentUpdated(
+  { document: 'tripRequests/{tripId}', timeoutSeconds: 120 },
+  async (event) => {
+    const before = event.data?.before.get('status');
+    const after = event.data?.after.get('status');
+    if (before === after || after !== 'SEARCHING') return;
+
+    const baseUrl = optimizationServiceUrlFromEnvironment();
+    if (!baseUrl) return;
+    try {
+      const outcome = await runImmediateOptimizationIfDue({
+        firestore: getFirestore(),
+        provider: osrmFromEnvironment(),
+        optimizationService: { baseUrl },
+      });
+      if (outcome) logger.info('Immediate batch optimization run finished.', outcome);
+    } catch {
+      logger.warn('The immediate batch optimization run failed.');
+    }
+  },
+);
