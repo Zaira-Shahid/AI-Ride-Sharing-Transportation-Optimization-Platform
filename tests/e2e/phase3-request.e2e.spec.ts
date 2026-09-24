@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { NEW_TRIP_REQUEST_DEFAULTS } from '@ridemesh/types';
 import { defaultRouteBody } from '../fake-osrm';
 import { PLACES, firestoreDocs, mockPlaces } from './helpers';
 import { newPassenger, watchMap } from './map-helpers';
@@ -188,35 +189,24 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
     expect(estimated?.estimatedDuration).toBe(Math.round(expectedRoute?.duration ?? Number.NaN));
     expect(typeof trip.createdAt).toBe('number');
     expect(typeof trip.updatedAt).toBe('number');
+    // The fields the passenger's own input always fills in at creation (tripRequests.ts's tx.create),
+    // plus every field NEW_TRIP_REQUEST_DEFAULTS adds (self-updating: a field added there, the one
+    // place a new module's own default belongs, is picked up here automatically - no separate list to
+    // remember to update, unlike the hand-maintained one this replaced).
+    const ALWAYS_PRESENT_ON_CREATE = [
+      'passengerId',
+      'passengerName',
+      'origin',
+      'destination',
+      'requestedAt',
+      'requestedDepartureTime',
+      'arrivalDeadline',
+      'passengerPreferences',
+      'createdAt',
+      'updatedAt',
+    ];
     expect(Object.keys(trip).sort()).toEqual(
-      [
-        'arrivalDeadline',
-        'assignedPlanId',
-        // Filled in by matching (Modules 5.2, 5.3 and 5.5) once the request starts SEARCHING.
-        'candidateCount',
-        'createdAt',
-        'destination',
-        'estimatedDistance',
-        'estimatedDuration',
-        'estimatedFare',
-        'matchedDriverId',
-        'matchedJourneyId',
-        'origin',
-        'passengerId',
-        // The passenger's first name only (Module 7.1), copied in at creation for a matched driver.
-        'passengerName',
-        'passengerPreferences',
-        'requestedAt',
-        'requestedDepartureTime',
-        'status',
-        'updatedAt',
-        // The matched driver's first name and vehicle (Module 7.3), filled in once assigned.
-        'driverName',
-        'vehicleType',
-        'vehicleMake',
-        'vehicleModel',
-        'vehiclePlateNumber',
-      ].sort(),
+      [...ALWAYS_PRESENT_ON_CREATE, ...Object.keys(NEW_TRIP_REQUEST_DEFAULTS)].sort(),
     );
 
     // And the passenger's account points at it, so a reload finds it again.
