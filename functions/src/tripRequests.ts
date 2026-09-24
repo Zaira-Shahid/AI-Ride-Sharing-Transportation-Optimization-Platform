@@ -53,6 +53,9 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   vehicleMake: null,
   vehicleModel: null,
   vehiclePlateNumber: null,
+  // Where the matched driver currently is (Module 7.6), copied in by updateDriverLocation; null
+  // until a reading arrives.
+  driverLocation: null,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;

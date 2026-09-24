@@ -133,6 +133,13 @@ export interface TripRequest {
   vehicleModel: string | null;
   vehiclePlateNumber: string | null;
   /**
+   * Where the matched driver currently is (Module 7.6), copied in the same way every time
+   * updateDriverLocation writes a new reading while this request is one of the journey's own
+   * matchedTripRequestIds; null until the driver has shared a position. Powers the passenger's live
+   * map and ETA - not updated once the request is COMPLETED or CANCELLED (nothing writes it after).
+   */
+  driverLocation: { latitude: number; longitude: number; accuracy: number | null } | null;
+  /**
    * The road distance from the pickup to the destination in METRES, filled in by the server just after
    * the request is created (trip-estimate.ts); null until then, and when no route could be had.
    */
@@ -160,6 +167,7 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   vehicleMake: null,
   vehicleModel: null,
   vehiclePlateNumber: null,
+  driverLocation: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

@@ -48,6 +48,18 @@ export interface TripRequestData {
   estimate: TripEstimate | null;
   /** The matched driver's first name and vehicle (Module 7.3); null until a driver is assigned. */
   driver: MatchedDriverInfo | null;
+  /**
+   * Where the matched driver currently is (Module 7.6), as last shared; null until they have shared
+   * a position. Powers the live map and ETA - not the same field as `driver`, which never changes
+   * once set.
+   */
+  driverLocation: MapPoint | null;
+}
+
+/** A place on the map, as coordinates - kept here so this package does not depend on @ridemesh/map. */
+export interface MapPoint {
+  latitude: number;
+  longitude: number;
 }
 
 /** What a passenger sees about the driver and vehicle they have been matched with. */
@@ -196,7 +208,16 @@ function readTrip(id: string, data: Record<string, unknown>): TripRequestData | 
     allowSharedRide: preferences.allowSharedRide === true,
     estimate: readTripEstimate(data.estimatedDistance, data.estimatedDuration),
     driver: readDriverInfo(data),
+    driverLocation: readDriverLocation(data.driverLocation),
   };
+}
+
+function readDriverLocation(value: unknown): MapPoint | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { latitude, longitude } = value as Record<string, unknown>;
+  return typeof latitude === 'number' && typeof longitude === 'number'
+    ? { latitude, longitude }
+    : null;
 }
 
 function readDriverInfo(data: Record<string, unknown>): MatchedDriverInfo | null {
