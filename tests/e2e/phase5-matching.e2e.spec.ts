@@ -117,6 +117,13 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
     expect(trip?.fields.matchedDriverId?.stringValue).toBe(driverUid);
     expect(trip?.fields.matchedJourneyId?.stringValue).toBe(journeyId(driverUid));
 
+    // Module 7.3: the passenger sees the matched driver's first name and vehicle, copied onto the
+    // trip request at the same moment as matchedDriverId (no read access to the driver's own profile).
+    expect(trip?.fields.driverName?.stringValue).toBe('Dan');
+    expect(trip?.fields.vehicleMake?.stringValue).toBe('Toyota');
+    await expect(requestedCard(passengerPage).getByText('Dan')).toBeVisible();
+    await expect(requestedCard(passengerPage).getByText('Car Toyota Corolla')).toBeVisible();
+
     const journey = await readDriverJourney(driverUid);
     expect(journey?.status).toBe('MATCHING');
 

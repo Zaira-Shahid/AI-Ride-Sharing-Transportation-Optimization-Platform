@@ -210,6 +210,12 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
         'requestedDepartureTime',
         'status',
         'updatedAt',
+        // The matched driver's first name and vehicle (Module 7.3), filled in once assigned.
+        'driverName',
+        'vehicleType',
+        'vehicleMake',
+        'vehicleModel',
+        'vehiclePlateNumber',
       ].sort(),
     );
 
