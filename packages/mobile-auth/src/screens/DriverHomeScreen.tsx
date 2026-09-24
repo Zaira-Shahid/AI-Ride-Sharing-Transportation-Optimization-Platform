@@ -3,6 +3,7 @@ import {
   describeAuthError,
   headToPickup,
   setAvailability,
+  startTransit,
   type AuthFailure,
   type DriverProfileData,
   type FirebaseClient,
@@ -114,10 +115,16 @@ const STOP_LABEL: Record<JourneyPlanStop['kind'], string> = {
   dropoff: 'Drop off',
 };
 
+// A pickup stop not yet PICKED_UP: still waiting for headToPickup/confirmPickup.
+const PENDING_PICKUP_STATUSES = new Set(['PICKUP_ASSIGNED', 'DRIVER_ARRIVING']);
+
 /**
  * The matched journey's stop order (Module 7.1): who to pick up and drop off, and where, in order.
- * A pickup stop still PICKUP_ASSIGNED or DRIVER_ARRIVING (Module 7.2) gets a button to move it on -
- * both driver-initiated, never automatic (user decision). Dropoff stops have no action yet.
+ * Only the EARLIEST pending pickup gets a Head to pickup/Confirm pickup button (Module 7.4: the
+ * server itself refuses these out of plan order, so the app never offers a button it would refuse).
+ * Any pickup already PICKED_UP gets a Start trip button (PICKED_UP -> IN_TRANSIT), with no such
+ * ordering - a passenger already aboard cannot be jumping ahead of anyone still waiting. All three
+ * actions are driver-initiated, never automatic (user decision). Dropoff stops have no action yet.
  */
 function PassengersCard({
   stops,
@@ -130,17 +137,23 @@ function PassengersCard({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const act = async (tripId: string, action: 'head' | 'confirm') => {
+  const act = async (tripId: string, action: 'head' | 'confirm' | 'transit') => {
     setFailure(null);
     setBusyId(tripId);
     try {
-      await (action === 'head' ? headToPickup(client, tripId) : confirmPickup(client, tripId));
+      if (action === 'head') await headToPickup(client, tripId);
+      else if (action === 'confirm') await confirmPickup(client, tripId);
+      else await startTransit(client, tripId);
     } catch (error) {
       setFailure(describeAuthError(error).message);
     } finally {
       setBusyId(null);
     }
   };
+
+  const nextPendingPickupId =
+    stops.find((stop) => stop.kind === 'pickup' && PENDING_PICKUP_STATUSES.has(stop.status ?? ''))
+      ?.requestId ?? null;
 
   return (
     <View
@@ -155,7 +168,9 @@ function PassengersCard({
             {index + 1}. {STOP_LABEL[stop.kind]} {stop.passengerName}
             {stop.address ? ` - ${stop.address}` : ''}
           </Text>
-          {stop.kind === 'pickup' && stop.status === 'PICKUP_ASSIGNED' ? (
+          {stop.kind === 'pickup' &&
+          stop.status === 'PICKUP_ASSIGNED' &&
+          stop.requestId === nextPendingPickupId ? (
             <SecondaryButton
               label="Head to pickup"
               onPress={() => void act(stop.requestId, 'head')}
@@ -163,10 +178,20 @@ function PassengersCard({
               disabled={busyId !== null}
             />
           ) : null}
-          {stop.kind === 'pickup' && stop.status === 'DRIVER_ARRIVING' ? (
+          {stop.kind === 'pickup' &&
+          stop.status === 'DRIVER_ARRIVING' &&
+          stop.requestId === nextPendingPickupId ? (
             <PrimaryButton
               label="Confirm pickup"
               onPress={() => void act(stop.requestId, 'confirm')}
+              loading={busyId === stop.requestId}
+              disabled={busyId !== null}
+            />
+          ) : null}
+          {stop.kind === 'pickup' && stop.status === 'PICKED_UP' ? (
+            <PrimaryButton
+              label="Start trip"
+              onPress={() => void act(stop.requestId, 'transit')}
               loading={busyId === stop.requestId}
               disabled={busyId !== null}
             />
