@@ -11,6 +11,7 @@ import {
   setVehicleCapacity,
 } from '../../packages/firebase/src';
 import { runBatchOptimization } from '../../functions/src/optimizationRun';
+import { claimImmediateOptimizationRun } from '../../functions/src/optimizationTrigger';
 import { createOsrmProvider, type RoutingProvider } from '../../functions/src/routing';
 import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_PORT, startFakeOsrm, type FakeOsrm } from '../fake-osrm';
 import { startOptimizationService, type OptimizationService } from '../optimization-service';
@@ -124,6 +125,13 @@ async function searchingPassenger(prefix: string) {
     arriveBy: null,
     preferences: BALANCED,
   });
+
+  // This test wants sole control of when the real optimization service is called (Module 8.1/8.2's
+  // own immediate trigger would otherwise race it, reacting to this same request reaching SEARCHING a
+  // moment from now - with the real service actually listening for the length of this whole
+  // describe block, unlike every other integration test, where it silently does nothing). Claiming
+  // the debounce window first, before that happens, makes the automatic trigger back off.
+  await claimImmediateOptimizationRun({ firestore: admin().firestore });
 
   const stop = Date.now() + 20_000;
   for (;;) {
