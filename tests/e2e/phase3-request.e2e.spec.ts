@@ -216,6 +216,8 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
         'vehicleMake',
         'vehicleModel',
         'vehiclePlateNumber',
+        // Where the matched driver currently is (Module 7.6), filled in once they share a position.
+        'driverLocation',
       ].sort(),
     );
 
