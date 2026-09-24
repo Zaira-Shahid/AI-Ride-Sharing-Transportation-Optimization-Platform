@@ -8,6 +8,7 @@ import {
   mockPlaces,
   openLogin,
   readDriverJourney,
+  readJourneyStatus,
   submitLogin,
   uniqueEmail,
   writeDriverDoc,
@@ -158,6 +159,28 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
 
     const inTransitTrip = (await tripsOf(passengerUid))[0];
     expect(inTransitTrip?.fields.status?.stringValue).toBe('IN_TRANSIT');
+
+    await passengersCard.getByRole('button', { name: 'Approaching drop-off' }).click();
+    await expect(
+      requestedCard(passengerPage).getByRole('heading', { name: 'Almost there' }),
+    ).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await passengersCard.getByRole('button', { name: 'Complete drop-off' }).click();
+
+    // Module 7.5: completing the last dropoff completes the journey, frees the driver to start a new
+    // one, and clears the passenger's own pointer so Home returns to "Request ride" on its own.
+    await expect(requestRide(passengerPage)).toBeVisible({ timeout: 15_000 });
+    await expect(requestedCard(passengerPage)).toHaveCount(0);
+
+    const completedTrip = (await tripsOf(passengerUid))[0];
+    expect(completedTrip?.fields.status?.stringValue).toBe('COMPLETED');
+
+    // The journey's own pointer (drivers/{uid}.currentJourneyId) is cleared on completion, so it must
+    // be read directly by id, not through readDriverJourney.
+    expect(await readJourneyStatus(journeyId(driverUid))).toBe('COMPLETED');
+    expect((await readDriverJourney(driverUid))?.id).toBeUndefined();
 
     await driverContext.close();
     await passengerContext.close();

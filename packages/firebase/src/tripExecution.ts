@@ -16,50 +16,58 @@ function explainRefusal(error: unknown): unknown {
   return new AuthFlowError(kind, message);
 }
 
-/** The signed-in driver starts toward tripId's pickup point (Module 7.2). Manual, driver-initiated. */
-export async function headToPickup(
+async function callAdvance(
   client: Pick<FirebaseClient, 'functions'>,
+  name: string,
   tripId: string,
 ): Promise<AdvanceTripResult['status']> {
   try {
     const result = await httpsCallable<AdvanceTripInput, AdvanceTripResult>(
       client.functions,
-      'headToPickup',
+      name,
     )({ tripId });
     return result.data.status;
   } catch (error) {
     throw explainRefusal(error);
   }
+}
+
+/** The signed-in driver starts toward tripId's pickup point (Module 7.2). Manual, driver-initiated. */
+export function headToPickup(
+  client: Pick<FirebaseClient, 'functions'>,
+  tripId: string,
+): Promise<AdvanceTripResult['status']> {
+  return callAdvance(client, 'headToPickup', tripId);
 }
 
 /** The signed-in driver confirms tripId's passenger is now in the vehicle (Module 7.2). */
-export async function confirmPickup(
+export function confirmPickup(
   client: Pick<FirebaseClient, 'functions'>,
   tripId: string,
 ): Promise<AdvanceTripResult['status']> {
-  try {
-    const result = await httpsCallable<AdvanceTripInput, AdvanceTripResult>(
-      client.functions,
-      'confirmPickup',
-    )({ tripId });
-    return result.data.status;
-  } catch (error) {
-    throw explainRefusal(error);
-  }
+  return callAdvance(client, 'confirmPickup', tripId);
 }
 
 /** The signed-in driver confirms they are now driving with tripId's passenger aboard (Module 7.4). */
-export async function startTransit(
+export function startTransit(
   client: Pick<FirebaseClient, 'functions'>,
   tripId: string,
 ): Promise<AdvanceTripResult['status']> {
-  try {
-    const result = await httpsCallable<AdvanceTripInput, AdvanceTripResult>(
-      client.functions,
-      'startTransit',
-    )({ tripId });
-    return result.data.status;
-  } catch (error) {
-    throw explainRefusal(error);
-  }
+  return callAdvance(client, 'startTransit', tripId);
+}
+
+/** The signed-in driver starts toward tripId's destination (Module 7.5). */
+export function approachDropoff(
+  client: Pick<FirebaseClient, 'functions'>,
+  tripId: string,
+): Promise<AdvanceTripResult['status']> {
+  return callAdvance(client, 'approachDropoff', tripId);
+}
+
+/** The signed-in driver confirms tripId's passenger has been dropped off (Module 7.5). */
+export function completeDropoff(
+  client: Pick<FirebaseClient, 'functions'>,
+  tripId: string,
+): Promise<AdvanceTripResult['status']> {
+  return callAdvance(client, 'completeDropoff', tripId);
 }
