@@ -120,6 +120,25 @@ test.describe('phase 5 acceptance: the system can automatically match simple sha
     const journey = await readDriverJourney(driverUid);
     expect(journey?.status).toBe('MATCHING');
 
+    // Module 7.1/7.2: the driver's Home shows the matched passenger, and can move the request on
+    // through two manual actions of their own (no GPS/automatic inference, per user decision).
+    const passengersCard = driverPage.getByLabel('Your passengers', { exact: true });
+    await expect(passengersCard).toBeVisible({ timeout: 30_000 });
+    await expect(passengersCard.getByText('Pick up Pat')).toBeVisible();
+
+    await passengersCard.getByRole('button', { name: 'Head to pickup' }).click();
+    await expect(requestedCard(passengerPage).getByText('Your driver is on the way')).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await passengersCard.getByRole('button', { name: 'Confirm pickup' }).click();
+    await expect(requestedCard(passengerPage).getByText('You are on board')).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const pickedUpTrip = (await tripsOf(passengerUid))[0];
+    expect(pickedUpTrip?.fields.status?.stringValue).toBe('PICKED_UP');
+
     await driverContext.close();
     await passengerContext.close();
   });

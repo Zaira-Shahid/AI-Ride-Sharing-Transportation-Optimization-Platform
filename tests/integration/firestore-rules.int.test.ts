@@ -728,4 +728,29 @@ describe('journeyPlans (Module 7.1)', () => {
     await assertFails(setDoc(doc(db, 'journeyPlans/new-one'), plan('driver-1')));
     await assertFails(deleteDoc(doc(db, 'journeyPlans/plan-1')));
   });
+
+  it('lets the driver query their own plan by driverId and journeyId together', async () => {
+    const db = as('driver-1', verified('DRIVER'));
+    const found = await assertSucceeds(
+      getDocs(
+        query(
+          collection(db, 'journeyPlans'),
+          where('driverId', '==', 'driver-1'),
+          where('journeyId', '==', 'journey-1'),
+        ),
+      ),
+    );
+    expect(found.docs.map((entry) => entry.id)).toEqual(['plan-1']);
+  });
+
+  it('refuses a query that filters only on journeyId, even for the plan own driver', async () => {
+    // A list query is checked against every document it could possibly return, not just the ones it
+    // actually returns - filtering only on a field the rule does not check (journeyId, not driverId)
+    // is refused even though this particular result would have passed. packages/firebase's own
+    // getJourneyPlanStops filters on both for exactly this reason.
+    const db = as('driver-1', verified('DRIVER'));
+    await assertFails(
+      getDocs(query(collection(db, 'journeyPlans'), where('journeyId', '==', 'journey-1'))),
+    );
+  });
 });

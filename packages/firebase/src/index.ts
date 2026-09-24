@@ -14,5 +14,6 @@ export * from './routing';
 export * from './session';
 export * from './sign-in';
 export * from './trip';
+export * from './tripExecution';
 export * from './verification';
 export * from './vehicle';
