@@ -22,7 +22,7 @@ const VEHICLE_TYPE_NAMES: Record<string, string> = {
 function DriverInfoCard({ driver }: { driver: MatchedDriverInfo }) {
   const theme = useAuthTheme();
   const vehicle = [
-    driver.vehicleType ? VEHICLE_TYPE_NAMES[driver.vehicleType] ?? driver.vehicleType : null,
+    driver.vehicleType ? (VEHICLE_TYPE_NAMES[driver.vehicleType] ?? driver.vehicleType) : null,
     driver.vehicleMake,
     driver.vehicleModel,
   ]
