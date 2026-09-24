@@ -393,6 +393,7 @@ export function PassengerHomeScreen({
                 }}
                 now={now}
                 estimate={estimateViewOf(openTrip, now)}
+                driver={openTrip.driver}
                 cancellable={canPassengerCancel(openTrip.status)}
                 problem={cancelProblem}
                 onCancel={() => {

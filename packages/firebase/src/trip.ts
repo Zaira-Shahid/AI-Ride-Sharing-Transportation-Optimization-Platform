@@ -11,6 +11,7 @@ import {
   type TripEstimate,
   type TripRequestRefusal,
   type TripRequestStatus,
+  type VehicleType,
 } from '@ridemesh/types';
 import {
   collection,
@@ -45,6 +46,17 @@ export interface TripRequestData {
    * after the request was made; null until then, and when it could not be. Without live traffic.
    */
   estimate: TripEstimate | null;
+  /** The matched driver's first name and vehicle (Module 7.3); null until a driver is assigned. */
+  driver: MatchedDriverInfo | null;
+}
+
+/** What a passenger sees about the driver and vehicle they have been matched with. */
+export interface MatchedDriverInfo {
+  name: string;
+  vehicleType: VehicleType | null;
+  vehicleMake: string | null;
+  vehicleModel: string | null;
+  vehiclePlateNumber: string | null;
 }
 
 export type TripRequestSnapshot = { status: 'none' } | { status: 'ready'; trip: TripRequestData };
@@ -183,6 +195,19 @@ function readTrip(id: string, data: Record<string, unknown>): TripRequestData | 
       level === 'STRICT' || level === 'BALANCED' || level === 'FLEXIBLE' ? level : null,
     allowSharedRide: preferences.allowSharedRide === true,
     estimate: readTripEstimate(data.estimatedDistance, data.estimatedDuration),
+    driver: readDriverInfo(data),
+  };
+}
+
+function readDriverInfo(data: Record<string, unknown>): MatchedDriverInfo | null {
+  if (typeof data.driverName !== 'string') return null;
+  return {
+    name: data.driverName,
+    vehicleType: typeof data.vehicleType === 'string' ? (data.vehicleType as VehicleType) : null,
+    vehicleMake: typeof data.vehicleMake === 'string' ? data.vehicleMake : null,
+    vehicleModel: typeof data.vehicleModel === 'string' ? data.vehicleModel : null,
+    vehiclePlateNumber:
+      typeof data.vehiclePlateNumber === 'string' ? data.vehiclePlateNumber : null,
   };
 }
 

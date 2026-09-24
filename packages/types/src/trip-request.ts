@@ -3,6 +3,7 @@ import { flexibilityPreferencesSchema } from './flexibility';
 import { destinationSchema, type StoredDestination } from './journey';
 import type { TripRequestStatus } from './states';
 import type { FirestoreTimestamp } from './user';
+import type { VehicleType } from './vehicle';
 
 // tripRequests/{tripId} (spec section 10): what a passenger asked for. Created and changed only by
 // server functions (Module 3.7); the passenger who made it can read it and nobody else can, not even
@@ -120,6 +121,18 @@ export interface TripRequest {
   matchedJourneyId: string | null;
   matchedDriverId: string | null;
   /**
+   * The matched driver's first name only and their vehicle's details (Module 7.3), copied in at the
+   * same moment as matchedDriverId so the passenger can recognise their ride without needing read
+   * access to the driver's or vehicle's own profile - the same one-way snapshot pattern as
+   * passengerName. Null until matched, and never updated afterwards even if the driver later edits
+   * their name or vehicle.
+   */
+  driverName: string | null;
+  vehicleType: VehicleType | null;
+  vehicleMake: string | null;
+  vehicleModel: string | null;
+  vehiclePlateNumber: string | null;
+  /**
    * The road distance from the pickup to the destination in METRES, filled in by the server just after
    * the request is created (trip-estimate.ts); null until then, and when no route could be had.
    */
@@ -142,6 +155,11 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   candidateCount: null,
   matchedJourneyId: null,
   matchedDriverId: null,
+  driverName: null,
+  vehicleType: null,
+  vehicleMake: null,
+  vehicleModel: null,
+  vehiclePlateNumber: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

@@ -221,6 +221,11 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
     expect(trip?.matchedJourneyId).toBe(journeyId);
     expect(trip?.matchedDriverId).toBe(driverId);
     expect(typeof trip?.assignedPlanId).toBe('string');
+    expect(trip?.driverName).toBe('Test');
+    expect(trip?.vehicleType).toBe('CAR');
+    expect(trip?.vehicleMake).toBe('Toyota');
+    expect(trip?.vehicleModel).toBe('Corolla');
+    expect(typeof trip?.vehiclePlateNumber).toBe('string');
 
     const journey = (await admin().firestore.doc(`driverJourneys/${journeyId}`).get()).data();
     expect(journey?.status).toBe('MATCHING');
