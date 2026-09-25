@@ -12,6 +12,7 @@ import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
 import { runBatchOptimization } from './optimizationRun.js';
 import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
 import { registerUser } from './registration.js';
+import { reoptimizeDelayedJourney } from './routeModification.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
   declareDestination as declareDriverDestination,
@@ -276,6 +277,45 @@ export const optimizationRunOnSearching = onDocumentUpdated(
       if (outcome) logger.info('Immediate batch optimization run finished.', outcome);
     } catch {
       logger.warn('The immediate batch optimization run failed.');
+    }
+  },
+);
+
+/**
+ * Route modification (Phase 8, module 8.7): reacts to a journey newly being flagged behind its own
+ * plan's pace (Module 8.6, functions/src/locations.ts) by asking the optimization service for a
+ * fresh stop order from the driver's current position. Fires only on the transition into being
+ * delayed (before had no flag, after does) - a driver who stays delayed on later location updates is
+ * not re-optimized again and again for no reason; if reoptimizeDelayedJourney succeeds it clears the
+ * flag itself, so a later relapse fires this trigger afresh. Does nothing when
+ * OPTIMIZATION_SERVICE_URL is not configured, same as the batch runs above; never throws.
+ */
+export const routeModificationOnDelay = onDocumentUpdated(
+  { document: 'driverJourneys/{journeyId}', timeoutSeconds: 120 },
+  async (event) => {
+    const before = event.data?.before.get('delay');
+    const after = event.data?.after.get('delay');
+    if (before != null || after == null) return;
+
+    const baseUrl = optimizationServiceUrlFromEnvironment();
+    if (!baseUrl) return;
+    try {
+      const outcome = await reoptimizeDelayedJourney(
+        {
+          firestore: getFirestore(),
+          provider: osrmFromEnvironment(),
+          optimizationService: { baseUrl },
+        },
+        event.params.journeyId,
+      );
+      logger.info('Route re-optimization after a traffic delay finished.', {
+        journeyId: event.params.journeyId,
+        outcome,
+      });
+    } catch {
+      logger.warn('Route re-optimization after a traffic delay failed.', {
+        journeyId: event.params.journeyId,
+      });
     }
   },
 );
