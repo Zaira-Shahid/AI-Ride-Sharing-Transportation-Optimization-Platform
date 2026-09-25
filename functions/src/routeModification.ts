@@ -1,4 +1,4 @@
-import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { LookupLimits } from './lookupLimits.js';
 import { buildJourneyStopMatrix, checkCandidateRoute } from './matching.js';
 import {
@@ -8,6 +8,7 @@ import {
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
 import { legsForPlanPath } from './optimizationRun.js';
+import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 
 // Module 8.7 (route modification): once a driver is flagged behind their plan's own pace (Module
@@ -29,6 +30,11 @@ import type { RoutePoint, RoutingProvider } from './routing.js';
 // back to SEARCHING (user-approved) - the same "back to the open pool" outcome Module 8.5 (driver
 // cancellation) uses, though with its own audit action here since the reason is different (a
 // reordering after a delay, not the driver leaving).
+//
+// Module 8.8 (passenger constraint validation): the candidate plan is also checked against every kept
+// request's own protected constraints (allowSharedRide/allowRouteChange/arriveBy,
+// passengerConstraints.ts) - see the note beside anyConstraintViolated below for why a violation here
+// rejects the whole reorder rather than dropping just the one passenger.
 
 const REORDERABLE_TRIP_STATUSES = new Set(['PICKUP_ASSIGNED', 'DRIVER_ARRIVING']);
 
@@ -48,6 +54,9 @@ interface WaitingRequest {
   destination: RoutePoint;
   passengerMaxExtraMinutes: number;
   passengerMaxDetourDistanceKm: number;
+  allowSharedRide: boolean;
+  allowRouteChange: boolean;
+  arrivalDeadlineMs: number | null;
 }
 
 /**
@@ -108,10 +117,12 @@ export async function reoptimizeDelayedJourney(
     provider: RoutingProvider;
     optimizationService: OptimizationServiceConfig;
     limits?: LookupLimits;
+    now?: () => number;
   },
   journeyId: string,
 ): Promise<RouteModificationOutcome> {
   const { firestore } = deps;
+  const now = (deps.now ?? Date.now)();
   const journeyRef = firestore.collection('driverJourneys').doc(journeyId);
   const journeySnap = await journeyRef.get();
   if (
@@ -152,6 +163,10 @@ export async function reoptimizeDelayedJourney(
   const oldPlanSnap = planQuery.docs[0];
   const oldPlanVersion = oldPlanSnap?.get('version');
   if (!oldPlanSnap || !isNumber(oldPlanVersion)) return 'skipped';
+  const oldStops = oldPlanSnap.get('stops');
+  const oldStopsArray: Array<{ kind: unknown; requestId: unknown }> = Array.isArray(oldStops)
+    ? oldStops
+    : [];
 
   const tripSnaps = await Promise.all(
     ids.map((id) => firestore.collection('tripRequests').doc(id).get()),
@@ -169,14 +184,23 @@ export async function reoptimizeDelayedJourney(
     const tripDestination = pointOf(snap.get('destination'));
     const passengerId: unknown = snap.get('passengerId');
     const preferences = snap.get('passengerPreferences') as
-      { maxExtraTime?: unknown; maxDetourDistance?: unknown } | undefined;
+      | {
+          maxExtraTime?: unknown;
+          maxDetourDistance?: unknown;
+          allowSharedRide?: unknown;
+          allowRouteChange?: unknown;
+        }
+      | undefined;
+    const arrivalDeadline: unknown = snap.get('arrivalDeadline');
     if (
       !origin ||
       !tripDestination ||
       typeof passengerId !== 'string' ||
       !passengerId ||
       typeof preferences?.maxExtraTime !== 'number' ||
-      typeof preferences?.maxDetourDistance !== 'number'
+      typeof preferences?.maxDetourDistance !== 'number' ||
+      typeof preferences?.allowSharedRide !== 'boolean' ||
+      typeof preferences?.allowRouteChange !== 'boolean'
     ) {
       continue;
     }
@@ -187,6 +211,9 @@ export async function reoptimizeDelayedJourney(
       destination: tripDestination,
       passengerMaxExtraMinutes: preferences.maxExtraTime,
       passengerMaxDetourDistanceKm: preferences.maxDetourDistance,
+      allowSharedRide: preferences.allowSharedRide,
+      allowRouteChange: preferences.allowRouteChange,
+      arrivalDeadlineMs: arrivalDeadline instanceof Timestamp ? arrivalDeadline.toMillis() : null,
     });
   }
   if (waiting.length < 2) return 'skipped';
@@ -258,6 +285,51 @@ export async function reoptimizeDelayedJourney(
   if (!plan || plan.request_ids.length === 0) return 'unchanged';
 
   const legs = legsForPlanPath(matrixLegs, plan.stops);
+  const waitingById = new Map(waiting.map((r) => [r.id, r]));
+
+  // Module 8.8 (passenger constraint validation): checked against the candidate plan Python already
+  // returned. Unlike a plain detour-limit violation (which Python itself already resolves before
+  // returning - the dropped passenger's own stops are simply absent from plan.stops/totals, so the
+  // rest can be written as-is), THIS plan's stops/totals still include everyone Python kept. Dropping
+  // just the violator here, without another route call, would leave the written plan's own totals and
+  // stop list inconsistent with who it actually carries - so a violation here rejects the WHOLE
+  // reorder for this run ('unchanged') rather than a partial write; a later location update can try
+  // again, same as every other 'unchanged' reason.
+  const shared = plan.request_ids.length > 1;
+  const anyConstraintViolated = plan.request_ids.some((requestId) => {
+    const request = waitingById.get(requestId);
+    if (!request) return true;
+    const dropoffIndex = plan.stops.findIndex(
+      (stop) => stop.kind === 'dropoff' && stop.request_id === requestId,
+    );
+    const expectedDropoffAtMs =
+      legs && dropoffIndex !== -1
+        ? now + cumulativeSecondsToStop(legs, dropoffIndex) * 1000
+        : -Infinity;
+    const oldPickupIndex = oldStopsArray.findIndex(
+      (stop) => stop.kind === 'pickup' && stop.requestId === requestId,
+    );
+    const oldDropoffIndex = oldStopsArray.findIndex(
+      (stop) => stop.kind === 'dropoff' && stop.requestId === requestId,
+    );
+    const newPickupIndex = plan.stops.findIndex(
+      (stop) => stop.kind === 'pickup' && stop.request_id === requestId,
+    );
+    const routeChangedForThem =
+      oldPickupIndex !== newPickupIndex || oldDropoffIndex !== dropoffIndex;
+    return (
+      checkProtectedConstraints(
+        {
+          allowSharedRide: request.allowSharedRide,
+          allowRouteChange: request.allowRouteChange,
+          arrivalDeadlineMs: request.arrivalDeadlineMs,
+        },
+        { shared, routeChangedForThem, expectedDropoffAtMs },
+      ) !== null
+    );
+  });
+  if (anyConstraintViolated) return 'unchanged';
+
   const keptIds = new Set(plan.request_ids);
   const droppedSnaps = tripSnaps.filter(
     (snap) => waiting.some((r) => r.id === snap.id) && !keptIds.has(snap.id),
