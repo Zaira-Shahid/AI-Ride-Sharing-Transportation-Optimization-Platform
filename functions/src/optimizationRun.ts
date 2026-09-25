@@ -52,8 +52,11 @@ import { firstNameOf } from './tripRequests.js';
  * are recovered as legs. Null if a leg cannot be found (defensive only - should not happen, since the
  * matrix was built from these same requests); a plan written without legs just cannot be delay-checked
  * later (locations.ts skips it gracefully), nothing else about it is affected.
+ *
+ * Exported for routeModification.ts (module 8.7): recovering a leg breakdown the same way from a
+ * /optimize response is exactly what it also needs, for the same reason.
  */
-function legsForPlanPath(
+export function legsForPlanPath(
   matrixLegs: readonly RouteMatrixLegBody[],
   stops: JourneyPlanBody['stops'],
 ): PlanLeg[] | null {
