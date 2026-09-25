@@ -804,3 +804,42 @@ describe('notifications (Module 8.9)', () => {
     await assertFails(deleteDoc(doc(db, 'notifications/note-1')));
   });
 });
+
+describe('config (Module 9.1)', () => {
+  const fareConfig = { baseFareMinorUnits: 250, platformFeePercent: 20 };
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore();
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'config/fare'), fareConfig);
+    });
+  });
+
+  it('lets staff read it', async () => {
+    for (const role of ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      const snapshot = await assertSucceeds(
+        getDoc(doc(as('staff-1', verified(role)), 'config/fare')),
+      );
+      expect(snapshot.get('platformFeePercent')).toBe(20);
+    }
+  });
+
+  it('does not let a passenger or driver read it', async () => {
+    await assertFails(getDoc(doc(as('passenger-1', verified('PASSENGER')), 'config/fare')));
+    await assertFails(getDoc(doc(as('driver-1', verified('DRIVER')), 'config/fare')));
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = as('staff-1', { email_verified: false, role: 'ADMIN' });
+    await assertFails(getDoc(doc(unverified, 'config/fare')));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'config/fare')));
+  });
+
+  it('denies every client write', async () => {
+    const db = as('staff-1', verified('ADMIN'));
+    await assertFails(updateDoc(doc(db, 'config/fare'), { platformFeePercent: 0 }));
+    await assertFails(setDoc(doc(db, 'config/new-one'), fareConfig));
+    await assertFails(deleteDoc(doc(db, 'config/fare')));
+  });
+});

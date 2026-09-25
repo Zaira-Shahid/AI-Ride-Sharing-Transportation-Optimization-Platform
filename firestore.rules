@@ -102,6 +102,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Commercial configuration (Module 9.1) - config/fare and any future sibling document. No client
+    // write path exists yet (an admin dashboard, Phase 11, or a direct Firestore console edit by staff
+    // is how it changes for now); staff can read it since it is commercially sensitive. Not yet open to
+    // passengers/drivers - a fare-estimate screen that needs to read it is a later module's decision.
+    match /config/{document} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;
