@@ -43,7 +43,19 @@ beforeEach(async () => {
   }
 });
 
-const GENEROUS = { maxExtraTime: 60, maxDetourDistance: 10 };
+interface PassengerLimits {
+  maxExtraTime: number;
+  maxDetourDistance: number;
+  allowSharedRide: boolean;
+  allowRouteChange: boolean;
+}
+
+const GENEROUS: PassengerLimits = {
+  maxExtraTime: 60,
+  maxDetourDistance: 10,
+  allowSharedRide: true,
+  allowRouteChange: true,
+};
 
 interface Fixture {
   journeyId: string;
@@ -78,7 +90,7 @@ async function matchingJourneyWithOnePassenger(
   overrides: {
     journeySeats?: number;
     journeyDetourKm?: number;
-    passengerLimits?: { maxExtraTime: number; maxDetourDistance: number };
+    passengerLimits?: PassengerLimits;
     passengerEstimatedDistanceMeters?: number;
   } = {},
 ): Promise<Fixture> {
@@ -142,7 +154,7 @@ async function searchingRequest(
     origin: RoutePoint;
     destination: RoutePoint;
     estimatedDistanceMeters: number;
-    limits?: { maxExtraTime: number; maxDetourDistance: number };
+    limits?: PassengerLimits;
   },
 ): Promise<string> {
   counter += 1;
@@ -180,6 +192,9 @@ async function buildInsertable(tripId: string) {
     estimatedDurationSeconds: data?.estimatedDuration as number,
     passengerMaxExtraMinutes: data?.passengerPreferences.maxExtraTime as number,
     passengerMaxDetourDistanceKm: data?.passengerPreferences.maxDetourDistance as number,
+    allowSharedRide: data?.passengerPreferences.allowSharedRide as boolean,
+    allowRouteChange: data?.passengerPreferences.allowRouteChange as boolean,
+    arrivalDeadlineMs: null,
   };
 }
 
@@ -285,7 +300,12 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
       origin: { latitude: fixture.base + 0.03, longitude: 0 },
       destination: { latitude: fixture.base + 0.04, longitude: 0 },
       estimatedDistanceMeters: 1,
-      limits: { maxExtraTime: 0, maxDetourDistance: 0 },
+      limits: {
+        maxExtraTime: 0,
+        maxDetourDistance: 0,
+        allowSharedRide: true,
+        allowRouteChange: true,
+      },
     });
 
     expect(await insert(tripId, await buildInsertable(tripId))).toBe('unmatched');
@@ -298,7 +318,12 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
     // The existing passenger's own declared direct distance is far lower than their real 1000, with
     // no tolerance - unaffected by where the new pair goes, since it is never less than 1000.
     const fixture = await matchingJourneyWithOnePassenger('insert-existing-limit', {
-      passengerLimits: { maxExtraTime: 0, maxDetourDistance: 0 },
+      passengerLimits: {
+        maxExtraTime: 0,
+        maxDetourDistance: 0,
+        allowSharedRide: true,
+        allowRouteChange: true,
+      },
       passengerEstimatedDistanceMeters: 1,
     });
     const tripId = await searchingRequest('insert-existing-limit', {
@@ -327,5 +352,38 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
     });
 
     expect(await insert(tripId, await buildInsertable(tripId))).toBe('unmatched');
+  });
+
+  // Module 8.8 (passenger constraint validation): insertion always makes a journey shared (an
+  // existing passenger plus the one being inserted), so allowSharedRide gates it for either side.
+  it('is unmatched when the new passenger has opted out of sharing a ride', async () => {
+    const fixture = await matchingJourneyWithOnePassenger('insert-new-noshare');
+    const tripId = await searchingRequest('insert-new-noshare', {
+      origin: { latitude: fixture.base + 0.03, longitude: 0 },
+      destination: { latitude: fixture.base + 0.04, longitude: 0 },
+      estimatedDistanceMeters: 1000,
+      limits: { ...GENEROUS, allowSharedRide: false },
+    });
+
+    expect(await insert(tripId, await buildInsertable(tripId))).toBe('unmatched');
+    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    expect(trip?.status).toBe('SEARCHING');
+  });
+
+  it('is unmatched when the existing passenger had opted out of sharing a ride', async () => {
+    const fixture = await matchingJourneyWithOnePassenger('insert-existing-noshare', {
+      passengerLimits: { ...GENEROUS, allowSharedRide: false },
+    });
+    const tripId = await searchingRequest('insert-existing-noshare', {
+      origin: { latitude: fixture.base + 0.03, longitude: 0 },
+      destination: { latitude: fixture.base + 0.04, longitude: 0 },
+      estimatedDistanceMeters: 1000,
+    });
+
+    expect(await insert(tripId, await buildInsertable(tripId))).toBe('unmatched');
+    const existingTrip = (
+      await admin().firestore.doc(`tripRequests/${fixture.existingTripId}`).get()
+    ).data();
+    expect(existingTrip?.assignedPlanId).toBe(fixture.oldPlanId);
   });
 });

@@ -22,7 +22,7 @@
 // requests is still SEARCHING and unassigned before writing, since the pool may have moved on since
 // the batch snapshot was taken.
 
-import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import {
   checkCandidateRoute,
   buildJourneyStopMatrix,
@@ -40,6 +40,7 @@ import {
   type OptimizationServiceConfig,
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
+import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { tryInsertIntoMatchingJourney, type PlanLeg } from './planInsertion.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
@@ -74,6 +75,52 @@ export function legsForPlanPath(
   return legs;
 }
 
+/**
+ * Module 8.8 (passenger constraint validation): whether any request in `plan` would have its own
+ * protected constraints violated by it - allowSharedRide, allowRouteChange or its own arriveBy
+ * deadline (checkProtectedConstraints, passengerConstraints.ts). A first-time match is never itself a
+ * "route change" for anyone in it (routeChangedForThem: false throughout - see that file's own note),
+ * so only allowSharedRide and the deadline can ever trip here. When `legs` could not be recovered
+ * (legsForPlanPath returned null), the deadline cannot be checked either - true only in that case,
+ * same "cannot verify, so do not flag" stance Module 8.6's own computeDelayFlag takes.
+ *
+ * Unlike Module 8.7's own reordering, a single journey's plan here is all-or-nothing: if any one
+ * request in it would be violated, the whole plan for that journey is skipped and every one of its
+ * requests stays SEARCHING for a later run, rather than trying to reconstruct a smaller plan without
+ * them - the Python service already committed to this exact assignment, and there is no cheap way to
+ * remove one stop and re-derive a valid new stop order/totals on the TS side the way Module 8.7's own
+ * reorder (a fresh /optimize call) can.
+ */
+function planViolatesProtectedConstraints(
+  plan: JourneyPlanBody,
+  legs: PlanLeg[] | null,
+  requestById: ReadonlyMap<string, OpenTripRequest>,
+  now: number,
+): boolean {
+  const shared = plan.request_ids.length > 1;
+  return plan.request_ids.some((requestId) => {
+    const request = requestById.get(requestId);
+    if (!request) return false;
+    const dropoffIndex = plan.stops.findIndex(
+      (stop) => stop.kind === 'dropoff' && stop.request_id === requestId,
+    );
+    const expectedDropoffAtMs =
+      legs && dropoffIndex !== -1
+        ? now + cumulativeSecondsToStop(legs, dropoffIndex) * 1000
+        : -Infinity;
+    return (
+      checkProtectedConstraints(
+        {
+          allowSharedRide: request.allowSharedRide,
+          allowRouteChange: request.allowRouteChange,
+          arrivalDeadlineMs: request.arrivalDeadlineMs,
+        },
+        { shared, routeChangedForThem: false, expectedDropoffAtMs },
+      ) !== null
+    );
+  });
+}
+
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
@@ -90,6 +137,10 @@ interface OpenTripRequest {
   destination: RoutePoint;
   passengerMaxExtraMinutes: number;
   passengerMaxDetourDistanceKm: number;
+  /** Module 8.8 (passenger constraint validation): the three protected constraints, unchecked until now. */
+  allowSharedRide: boolean;
+  allowRouteChange: boolean;
+  arrivalDeadlineMs: number | null;
   /**
    * The request's own direct pickup-to-destination distance/time (Module 4.4) - null until the
    * estimate trigger has filled it in, or if it could not be. Only phase 2 (insertStillSearching
@@ -121,14 +172,23 @@ async function readOpenTripRequests(firestore: Firestore): Promise<OpenTripReque
     const destination = pointOf(data.destination);
     const passengerId: unknown = data.passengerId;
     const preferences = data.passengerPreferences as
-      { maxExtraTime?: unknown; maxDetourDistance?: unknown } | undefined;
+      | {
+          maxExtraTime?: unknown;
+          maxDetourDistance?: unknown;
+          allowSharedRide?: unknown;
+          allowRouteChange?: unknown;
+        }
+      | undefined;
+    const arrivalDeadline: unknown = data.arrivalDeadline;
     if (
       !origin ||
       !destination ||
       typeof passengerId !== 'string' ||
       !passengerId ||
       typeof preferences?.maxExtraTime !== 'number' ||
-      typeof preferences?.maxDetourDistance !== 'number'
+      typeof preferences?.maxDetourDistance !== 'number' ||
+      typeof preferences?.allowSharedRide !== 'boolean' ||
+      typeof preferences?.allowRouteChange !== 'boolean'
     ) {
       continue;
     }
@@ -139,6 +199,9 @@ async function readOpenTripRequests(firestore: Firestore): Promise<OpenTripReque
       destination,
       passengerMaxExtraMinutes: preferences.maxExtraTime,
       passengerMaxDetourDistanceKm: preferences.maxDetourDistance,
+      allowSharedRide: preferences.allowSharedRide,
+      allowRouteChange: preferences.allowRouteChange,
+      arrivalDeadlineMs: arrivalDeadline instanceof Timestamp ? arrivalDeadline.toMillis() : null,
       estimatedDistanceMeters: isNumber(data.estimatedDistance) ? data.estimatedDistance : null,
       estimatedDurationSeconds: isNumber(data.estimatedDuration) ? data.estimatedDuration : null,
     });
@@ -324,6 +387,7 @@ async function matchIntoAvailableJourneys(deps: {
     matrices,
   });
 
+  const now = (deps.now ?? Date.now)();
   let matchedRequestCount = 0;
   let matchedJourneyCount = 0;
   for (const plan of optimizeResponse.plans) {
@@ -335,6 +399,7 @@ async function matchIntoAvailableJourneys(deps: {
     const driverUserRef = firestore.collection('users').doc(plan.driver_id);
     const vehicleRef = firestore.collection('vehicles').doc(plan.driver_id);
     const legs = legsForPlanPath(matrices[plan.journey_id]?.legs ?? [], plan.stops);
+    if (planViolatesProtectedConstraints(plan, legs, requestById, now)) continue;
 
     const applied = await firestore.runTransaction(async (tx) => {
       const [journeySnap, tripSnaps, driverUserSnap, vehicleSnap] = await Promise.all([
@@ -427,6 +492,7 @@ async function insertStillSearchingRequests(deps: {
   firestore: Firestore;
   provider: RoutingProvider;
   limits?: LookupLimits;
+  now?: () => number;
 }): Promise<number> {
   const stillSearching = await readOpenTripRequests(deps.firestore);
   let insertedRequestCount = 0;
@@ -443,6 +509,9 @@ async function insertStillSearchingRequests(deps: {
       estimatedDurationSeconds: request.estimatedDurationSeconds,
       passengerMaxExtraMinutes: request.passengerMaxExtraMinutes,
       passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
+      allowSharedRide: request.allowSharedRide,
+      allowRouteChange: request.allowRouteChange,
+      arrivalDeadlineMs: request.arrivalDeadlineMs,
     });
     if (outcome === 'inserted') insertedRequestCount += 1;
   }

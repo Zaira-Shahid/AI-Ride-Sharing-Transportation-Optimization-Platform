@@ -1,6 +1,7 @@
-import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { LookupLimits } from './lookupLimits.js';
 import { findCandidateJourneys, type CandidateSourceJourney } from './matching.js';
+import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
 
@@ -35,8 +36,15 @@ interface StopEntry {
   requestId: string;
 }
 
+/** Module 8.8 (passenger constraint validation): the protected fields, on both a new and an existing passenger. */
+interface ProtectedFields {
+  allowSharedRide: boolean;
+  allowRouteChange: boolean;
+  arrivalDeadlineMs: number | null;
+}
+
 /** The parts of a still-SEARCHING request insertion needs. */
-export interface InsertableTrip {
+export interface InsertableTrip extends ProtectedFields {
   id: string;
   passengerId: string;
   origin: RoutePoint;
@@ -48,7 +56,7 @@ export interface InsertableTrip {
   passengerMaxDetourDistanceKm: number;
 }
 
-interface ExistingPassenger {
+interface ExistingPassenger extends ProtectedFields {
   id: string;
   origin: RoutePoint;
   destination: RoutePoint;
@@ -168,7 +176,14 @@ async function readMatchingJourneyPlans(firestore: Firestore): Promise<MatchingJ
       const tripOrigin = pointOf(tripData?.origin);
       const tripDestination = pointOf(tripData?.destination);
       const preferences = tripData?.passengerPreferences as
-        { maxExtraTime?: unknown; maxDetourDistance?: unknown } | undefined;
+        | {
+            maxExtraTime?: unknown;
+            maxDetourDistance?: unknown;
+            allowSharedRide?: unknown;
+            allowRouteChange?: unknown;
+          }
+        | undefined;
+      const arrivalDeadline: unknown = tripData?.arrivalDeadline;
       if (
         !tripData ||
         !tripOrigin ||
@@ -176,7 +191,9 @@ async function readMatchingJourneyPlans(firestore: Firestore): Promise<MatchingJ
         !isNumber(tripData.estimatedDistance) ||
         !isNumber(tripData.estimatedDuration) ||
         typeof preferences?.maxExtraTime !== 'number' ||
-        typeof preferences?.maxDetourDistance !== 'number'
+        typeof preferences?.maxDetourDistance !== 'number' ||
+        typeof preferences?.allowSharedRide !== 'boolean' ||
+        typeof preferences?.allowRouteChange !== 'boolean'
       ) {
         readable = false;
         break;
@@ -189,6 +206,9 @@ async function readMatchingJourneyPlans(firestore: Firestore): Promise<MatchingJ
         estimatedDurationSeconds: tripData.estimatedDuration,
         passengerMaxExtraMinutes: preferences.maxExtraTime,
         passengerMaxDetourDistanceKm: preferences.maxDetourDistance,
+        allowSharedRide: preferences.allowSharedRide,
+        allowRouteChange: preferences.allowRouteChange,
+        arrivalDeadlineMs: arrivalDeadline instanceof Timestamp ? arrivalDeadline.toMillis() : null,
       });
     }
     if (!readable) continue;
@@ -230,10 +250,16 @@ interface FeasibleInsertion {
  * detour limits, or null when none does.
  */
 async function bestInsertionInto(
-  deps: { firestore: Firestore; provider: RoutingProvider; limits?: LookupLimits },
+  deps: {
+    firestore: Firestore;
+    provider: RoutingProvider;
+    limits?: LookupLimits;
+    now?: () => number;
+  },
   plan: MatchingJourneyPlan,
   request: InsertableTrip,
 ): Promise<FeasibleInsertion | null> {
+  const now = (deps.now ?? Date.now)();
   const routeDeps = {
     firestore: deps.firestore,
     provider: deps.provider,
@@ -252,6 +278,9 @@ async function bestInsertionInto(
     estimatedDurationSeconds: request.estimatedDurationSeconds,
     passengerMaxExtraMinutes: request.passengerMaxExtraMinutes,
     passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
+    allowSharedRide: request.allowSharedRide,
+    allowRouteChange: request.allowRouteChange,
+    arrivalDeadlineMs: request.arrivalDeadlineMs,
   });
 
   let best: FeasibleInsertion | null = null;
@@ -306,6 +335,32 @@ async function bestInsertionInto(
         everyoneFits = false;
         break;
       }
+
+      // Module 8.8 (passenger constraint validation): the request being inserted is never itself a
+      // "route change" (its first ever match - see passengerConstraints.ts's own note); an EXISTING
+      // passenger's own route changed if their own stop position moved from where it was in the plan
+      // being superseded.
+      const isNewRequest = passenger.id === request.id;
+      const routeChangedForThem =
+        !isNewRequest &&
+        (pickupIndex !==
+          plan.stops.findIndex((s) => s.kind === 'pickup' && s.requestId === passenger.id) ||
+          dropoffIndex !==
+            plan.stops.findIndex((s) => s.kind === 'dropoff' && s.requestId === passenger.id));
+      const expectedDropoffAtMs = now + cumulativeSecondsToStop(route.legs, dropoffIndex) * 1000;
+      if (
+        checkProtectedConstraints(
+          {
+            allowSharedRide: passenger.allowSharedRide,
+            allowRouteChange: passenger.allowRouteChange,
+            arrivalDeadlineMs: passenger.arrivalDeadlineMs,
+          },
+          { shared: true, routeChangedForThem, expectedDropoffAtMs },
+        ) !== null
+      ) {
+        everyoneFits = false;
+        break;
+      }
     }
     if (!everyoneFits) continue;
 
@@ -339,7 +394,12 @@ export type InsertionOutcome = 'inserted' | 'unmatched';
  * finding no feasible insertion at all - there is no retry within this same call.
  */
 export async function tryInsertIntoMatchingJourney(
-  deps: { firestore: Firestore; provider: RoutingProvider; limits?: LookupLimits },
+  deps: {
+    firestore: Firestore;
+    provider: RoutingProvider;
+    limits?: LookupLimits;
+    now?: () => number;
+  },
   request: InsertableTrip,
 ): Promise<InsertionOutcome> {
   const { firestore } = deps;

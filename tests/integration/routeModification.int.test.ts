@@ -45,7 +45,19 @@ beforeEach(async () => {
   }
 });
 
-const GENEROUS = { maxExtraTime: 60, maxDetourDistance: 10 };
+interface PassengerLimits {
+  maxExtraTime: number;
+  maxDetourDistance: number;
+  allowSharedRide: boolean;
+  allowRouteChange: boolean;
+}
+
+const GENEROUS: PassengerLimits = {
+  maxExtraTime: 60,
+  maxDetourDistance: 10,
+  allowSharedRide: true,
+  allowRouteChange: true,
+};
 
 interface Fixture {
   journeyId: string;
@@ -73,8 +85,9 @@ function nextClusterBase(): number {
 async function delayedJourneyWithTwoWaitingPassengers(
   prefix: string,
   overrides: {
-    tripALimits?: { maxExtraTime: number; maxDetourDistance: number };
-    tripBLimits?: { maxExtraTime: number; maxDetourDistance: number };
+    tripALimits?: PassengerLimits;
+    tripBLimits?: PassengerLimits;
+    tripAArrivalDeadline?: Date;
   } = {},
 ): Promise<Fixture> {
   const base = nextClusterBase();
@@ -122,6 +135,7 @@ async function delayedJourneyWithTwoWaitingPassengers(
     estimatedDistance: 1000,
     estimatedDuration: 1000,
     passengerPreferences: overrides.tripALimits ?? GENEROUS,
+    arrivalDeadline: overrides.tripAArrivalDeadline ?? null,
     matchedJourneyId: journeyRef.id,
     matchedDriverId: driverId,
     assignedPlanId: planRef.id,
@@ -313,5 +327,28 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
       planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
     );
     expect(outcome).toBe('skipped');
+  });
+
+  // Module 8.8 (passenger constraint validation): a re-ordered plan that would carry a passenger past
+  // their own hard arriveBy deadline is left unchanged rather than written, the same as any other
+  // reason the returned plan could not be used - see routeModification.ts's own note on why this
+  // rejects the whole reorder rather than dropping just the one passenger.
+  it("leaves the plan unchanged when the new order would miss a passenger's own hard arrival deadline", async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-deadline', {
+      tripAArrivalDeadline: new Date(0),
+    });
+
+    const outcome = await reoptimize(
+      fixture,
+      planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
+    );
+    expect(outcome).toBe('unchanged');
+
+    const journey = (
+      await admin().firestore.doc(`driverJourneys/${fixture.journeyId}`).get()
+    ).data();
+    expect(journey?.delay).toEqual({ extraMinutes: 12 });
+    const trip = (await admin().firestore.doc(`tripRequests/${fixture.tripAId}`).get()).data();
+    expect(trip?.assignedPlanId).toBe(fixture.oldPlanId);
   });
 });
