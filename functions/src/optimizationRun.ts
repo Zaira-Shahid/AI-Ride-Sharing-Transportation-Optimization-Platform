@@ -32,6 +32,7 @@ import {
   type OptimizationServiceConfig,
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
+import { tryInsertIntoMatchingJourney } from './planInsertion.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
 
@@ -51,6 +52,13 @@ interface OpenTripRequest {
   destination: RoutePoint;
   passengerMaxExtraMinutes: number;
   passengerMaxDetourDistanceKm: number;
+  /**
+   * The request's own direct pickup-to-destination distance/time (Module 4.4) - null until the
+   * estimate trigger has filled it in, or if it could not be. Only phase 2 (insertStillSearching
+   * Requests) needs these, for a still-searching request's own detour; phase 1 does not.
+   */
+  estimatedDistanceMeters: number | null;
+  estimatedDurationSeconds: number | null;
 }
 
 interface AvailableJourney {
@@ -93,6 +101,8 @@ async function readOpenTripRequests(firestore: Firestore): Promise<OpenTripReque
       destination,
       passengerMaxExtraMinutes: preferences.maxExtraTime,
       passengerMaxDetourDistanceKm: preferences.maxDetourDistance,
+      estimatedDistanceMeters: isNumber(data.estimatedDistance) ? data.estimatedDistance : null,
+      estimatedDurationSeconds: isNumber(data.estimatedDuration) ? data.estimatedDuration : null,
     });
   }
   return requests;
@@ -142,15 +152,23 @@ export interface BatchOptimizationOutcome {
   journeyCount: number;
   matchedRequestCount: number;
   matchedJourneyCount: number;
+  /** Still-searching requests fitted into an already-MATCHING journey instead (modules 8.3/8.4). */
+  insertedRequestCount: number;
 }
 
-export async function runBatchOptimization(deps: {
+/**
+ * Phase 1: matches SEARCHING requests into fresh AVAILABLE journeys, through the Python optimization
+ * service (Module 6.9) - everything this file did before modules 8.3/8.4. Unchanged; called by the
+ * public runBatchOptimization below, which adds phase 2 (insertion into already-MATCHING journeys)
+ * afterwards, for whatever this phase leaves still searching.
+ */
+async function matchIntoAvailableJourneys(deps: {
   firestore: Firestore;
   provider: RoutingProvider;
   optimizationService: OptimizationServiceConfig;
   limits?: LookupLimits;
   now?: () => number;
-}): Promise<BatchOptimizationOutcome> {
+}): Promise<Omit<BatchOptimizationOutcome, 'insertedRequestCount'>> {
   const { firestore } = deps;
   const routeDeps = {
     firestore,
@@ -163,7 +181,7 @@ export async function runBatchOptimization(deps: {
     readOpenTripRequests(firestore),
     readAvailableJourneys(firestore),
   ]);
-  const empty: BatchOptimizationOutcome = {
+  const empty: Omit<BatchOptimizationOutcome, 'insertedRequestCount'> = {
     requestCount: requests.length,
     journeyCount: journeys.length,
     matchedRequestCount: 0,
@@ -310,6 +328,11 @@ export async function runBatchOptimization(deps: {
         stops: plan.stops.map((stop) => ({ kind: stop.kind, requestId: stop.request_id })),
         totalDistanceMeters: plan.total_distance_meters,
         totalDurationSeconds: plan.total_duration_seconds,
+        // Module 8.3 (plan versioning): a journey's very first plan is always version 1, with
+        // nothing before it. A later one - so far only module 8.4's own insertion into an
+        // already-MATCHING journey - starts a new version, superseding this one.
+        version: 1,
+        supersedes: null,
         createdAt: FieldValue.serverTimestamp(),
       });
       tx.update(journeyRef, {
@@ -346,4 +369,59 @@ export async function runBatchOptimization(deps: {
     matchedRequestCount,
     matchedJourneyCount,
   };
+}
+
+/**
+ * Phase 2 (modules 8.3/8.4): whatever is left SEARCHING after phase 1 gets one attempt each at
+ * fitting into an already-MATCHING journey with room (planInsertion.ts), instead of only ever
+ * matching into a fresh AVAILABLE one. A fresh read, not phase 1's own in-memory list: simpler than
+ * threading "which of phase 1's own requests got matched" through its several early returns, and the
+ * SEARCHING collection this reads is small. One request at a time, sequential (never Promise.all -
+ * the same shared route rate limit reasoning as everywhere else this file calls calculateRoute), so
+ * an earlier request's own insertion is committed, and that journey's seats reduced, before the next
+ * one is considered.
+ */
+async function insertStillSearchingRequests(deps: {
+  firestore: Firestore;
+  provider: RoutingProvider;
+  limits?: LookupLimits;
+}): Promise<number> {
+  const stillSearching = await readOpenTripRequests(deps.firestore);
+  let insertedRequestCount = 0;
+  for (const request of stillSearching) {
+    if (request.estimatedDistanceMeters === null || request.estimatedDurationSeconds === null) {
+      continue;
+    }
+    const outcome = await tryInsertIntoMatchingJourney(deps, {
+      id: request.id,
+      passengerId: request.passengerId,
+      origin: request.origin,
+      destination: request.destination,
+      estimatedDistanceMeters: request.estimatedDistanceMeters,
+      estimatedDurationSeconds: request.estimatedDurationSeconds,
+      passengerMaxExtraMinutes: request.passengerMaxExtraMinutes,
+      passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
+    });
+    if (outcome === 'inserted') insertedRequestCount += 1;
+  }
+  return insertedRequestCount;
+}
+
+/**
+ * The batch optimization run (Module 6.9, widened by modules 8.3/8.4): phase 1 matches SEARCHING
+ * requests into fresh AVAILABLE journeys (matchIntoAvailableJourneys, unchanged); phase 2 tries to
+ * fit whatever is still searching afterwards into an already-MATCHING journey with room instead
+ * (insertStillSearchingRequests). Called by both the periodic schedule and the immediate trigger
+ * (optimizationTrigger.ts, modules 8.1/8.2).
+ */
+export async function runBatchOptimization(deps: {
+  firestore: Firestore;
+  provider: RoutingProvider;
+  optimizationService: OptimizationServiceConfig;
+  limits?: LookupLimits;
+  now?: () => number;
+}): Promise<BatchOptimizationOutcome> {
+  const phase1 = await matchIntoAvailableJourneys(deps);
+  const insertedRequestCount = await insertStillSearchingRequests(deps);
+  return { ...phase1, insertedRequestCount };
 }
