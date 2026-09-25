@@ -159,6 +159,10 @@ async function searchingPassenger(
 }
 
 describe('Phase 6 acceptance (functions + firestore emulators, the real optimization service)', () => {
+  // Both tests get a longer timeout than the suite's default 60s: the real OR-Tools model's compiled
+  // extension pays a one-off cold-import cost on its very first call in a run, which on a slower/
+  // shared CI runner can itself approach 60s - not a hang, just this test file's own known slower
+  // path (every other integration test scripts the optimization service's answer instead).
   it('pools a nearby, compatible passenger onto a driver journey using the real service', async () => {
     const driver = await onlineDriver('p6a-driver');
     const { tripId } = await searchingPassenger('p6a-passenger');
@@ -202,7 +206,7 @@ describe('Phase 6 acceptance (functions + firestore emulators, the real optimiza
     // Real OR-Tools output, not a script: only a sensible positive number is asserted.
     expect(plan?.totalDistanceMeters).toBeGreaterThan(0);
     expect(plan?.totalDurationSeconds).toBeGreaterThan(0);
-  });
+  }, 120_000);
 
   it('matches nothing for a request nobody is near, even through the real service', async () => {
     const { tripId } = await searchingPassenger('p6a-alone', {
@@ -223,5 +227,5 @@ describe('Phase 6 acceptance (functions + firestore emulators, the real optimiza
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
     expect(trip?.status).toBe('SEARCHING');
     expect(trip?.matchedJourneyId).toBeNull();
-  });
+  }, 120_000);
 });
