@@ -24,6 +24,12 @@ import { firstNameOf } from './tripRequests.js';
 
 export const INSERTION_CANDIDATES_CHECKED = 3;
 
+/** A plan's own per-leg breakdown (module 8.6, traffic delay) - one entry per consecutive stop pair. */
+export interface PlanLeg {
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
 interface StopEntry {
   kind: 'pickup' | 'dropoff';
   requestId: string;
@@ -212,6 +218,8 @@ interface FeasibleInsertion {
   totalDistanceMeters: number;
   totalDurationSeconds: number;
   addedDistanceMeters: number;
+  /** Module 8.6 (traffic delay): route.legs, aligned with [origin, ...stops, destination]. */
+  legs: PlanLeg[];
 }
 
 /**
@@ -308,6 +316,10 @@ async function bestInsertionInto(
         totalDistanceMeters: route.distanceMeters,
         totalDurationSeconds: route.durationSeconds,
         addedDistanceMeters,
+        legs: route.legs.map((leg) => ({
+          distanceMeters: leg.distanceMeters,
+          durationSeconds: leg.durationSeconds,
+        })),
       };
     }
   }
@@ -402,6 +414,7 @@ export async function tryInsertIntoMatchingJourney(
       stops: chosen.stops,
       totalDistanceMeters: chosen.totalDistanceMeters,
       totalDurationSeconds: chosen.totalDurationSeconds,
+      legs: chosen.legs,
       version: plan.version + 1,
       supersedes: plan.planId,
       createdAt: FieldValue.serverTimestamp(),
