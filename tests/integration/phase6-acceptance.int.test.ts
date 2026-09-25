@@ -34,6 +34,14 @@ const ORIGIN = { latitude: 64, longitude: -8 };
 const DESTINATION = { latitude: 64.05, longitude: -7.95 };
 const PICKUP = { latitude: 64.005, longitude: -7.995 };
 
+// Its own corner still, well away from ORIGIN/DESTINATION/PICKUP above: since modules 8.3/8.4, the
+// first test's own driver journey is left behind MATCHING (not AVAILABLE) with spare seats, and a
+// request on the very same route it already serves is now exactly the sort of thing phase 2
+// (insertStillSearchingRequests) is meant to find - so the second test needs a route nowhere near the
+// first's, not only a fresh driver-less passenger, to still prove "nobody is near".
+const ALONE_PICKUP = { latitude: 64.5, longitude: -8 };
+const ALONE_DESTINATION = { latitude: 64.55, longitude: -7.95 };
+
 const place = (point: { latitude: number; longitude: number }, address: string) => ({
   ...point,
   formattedAddress: address,
@@ -109,7 +117,13 @@ async function onlineDriver(prefix: string) {
   return { client, uid };
 }
 
-async function searchingPassenger(prefix: string) {
+async function searchingPassenger(
+  prefix: string,
+  route: { origin: typeof PICKUP; destination: typeof DESTINATION } = {
+    origin: PICKUP,
+    destination: DESTINATION,
+  },
+) {
   const client = createClient();
   const { user, uid, email } = await signUp(client, prefix);
   await httpsCallable(
@@ -119,8 +133,8 @@ async function searchingPassenger(prefix: string) {
   await verifyEmail(user, email);
 
   const tripId = await createTripRequest(client, {
-    origin: place(PICKUP, 'Pickup'),
-    destination: place(DESTINATION, 'Destination'),
+    origin: place(route.origin, 'Pickup'),
+    destination: place(route.destination, 'Destination'),
     departure: { kind: 'NOW' },
     arriveBy: null,
     preferences: BALANCED,
@@ -191,7 +205,10 @@ describe('Phase 6 acceptance (functions + firestore emulators, the real optimiza
   });
 
   it('matches nothing for a request nobody is near, even through the real service', async () => {
-    const { tripId } = await searchingPassenger('p6a-alone');
+    const { tripId } = await searchingPassenger('p6a-alone', {
+      origin: ALONE_PICKUP,
+      destination: ALONE_DESTINATION,
+    });
 
     // The aggregate outcome is not asserted here, for the same reason as the test above: other
     // integration test files' own leftover SEARCHING requests and AVAILABLE journeys are real
