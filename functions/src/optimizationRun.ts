@@ -23,18 +23,53 @@
 // the batch snapshot was taken.
 
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
-import { checkCandidateRoute, buildJourneyStopMatrix } from './matching.js';
+import {
+  checkCandidateRoute,
+  buildJourneyStopMatrix,
+  dropoffStop,
+  pickupStop,
+  DESTINATION_STOP,
+  ORIGIN_STOP,
+} from './matching.js';
 import type { LookupLimits } from './lookupLimits.js';
 import {
   requestCandidates,
   requestOptimize,
   type CandidateRouteCostBody,
+  type JourneyPlanBody,
   type OptimizationServiceConfig,
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
-import { tryInsertIntoMatchingJourney } from './planInsertion.js';
+import { tryInsertIntoMatchingJourney, type PlanLeg } from './planInsertion.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
+
+/**
+ * Module 8.6 (traffic delay): the per-leg distance/duration along `plan`'s own winning stop order,
+ * looked up in the same full stop-to-stop matrix (buildJourneyStopMatrix, module 6.9) already computed
+ * to let the optimization service choose that order in the first place - the Python service's own
+ * /optimize response carries only the plan's totals, not a leg breakdown, so this is how the totals
+ * are recovered as legs. Null if a leg cannot be found (defensive only - should not happen, since the
+ * matrix was built from these same requests); a plan written without legs just cannot be delay-checked
+ * later (locations.ts skips it gracefully), nothing else about it is affected.
+ */
+function legsForPlanPath(
+  matrixLegs: readonly RouteMatrixLegBody[],
+  stops: JourneyPlanBody['stops'],
+): PlanLeg[] | null {
+  const path = [
+    ORIGIN_STOP,
+    ...stops.map((stop) => (stop.kind === 'pickup' ? pickupStop : dropoffStop)(stop.request_id)),
+    DESTINATION_STOP,
+  ];
+  const legs: PlanLeg[] = [];
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const leg = matrixLegs.find((l) => l.from_stop === path[i] && l.to_stop === path[i + 1]);
+    if (!leg) return null;
+    legs.push({ distanceMeters: leg.distance_meters, durationSeconds: leg.duration_seconds });
+  }
+  return legs;
+}
 
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -296,6 +331,7 @@ async function matchIntoAvailableJourneys(deps: {
     const planRef = firestore.collection('journeyPlans').doc();
     const driverUserRef = firestore.collection('users').doc(plan.driver_id);
     const vehicleRef = firestore.collection('vehicles').doc(plan.driver_id);
+    const legs = legsForPlanPath(matrices[plan.journey_id]?.legs ?? [], plan.stops);
 
     const applied = await firestore.runTransaction(async (tx) => {
       const [journeySnap, tripSnaps, driverUserSnap, vehicleSnap] = await Promise.all([
@@ -328,6 +364,9 @@ async function matchIntoAvailableJourneys(deps: {
         stops: plan.stops.map((stop) => ({ kind: stop.kind, requestId: stop.request_id })),
         totalDistanceMeters: plan.total_distance_meters,
         totalDurationSeconds: plan.total_duration_seconds,
+        // Module 8.6 (traffic delay): null when a leg could not be recovered from the matrix -
+        // deliberately not a hard failure, see legsForPlanPath's own note.
+        legs,
         // Module 8.3 (plan versioning): a journey's very first plan is always version 1, with
         // nothing before it. A later one - so far only module 8.4's own insertion into an
         // already-MATCHING journey - starts a new version, superseding this one.
