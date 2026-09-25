@@ -95,6 +95,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // An in-app notice (Module 8.9), server-written only. Readable only by the person it is for -
+    // recipientId can be a passenger or a driver, so this is not restricted to one role.
+    match /notifications/{notificationId} {
+      allow read: if isVerified() && request.auth.uid == resource.data.recipientId;
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;

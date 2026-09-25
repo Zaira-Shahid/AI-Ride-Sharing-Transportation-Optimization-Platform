@@ -417,6 +417,7 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
       createdAt: new Date(Date.now() - options.createdAgoMs),
     });
     await tripRef.set({
+      passengerId: `${prefix}-passenger`,
       status: options.tripStatus,
       matchedDriverId: driver.uid,
       matchedJourneyId: journeyId,
@@ -447,6 +448,19 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
         entity: `driverJourneys/${journeyId}`,
       }),
     );
+
+    // Module 8.9 (notification): the matched passenger, only once the flag is newly set.
+    const notifications = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${tripRef.id}`)
+        .get()
+    ).docs;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.data()).toMatchObject({
+      recipientId: 'loc-delay-flag-passenger',
+      type: 'DRIVER_DELAYED',
+    });
   });
 
   it("does not flag a delay while still within the current leg's own allotted time", async () => {
@@ -484,6 +498,17 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
     const audit = await auditFor(driver.uid);
     expect(audit).toContainEqual(expect.objectContaining({ action: 'JOURNEY_DELAY_FLAGGED' }));
     expect(audit).toContainEqual(expect.objectContaining({ action: 'JOURNEY_DELAY_CLEARED' }));
+
+    // Module 8.9 (notification): only the original flag notified - clearing does not (spec section
+    // 40's own "actionable and minimal").
+    const notifications = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${tripRef.id}`)
+        .get()
+    ).docs;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.data()).toMatchObject({ type: 'DRIVER_DELAYED' });
   });
 
   it('does not flag a delay when the plan has no legs (written before module 8.6)', async () => {
