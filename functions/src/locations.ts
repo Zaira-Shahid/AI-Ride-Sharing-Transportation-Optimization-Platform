@@ -2,6 +2,7 @@ import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
+import { createNotification } from './notifications.js';
 import { computeDelayFlag, type DelayFlag } from './trafficDelay.js';
 
 // Functions deploy from this directory alone, so these mirror gps.ts in @ridemesh/types.
@@ -169,6 +170,24 @@ export async function updateDriverLocation(
           ? `Running ${delay.extraMinutes} minutes behind the plan's own pace`
           : "Back within the plan's own pace",
       });
+      // Module 8.9 (notification): only when newly flagged, not when it clears (spec section 40:
+      // "actionable and minimal" - a delay is worth a heads-up, a return to normal pace is not), and
+      // only a still-active request (a COMPLETED/CANCELLED one lingering in matchedTripRequestIds has
+      // nobody left to tell).
+      if (delay) {
+        for (const tripSnap of tripSnaps) {
+          const status = tripStatusById.get(tripSnap.id);
+          if (status === 'COMPLETED' || status === 'CANCELLED') continue;
+          const passengerId = tripSnap.get('passengerId');
+          if (typeof passengerId !== 'string' || !passengerId) continue;
+          createNotification(tx, firestore, {
+            recipientId: passengerId,
+            type: 'DRIVER_DELAYED',
+            message: `Your driver is running about ${delay.extraMinutes} minutes behind schedule.`,
+            relatedEntity: `tripRequests/${tripSnap.id}`,
+          });
+        }
+      }
     }
     return { status: 'updated' };
   });

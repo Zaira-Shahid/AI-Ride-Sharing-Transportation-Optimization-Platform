@@ -265,6 +265,26 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
         .get()
     ).docs;
     expect(tripAudit).toHaveLength(1);
+
+    // Module 8.9 (notification): the new passenger and the existing one, each with their own reason.
+    const newNotification = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${tripId}`)
+        .get()
+    ).docs;
+    expect(newNotification).toHaveLength(1);
+    expect(newNotification[0]?.data()).toMatchObject({ type: 'MATCHED_INTO_SHARED_RIDE' });
+    const existingNotification = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${fixture.existingTripId}`)
+        .get()
+    ).docs;
+    expect(existingNotification).toHaveLength(1);
+    expect(existingNotification[0]?.data()).toMatchObject({
+      type: 'ROUTE_ADJUSTED_FOR_NEW_PASSENGER',
+    });
   });
 
   it('is unmatched when no MATCHING journey is nearby', async () => {

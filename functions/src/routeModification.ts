@@ -7,6 +7,7 @@ import {
   type OptimizationServiceConfig,
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
+import { createNotification } from './notifications.js';
 import { legsForPlanPath } from './optimizationRun.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
@@ -97,6 +98,15 @@ function releaseDroppedRequest(
     reason:
       'Could not stay within their own detour limit on the route re-ordered after a traffic delay',
   });
+  const passengerId = trip.get('passengerId');
+  if (typeof passengerId === 'string' && passengerId) {
+    createNotification(tx, firestore, {
+      recipientId: passengerId,
+      type: 'RELEASED_TO_SEARCHING',
+      message: 'Your ride could not be kept after a delay. We are looking for a new match for you.',
+      relatedEntity: `tripRequests/${trip.id}`,
+    });
+  }
 }
 
 export type RouteModificationOutcome = 'reoptimized' | 'unchanged' | 'skipped';
@@ -383,12 +393,24 @@ export async function reoptimizeDelayedJourney(
       delay: null,
       updatedAt: FieldValue.serverTimestamp(),
     });
-    for (const ref of keptTripRefs) {
+    for (const [index, ref] of keptTripRefs.entries()) {
       tx.update(ref, {
         assignedPlanId: newPlanRef.id,
         driverDelay: null,
         updatedAt: FieldValue.serverTimestamp(),
       });
+      // Module 8.9 (notification): every KEPT passenger, whose driver's route just changed after a
+      // delay - not just the ones whose own stop position moved, since the driver being back on
+      // schedule is itself relevant to everyone on this journey.
+      const passengerId = currentKeptTrips[index]?.get('passengerId');
+      if (typeof passengerId === 'string' && passengerId) {
+        createNotification(tx, firestore, {
+          recipientId: passengerId,
+          type: 'ROUTE_UPDATED_AFTER_DELAY',
+          message: "Your driver's route was updated after a delay.",
+          relatedEntity: `tripRequests/${ref.id}`,
+        });
+      }
     }
     for (const trip of currentDroppedTrips) {
       releaseDroppedRequest(tx, firestore, trip, driverId);

@@ -7,6 +7,7 @@ import {
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
+import { createNotification } from './notifications.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -327,6 +328,17 @@ export function releaseMatchedTrips(
       newState: { status: 'SEARCHING' },
       reason,
     });
+    // Module 8.9 (notification): only when the recipient is readable (a real trip document always
+    // has one - defensive only).
+    const passengerId = trip.get('passengerId');
+    if (typeof passengerId === 'string' && passengerId) {
+      createNotification(tx, firestore, {
+        recipientId: passengerId,
+        type: 'RELEASED_TO_SEARCHING',
+        message: 'Your driver is no longer available. We are looking for a new match for you.',
+        relatedEntity: `tripRequests/${trip.id}`,
+      });
+    }
   }
   if (releasable.length > 0) {
     tx.create(firestore.collection('auditLogs').doc(), {

@@ -683,6 +683,22 @@ describe('driver cancellation: going offline mid-match (Module 8.5)', () => {
       newState: { status: 'SEARCHING' },
     });
 
+    // Module 8.9 (notification): the released passenger. Filtered by relatedEntity (this test's own
+    // fresh tripId), not recipientId alone - matchedTripAt reuses the same passengerId fixture across
+    // this whole file, so other tests' own release notifications for it may already exist.
+    const notifications = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${tripId}`)
+        .get()
+    ).docs;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.data()).toMatchObject({
+      recipientId: 'passenger-fixture',
+      type: 'RELEASED_TO_SEARCHING',
+      read: false,
+    });
+
     const journeyAudit = (
       await admin()
         .firestore.collection('auditLogs')

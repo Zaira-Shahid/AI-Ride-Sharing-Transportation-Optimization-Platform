@@ -262,6 +262,18 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
         .get()
     ).docs;
     expect(audit).toHaveLength(1);
+
+    // Module 8.9 (notification): both kept passengers, whose driver's route changed after a delay.
+    for (const tripId of [fixture.tripAId, fixture.tripBId]) {
+      const notifications = (
+        await admin()
+          .firestore.collection('notifications')
+          .where('relatedEntity', '==', `tripRequests/${tripId}`)
+          .get()
+      ).docs;
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0]?.data()).toMatchObject({ type: 'ROUTE_UPDATED_AFTER_DELAY' });
+    }
   });
 
   it('releases a passenger the optimizer could not keep back to SEARCHING, keeping the other', async () => {
@@ -294,6 +306,25 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
         .get()
     ).docs;
     expect(tripBAudit).toHaveLength(1);
+
+    // Module 8.9 (notification): the kept passenger (route updated) and the released one (searching
+    // again), each their own type.
+    const tripANotifications = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${fixture.tripAId}`)
+        .get()
+    ).docs;
+    expect(tripANotifications).toHaveLength(1);
+    expect(tripANotifications[0]?.data()).toMatchObject({ type: 'ROUTE_UPDATED_AFTER_DELAY' });
+    const tripBNotifications = (
+      await admin()
+        .firestore.collection('notifications')
+        .where('relatedEntity', '==', `tripRequests/${fixture.tripBId}`)
+        .get()
+    ).docs;
+    expect(tripBNotifications).toHaveLength(1);
+    expect(tripBNotifications[0]?.data()).toMatchObject({ type: 'RELEASED_TO_SEARCHING' });
   });
 
   it('is skipped when the journey is no longer flagged delayed', async () => {
