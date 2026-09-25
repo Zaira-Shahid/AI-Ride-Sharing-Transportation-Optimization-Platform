@@ -15,9 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Test runner only - unrelated to functions/package.json's engines.node (22), which is the
+      # actual deployed Cloud Functions runtime and stays pinned. CI's Node 22.x hits a require(esm)
+      # module-linking bug loading firebase-admin -> jwks-rsa -> jose (ESM-only): jose's internal
+      # circular imports (e.g. jwe/compact/decrypt.js) fail to link under that Node version, crashing
+      # on import alone. Reproduced only on Node 22, not on Node 24 (tested locally) - bumped the CI
+      # runner to 24 rather than pin an exact 22.x patch, since the root cause is inside Node itself.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: actions/setup-java@v4
         with:
@@ -42,9 +48,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # See the verify job's own comment above: test runner only, bumped to 24 to avoid Node 22's
+      # require(esm)/jose module-linking bug, unrelated to the deployed functions runtime.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - uses: actions/setup-java@v4
         with:
