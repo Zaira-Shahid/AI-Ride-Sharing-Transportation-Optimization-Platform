@@ -554,10 +554,13 @@ export interface RouteMatrixLeg {
 export type JourneyStopMatrixOutcome =
   { status: 'computed'; legs: RouteMatrixLeg[] } | { status: 'unavailable' };
 
-const ORIGIN_STOP = 'origin';
-const DESTINATION_STOP = 'destination';
-const pickupStop = (requestId: string) => `pickup:${requestId}`;
-const dropoffStop = (requestId: string) => `dropoff:${requestId}`;
+// Exported for optimizationRun.ts (module 8.6): the same ids let it look a winning plan's own stop
+// order back up in the matrix already computed for it, to recover per-leg durations the Python
+// service's own plan response does not carry.
+export const ORIGIN_STOP = 'origin';
+export const DESTINATION_STOP = 'destination';
+export const pickupStop = (requestId: string) => `pickup:${requestId}`;
+export const dropoffStop = (requestId: string) => `dropoff:${requestId}`;
 
 /**
  * Every leg module 6.5's plan generation might need for `journeyId`: one entry for every ORDERED

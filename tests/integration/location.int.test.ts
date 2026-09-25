@@ -381,4 +381,140 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
 
     expect((await unrelated.get()).data()?.driverLocation).toBeNull();
   });
+
+  // Module 8.6 (traffic delay): each of these gives its own driver a matched request with an
+  // assignedPlanId pointing at a plan built directly with the admin SDK (stops + legs + a createdAt
+  // backdated into the past, the same "move the last write back in time instead of waiting" trick the
+  // throttle tests above already use) so the test controls how far "behind" the plan the driver is
+  // without waiting in real time.
+  const PLAN_STOPS = (tripId: string) => [
+    { kind: 'pickup', requestId: tripId },
+    { kind: 'dropoff', requestId: tripId },
+  ];
+  // origin -> pickup (5 min), pickup -> dropoff (5 min), dropoff -> destination (5 min).
+  const PLAN_LEGS = [
+    { distanceMeters: 1000, durationSeconds: 300 },
+    { distanceMeters: 1000, durationSeconds: 300 },
+    { distanceMeters: 1000, durationSeconds: 300 },
+  ];
+
+  async function driverWithMatchedPlan(
+    prefix: string,
+    options: { createdAgoMs: number; tripStatus: string },
+  ) {
+    const driver = await onlineDriver(prefix);
+    const { id: journeyId } = await journeyOf(driver.uid);
+    const tripRef = admin().firestore.collection('tripRequests').doc();
+    const planRef = admin().firestore.collection('journeyPlans').doc();
+    await planRef.set({
+      journeyId,
+      stops: PLAN_STOPS(tripRef.id),
+      legs: PLAN_LEGS,
+      totalDistanceMeters: 3000,
+      totalDurationSeconds: 900,
+      version: 1,
+      supersedes: null,
+      createdAt: new Date(Date.now() - options.createdAgoMs),
+    });
+    await tripRef.set({
+      status: options.tripStatus,
+      matchedDriverId: driver.uid,
+      matchedJourneyId: journeyId,
+      assignedPlanId: planRef.id,
+      driverLocation: null,
+    });
+    await admin()
+      .firestore.doc(`driverJourneys/${journeyId}`)
+      .update({ matchedTripRequestIds: [tripRef.id] });
+    return { driver, journeyId, tripRef };
+  }
+
+  it("flags a delay once the driver is behind the plan's own pace by the threshold", async () => {
+    // 20 minutes elapsed, nothing done yet: allotted time is just leg 0 (5 min), so 15 minutes over.
+    const { driver, journeyId, tripRef } = await driverWithMatchedPlan('loc-delay-flag', {
+      createdAgoMs: 20 * 60_000,
+      tripStatus: 'PICKUP_ASSIGNED',
+    });
+
+    await updateDriverLocation(driver.client, MOVED);
+
+    expect((await journeyOf(driver.uid)).data?.delay).toEqual({ extraMinutes: 15 });
+    expect((await tripRef.get()).data()?.driverDelay).toEqual({ extraMinutes: 15 });
+    const audit = await auditFor(driver.uid);
+    expect(audit).toContainEqual(
+      expect.objectContaining({
+        action: 'JOURNEY_DELAY_FLAGGED',
+        entity: `driverJourneys/${journeyId}`,
+      }),
+    );
+  });
+
+  it("does not flag a delay while still within the current leg's own allotted time", async () => {
+    const { driver, tripRef } = await driverWithMatchedPlan('loc-delay-none', {
+      createdAgoMs: 60_000,
+      tripStatus: 'PICKUP_ASSIGNED',
+    });
+
+    await updateDriverLocation(driver.client, MOVED);
+
+    expect((await journeyOf(driver.uid)).data?.delay).toBeNull();
+    expect((await tripRef.get()).data()?.driverDelay).toBeNull();
+  });
+
+  it('clears an existing delay flag once a stop completes and unlocks a fresh leg, logging the change', async () => {
+    // 16 minutes elapsed, nothing done yet: allotted time is just leg 0 (5 min), 11 minutes over.
+    const { driver, journeyId, tripRef } = await driverWithMatchedPlan('loc-delay-clear', {
+      createdAgoMs: 16 * 60_000,
+      tripStatus: 'PICKUP_ASSIGNED',
+    });
+    await updateDriverLocation(driver.client, START);
+    expect((await journeyOf(driver.uid)).data?.delay).toEqual({ extraMinutes: 11 });
+
+    // Every stop now done: allotted time becomes the full plan (15 min), just 1 minute short of the
+    // same ~16 minutes elapsed - back under the threshold. Move the throttle window back too, the
+    // same way the throttle tests above do, so this second call is not itself throttled.
+    await tripRef.update({ status: 'COMPLETED' });
+    await admin()
+      .firestore.doc(`driverJourneys/${journeyId}`)
+      .update({ 'currentLocation.updatedAt': new Date(Date.now() - 20_000) });
+
+    await updateDriverLocation(driver.client, MOVED);
+
+    expect((await journeyOf(driver.uid)).data?.delay).toBeNull();
+    const audit = await auditFor(driver.uid);
+    expect(audit).toContainEqual(expect.objectContaining({ action: 'JOURNEY_DELAY_FLAGGED' }));
+    expect(audit).toContainEqual(expect.objectContaining({ action: 'JOURNEY_DELAY_CLEARED' }));
+  });
+
+  it('does not flag a delay when the plan has no legs (written before module 8.6)', async () => {
+    const driver = await onlineDriver('loc-delay-nolegs');
+    const { id: journeyId } = await journeyOf(driver.uid);
+    const tripRef = admin().firestore.collection('tripRequests').doc();
+    const planRef = admin().firestore.collection('journeyPlans').doc();
+    await planRef.set({
+      journeyId,
+      stops: PLAN_STOPS(tripRef.id),
+      totalDistanceMeters: 3000,
+      totalDurationSeconds: 900,
+      version: 1,
+      supersedes: null,
+      createdAt: new Date(Date.now() - 60 * 60_000),
+    });
+    await tripRef.set({
+      status: 'PICKUP_ASSIGNED',
+      matchedDriverId: driver.uid,
+      matchedJourneyId: journeyId,
+      assignedPlanId: planRef.id,
+      driverLocation: null,
+    });
+    await admin()
+      .firestore.doc(`driverJourneys/${journeyId}`)
+      .update({ matchedTripRequestIds: [tripRef.id] });
+
+    await updateDriverLocation(driver.client, MOVED);
+
+    expect((await journeyOf(driver.uid)).data?.delay).toBeNull();
+    const audit = await auditFor(driver.uid);
+    expect(audit.some((entry) => entry.action?.startsWith('JOURNEY_DELAY_'))).toBe(false);
+  });
 });

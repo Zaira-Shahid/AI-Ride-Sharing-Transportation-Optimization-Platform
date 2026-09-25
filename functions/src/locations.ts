@@ -2,6 +2,7 @@ import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore'
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
+import { computeDelayFlag, type DelayFlag } from './trafficDelay.js';
 
 // Functions deploy from this directory alone, so these mirror gps.ts in @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -48,6 +49,12 @@ export function isUsableAccuracy(accuracy: number | null | undefined): boolean {
  * new Firestore rule. Written to every id in that list regardless of the request's own current status
  * (COMPLETED/CANCELLED ones too): harmless (nobody reads a closed request's location) and avoids an
  * extra read per id just to filter them out.
+ *
+ * Module 8.6 (traffic delay): every location update is also this system's only chance to notice the
+ * driver falling behind the plan's own pace (trafficDelay.ts) - detection only, copied onto the
+ * journey and every matched request the same way currentLocation is; an audit log entry is written
+ * only when the flag actually changes (not on every throttled update), to keep the log itself
+ * meaningful rather than a running commentary.
  */
 export async function updateDriverLocation(
   deps: { firestore: Firestore; now?: () => number },
@@ -105,17 +112,63 @@ export async function updateDriverLocation(
       accuracy: accuracy ?? null,
       updatedAt: FieldValue.serverTimestamp(),
     };
-    tx.update(journeyRef, { currentLocation: location, updatedAt: FieldValue.serverTimestamp() });
 
-    const matchedTripRequestIds = journey.get('matchedTripRequestIds');
-    if (Array.isArray(matchedTripRequestIds)) {
-      for (const tripId of matchedTripRequestIds) {
-        if (typeof tripId !== 'string' || !tripId) continue;
-        tx.update(firestore.collection('tripRequests').doc(tripId), {
-          driverLocation: location,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      }
+    // Module 8.6 (traffic delay): every read this needs (the matched requests' own statuses, and the
+    // plan they currently share) happens here, before any write below - Firestore transactions
+    // require every read before the first write.
+    const matchedTripRequestIds: unknown = journey.get('matchedTripRequestIds');
+    const tripIds = (Array.isArray(matchedTripRequestIds) ? matchedTripRequestIds : []).filter(
+      (id): id is string => typeof id === 'string' && id.length > 0,
+    );
+    const tripRefs = tripIds.map((id) => firestore.collection('tripRequests').doc(id));
+    const tripSnaps = await Promise.all(tripRefs.map((ref) => tx.get(ref)));
+    const tripStatusById = new Map(
+      tripSnaps.map((snap) => [snap.id, snap.get('status') as string | undefined]),
+    );
+
+    const assignedPlanId = tripSnaps[0]?.get('assignedPlanId') as string | undefined;
+    const planSnap = assignedPlanId
+      ? await tx.get(firestore.collection('journeyPlans').doc(assignedPlanId))
+      : null;
+
+    let delay: DelayFlag | null = null;
+    if (planSnap?.exists) {
+      delay = computeDelayFlag(
+        {
+          stops: planSnap.get('stops'),
+          legs: planSnap.get('legs'),
+          createdAt: planSnap.get('createdAt'),
+        },
+        tripStatusById,
+        now,
+      );
+    }
+    const wasDelayed = journey.get('delay') != null;
+
+    tx.update(journeyRef, {
+      currentLocation: location,
+      delay,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    for (const tripRef of tripRefs) {
+      tx.update(tripRef, {
+        driverLocation: location,
+        driverDelay: delay,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    if (Boolean(delay) !== wasDelayed) {
+      tx.create(firestore.collection('auditLogs').doc(), {
+        timestamp: FieldValue.serverTimestamp(),
+        actor: caller.uid,
+        action: delay ? 'JOURNEY_DELAY_FLAGGED' : 'JOURNEY_DELAY_CLEARED',
+        entity: `driverJourneys/${journeyRef.id}`,
+        previousState: { delay: wasDelayed ? journey.get('delay') : null },
+        newState: { delay },
+        reason: delay
+          ? `Running ${delay.extraMinutes} minutes behind the plan's own pace`
+          : "Back within the plan's own pace",
+      });
     }
     return { status: 'updated' };
   });
