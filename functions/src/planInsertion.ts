@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { LookupLimits } from './lookupLimits.js';
 import { findCandidateJourneys, type CandidateSourceJourney } from './matching.js';
+import { createNotification } from './notifications.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
@@ -58,6 +59,7 @@ export interface InsertableTrip extends ProtectedFields {
 
 interface ExistingPassenger extends ProtectedFields {
   id: string;
+  passengerId: string;
   origin: RoutePoint;
   destination: RoutePoint;
   estimatedDistanceMeters: number;
@@ -184,10 +186,13 @@ async function readMatchingJourneyPlans(firestore: Firestore): Promise<MatchingJ
           }
         | undefined;
       const arrivalDeadline: unknown = tripData?.arrivalDeadline;
+      const passengerId: unknown = tripData?.passengerId;
       if (
         !tripData ||
         !tripOrigin ||
         !tripDestination ||
+        typeof passengerId !== 'string' ||
+        !passengerId ||
         !isNumber(tripData.estimatedDistance) ||
         !isNumber(tripData.estimatedDuration) ||
         typeof preferences?.maxExtraTime !== 'number' ||
@@ -200,6 +205,7 @@ async function readMatchingJourneyPlans(firestore: Firestore): Promise<MatchingJ
       }
       existingPassengers.set(snap.id, {
         id: snap.id,
+        passengerId,
         origin: tripOrigin,
         destination: tripDestination,
         estimatedDistanceMeters: tripData.estimatedDistance,
@@ -272,6 +278,7 @@ async function bestInsertionInto(
   const passengers = new Map(plan.existingPassengers);
   passengers.set(request.id, {
     id: request.id,
+    passengerId: request.passengerId,
     origin: request.origin,
     destination: request.destination,
     estimatedDistanceMeters: request.estimatedDistanceMeters,
@@ -519,6 +526,23 @@ export async function tryInsertIntoMatchingJourney(
       newState: { planId: newPlanRef.id, version: plan.version + 1 },
       reason: 'A new passenger was inserted into the existing route',
     });
+
+    // Module 8.9 (notification): the new passenger and every existing one on this journey, each with
+    // their own reason - see notifications.ts's own file-level note.
+    createNotification(tx, firestore, {
+      recipientId: request.passengerId,
+      type: 'MATCHED_INTO_SHARED_RIDE',
+      message: 'You have been matched with a driver.',
+      relatedEntity: `tripRequests/${request.id}`,
+    });
+    for (const passenger of plan.existingPassengers.values()) {
+      createNotification(tx, firestore, {
+        recipientId: passenger.passengerId,
+        type: 'ROUTE_ADJUSTED_FOR_NEW_PASSENGER',
+        message: "Your driver's route was adjusted to pick up another passenger.",
+        relatedEntity: `tripRequests/${passenger.id}`,
+      });
+    }
     return true;
   });
 

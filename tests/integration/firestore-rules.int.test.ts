@@ -754,3 +754,53 @@ describe('journeyPlans (Module 7.1)', () => {
     );
   });
 });
+
+describe('notifications (Module 8.9)', () => {
+  const notification = (recipientId: string) => ({
+    recipientId,
+    type: 'DRIVER_DELAYED',
+    message: 'Your driver is running about 10 minutes behind schedule.',
+    relatedEntity: 'tripRequests/trip-1',
+    read: false,
+    createdAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+  });
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore();
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'notifications/note-1'), notification('passenger-1'));
+    });
+  });
+
+  it('lets the recipient read it, whatever their role', async () => {
+    const snapshot = await assertSucceeds(
+      getDoc(doc(as('passenger-1', verified('PASSENGER')), 'notifications/note-1')),
+    );
+    expect(snapshot.get('type')).toBe('DRIVER_DELAYED');
+  });
+
+  it('does not let anyone else read it, including staff', async () => {
+    await assertFails(
+      getDoc(doc(as('passenger-2', verified('PASSENGER')), 'notifications/note-1')),
+    );
+    for (const role of ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      await assertFails(getDoc(doc(as('staff-1', verified(role)), 'notifications/note-1')));
+    }
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = as('passenger-1', { email_verified: false, role: 'PASSENGER' });
+    await assertFails(getDoc(doc(unverified, 'notifications/note-1')));
+    await assertFails(
+      getDoc(doc(env.unauthenticatedContext().firestore(), 'notifications/note-1')),
+    );
+  });
+
+  it('denies every client write', async () => {
+    const db = as('passenger-1', verified('PASSENGER'));
+    await assertFails(updateDoc(doc(db, 'notifications/note-1'), { read: true }));
+    await assertFails(setDoc(doc(db, 'notifications/new-one'), notification('passenger-1')));
+    await assertFails(deleteDoc(doc(db, 'notifications/note-1')));
+  });
+});
