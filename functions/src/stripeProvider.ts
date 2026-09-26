@@ -10,6 +10,13 @@ import Stripe from 'stripe';
 // must treat a null config the same way calculateRoute treats a routing server that is not configured
 // yet (Module 6.10's own OPTIMIZATION_SERVICE_URL check is the closest precedent). Nothing in this
 // file is wired into index.ts yet - there is no payment operation to trigger it, by design.
+//
+// Module 9.2 (payment authorization) adds the next two narrow methods: createCustomer (paymentMethods.ts,
+// once per passenger) and authorizePayment (paymentAuthorization.ts, a hold - capture_method: manual -
+// never a charge). Both, like ping(), are never wired into a live trigger yet either (user-approved:
+// build and test the logic now, wire it into the real match pipeline once a real card-entry UI exists -
+// wiring it live today would mean every match fails authorization immediately, since nothing can save a
+// payment method yet).
 
 export interface StripeConfig {
   secretKey: string;
@@ -29,18 +36,45 @@ export function stripeConfigFromEnvironment(
  * own narrow methods here, the same way RoutingProvider only ever grew one method per module that
  * needed one - never the whole SDK surface passed through.
  */
+export interface CreateCustomerParams {
+  email: string;
+  name: string;
+}
+
+export interface AuthorizePaymentParams {
+  stripeCustomerId: string;
+  paymentMethodId: string;
+  amountMinorUnits: number;
+  currency: string;
+}
+
+export type AuthorizePaymentOutcome =
+  { status: 'authorized'; paymentIntentId: string } | { status: 'declined' };
+
 export interface StripeProvider {
   ping(): Promise<boolean>;
+  /** Creates a new Stripe Customer and returns its id. */
+  createCustomer(params: CreateCustomerParams): Promise<string>;
+  /**
+   * Holds `amountMinorUnits` against the customer's saved payment method (capture_method: 'manual' -
+   * this only ever holds, module 9.4's own capture step is what actually takes the money). 'declined'
+   * covers every reason Stripe would not confirm it (a declined card, an expired one, the payment
+   * method no longer attached, ...) - never thrown, the same "an expected outcome, not a system
+   * failure" stance checkCandidateRoute's own 'unavailable' takes.
+   */
+  authorizePayment(params: AuthorizePaymentParams): Promise<AuthorizePaymentOutcome>;
 }
+
+type StripeClient = Pick<Stripe, 'balance' | 'customers' | 'paymentIntents'>;
 
 /**
  * `stripeClient` is normally omitted (a real Stripe client is built from `config`); tests inject a
- * stand-in shaped like the one real call this makes, the same dependency-injection pattern
+ * stand-in shaped like the real calls this makes, the same dependency-injection pattern
  * createOsrmProvider's own `fetchImpl` uses.
  */
 export function createStripeProvider(
   config: StripeConfig,
-  stripeClient?: Pick<Stripe, 'balance'>,
+  stripeClient?: StripeClient,
 ): StripeProvider {
   const client = stripeClient ?? new Stripe(config.secretKey);
   return {
@@ -52,6 +86,29 @@ export function createStripeProvider(
         return true;
       } catch {
         return false;
+      }
+    },
+
+    async createCustomer(params) {
+      const customer = await client.customers.create({ email: params.email, name: params.name });
+      return customer.id;
+    },
+
+    async authorizePayment(params) {
+      try {
+        const intent = await client.paymentIntents.create({
+          amount: params.amountMinorUnits,
+          currency: params.currency,
+          customer: params.stripeCustomerId,
+          payment_method: params.paymentMethodId,
+          capture_method: 'manual',
+          confirm: true,
+          off_session: true,
+        });
+        if (intent.status !== 'requires_capture') return { status: 'declined' };
+        return { status: 'authorized', paymentIntentId: intent.id };
+      } catch {
+        return { status: 'declined' };
       }
     },
   };
