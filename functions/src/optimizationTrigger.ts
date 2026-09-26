@@ -1,6 +1,7 @@
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { runBatchOptimization, type BatchOptimizationOutcome } from './optimizationRun.js';
 import type { OptimizationServiceConfig } from './optimizationClient.js';
+import type { PushProvider } from './pushProvider.js';
 import type { RoutingProvider } from './routing.js';
 
 // Phase 8 (Dynamic Re-optimization), modules 8.1/8.2 (event detection, optimization trigger): until
@@ -58,6 +59,7 @@ export async function runImmediateOptimizationIfDue(deps: {
   firestore: Firestore;
   provider: RoutingProvider;
   optimizationService: OptimizationServiceConfig;
+  push: PushProvider;
   now?: () => number;
 }): Promise<BatchOptimizationOutcome | null> {
   const proceed = await claimImmediateOptimizationRun({

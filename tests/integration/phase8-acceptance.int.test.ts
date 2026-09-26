@@ -13,6 +13,7 @@ import {
 } from '../../packages/firebase/src';
 import { runBatchOptimization } from '../../functions/src/optimizationRun';
 import { claimImmediateOptimizationRun } from '../../functions/src/optimizationTrigger';
+import type { PushProvider } from '../../functions/src/pushProvider';
 import { reoptimizeDelayedJourney } from '../../functions/src/routeModification';
 import { createOsrmProvider, type RoutingProvider } from '../../functions/src/routing';
 import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_PORT, startFakeOsrm, type FakeOsrm } from '../fake-osrm';
@@ -32,6 +33,10 @@ import { admin, createClient, signUp, verifyEmail } from './support';
 // notifying whoever it affects (8.9).
 
 const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+
+// Module 10.3 (trip matched push): this file is about the acceptance flow itself, not push delivery
+// (which has its own tests) - a no-op stand-in is enough everywhere runBatchOptimization is called.
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
 
 // Its own corner of the world (a longitude no other integration test file uses, not just another
 // latitude sub-range - see routeModification.int.test.ts's own lesson on why that is the safer way to
@@ -191,6 +196,7 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
       provider,
       optimizationService: { baseUrl: optimizationService.baseUrl },
       limits: NO_LIMITS,
+      push: noopPush,
     });
     const tripA = (await admin().firestore.doc(`tripRequests/${a.tripId}`).get()).data();
     expect(tripA?.status).toBe('PICKUP_ASSIGNED');
@@ -206,6 +212,7 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
       provider,
       optimizationService: { baseUrl: optimizationService.baseUrl },
       limits: NO_LIMITS,
+      push: noopPush,
     });
     expect(outcome.insertedRequestCount).toBeGreaterThanOrEqual(1);
 
@@ -313,6 +320,7 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
       provider,
       optimizationService: { baseUrl: optimizationService.baseUrl },
       limits: NO_LIMITS,
+      push: noopPush,
     });
     const tripBefore = (await admin().firestore.doc(`tripRequests/${a.tripId}`).get()).data();
     expect(tripBefore?.status).toBe('PICKUP_ASSIGNED');

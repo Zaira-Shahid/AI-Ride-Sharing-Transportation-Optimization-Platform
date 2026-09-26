@@ -3,6 +3,8 @@ import type { LookupLimits } from './lookupLimits.js';
 import { findCandidateJourneys, type CandidateSourceJourney } from './matching.js';
 import { createNotification } from './notifications.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
+import { sendPushToUser } from './pushNotifications.js';
+import type { PushProvider } from './pushProvider.js';
 import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
 
@@ -404,6 +406,7 @@ export async function tryInsertIntoMatchingJourney(
   deps: {
     firestore: Firestore;
     provider: RoutingProvider;
+    push: PushProvider;
     limits?: LookupLimits;
     now?: () => number;
   },
@@ -549,6 +552,23 @@ export async function tryInsertIntoMatchingJourney(
     }
     return true;
   });
+
+  if (applied) {
+    // Module 10.3 (trip matched push): sent AFTER the transaction above commits (a network call,
+    // never inside a Firestore transaction) - the driver gets exactly one push here, since insertion
+    // only ever adds one passenger at a time (unlike module 6.9's own batch match, which can pool
+    // several). sendPushToUser never throws and no-ops for anyone with no saved token.
+    await Promise.all([
+      sendPushToUser(deps, plan.driverId, {
+        title: 'New passenger',
+        body: 'A new passenger has been matched to your journey.',
+      }),
+      sendPushToUser(deps, request.passengerId, {
+        title: 'Trip matched',
+        body: "You've been matched with a driver.",
+      }),
+    ]);
+  }
 
   return applied ? 'inserted' : 'unmatched';
 }

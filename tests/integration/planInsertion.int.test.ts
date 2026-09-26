@@ -1,7 +1,24 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { tryInsertIntoMatchingJourney } from '../../functions/src/planInsertion';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { RoutePoint, RoutingProvider } from '../../functions/src/routing';
 import { admin } from './support';
+
+// Module 10.3 (trip matched push): tryInsertIntoMatchingJourney sends a push on success, so every call
+// below needs a stand-in PushProvider - a no-op is enough, since this file's own tests are about the
+// insertion search itself, not push delivery (that has its own tests, pushNotifications.int.test.ts).
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
+
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 // Modules 8.3/8.4 (plan versioning, new passenger insertion) against the Firestore emulator. A
 // stand-in RoutingProvider answers every calculateRoute call with the sum of absolute latitude
@@ -175,9 +192,13 @@ async function searchingRequest(
   return ref.id;
 }
 
-function insert(tripId: string, request: Awaited<ReturnType<typeof buildInsertable>>) {
+function insert(
+  tripId: string,
+  request: Awaited<ReturnType<typeof buildInsertable>>,
+  push: PushProvider = noopPush,
+) {
   return tryInsertIntoMatchingJourney(
-    { firestore: admin().firestore, provider: positionalProvider(), limits: NO_LIMITS },
+    { firestore: admin().firestore, provider: positionalProvider(), push, limits: NO_LIMITS },
     { id: tripId, ...request },
   );
 }
@@ -289,6 +310,38 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
     expect(existingNotification[0]?.data()).toMatchObject({
       type: 'ROUTE_ADJUSTED_FOR_NEW_PASSENGER',
     });
+  });
+
+  it('sends a push to the driver and the new passenger on a successful insertion (Module 10.3)', async () => {
+    const fixture = await matchingJourneyWithOnePassenger('insert-push');
+    const tripId = await searchingRequest('insert-push', {
+      origin: { latitude: fixture.base + 0.03, longitude: 0 },
+      destination: { latitude: fixture.base + 0.04, longitude: 0 },
+      estimatedDistanceMeters: 1000,
+    });
+    const request = await buildInsertable(tripId);
+    await admin()
+      .firestore.doc(`users/${fixture.driverId}`)
+      .set({ pushToken: 'ExponentPushToken[driver]' });
+    await admin()
+      .firestore.doc(`users/${request.passengerId}`)
+      .set({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    expect(await insert(tripId, request, push)).toBe('inserted');
+
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[driver]',
+        title: 'New passenger',
+        body: 'A new passenger has been matched to your journey.',
+      },
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Trip matched',
+        body: "You've been matched with a driver.",
+      },
+    ]);
   });
 
   it('is unmatched when no MATCHING journey is nearby', async () => {
