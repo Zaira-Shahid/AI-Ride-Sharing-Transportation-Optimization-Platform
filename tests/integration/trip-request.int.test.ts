@@ -1,6 +1,25 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
+import {
+  cancelTripRequest as serverCancelTripRequest,
+  createTripRequest as serverCreateTripRequest,
+} from '../../functions/src/tripRequests';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import { admin, createClient, signUp, verifyEmail } from './support';
+
+// Module 10.8 (trip requested/cancelled push): records what a direct call to functions/src/
+// tripRequests.ts's own createTripRequest/cancelTripRequest sends - not through the real callables
+// above, which never get a fake PushProvider.
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 const OFFICE = {
   latitude: 51.5049,
@@ -224,6 +243,29 @@ describe('createTripRequest (functions + firestore emulators)', () => {
 
     expect(await refusal(passenger.create())).toBe('ACCOUNT');
   });
+
+  it('pushes the passenger a self-confirmation (Module 10.8), called directly with a fake PushProvider', async () => {
+    const passenger = await person('PASSENGER', 'trip-push');
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await serverCreateTripRequest(
+      { firestore: admin().firestore, push },
+      { uid: passenger.uid, role: 'PASSENGER', emailVerified: true },
+      request(),
+    );
+
+    expect(typeof result.tripId).toBe('string');
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Trip requested',
+        body: "We're searching for a driver for you.",
+      },
+    ]);
+  });
 });
 
 describe('cancelTripRequest (functions + firestore emulators)', () => {
@@ -334,5 +376,48 @@ describe('cancelTripRequest (functions + firestore emulators)', () => {
     expect(await refusal(passenger.call('cancelTripRequest', {}))).toBe('INVALID');
     expect(await refusal(passenger.call('cancelTripRequest', { tripId: 'a/b' }))).toBe('INVALID');
     expect(await refusal(driver.cancel('anything'))).toBe('permission-denied');
+  });
+
+  it('pushes the passenger a self-confirmation (Module 10.8), called directly with a fake PushProvider', async () => {
+    const passenger = await person('PASSENGER', 'cancel-push');
+    const tripId = await passenger.create();
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await serverCancelTripRequest(
+      { firestore: admin().firestore, push },
+      { uid: passenger.uid, role: 'PASSENGER', emailVerified: true },
+      { tripId },
+    );
+
+    expect(result).toEqual({ status: 'cancelled' });
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Trip cancelled',
+        body: 'Your ride request has been cancelled.',
+      },
+    ]);
+  });
+
+  it('does not push again on an idempotent retry (Module 10.8)', async () => {
+    const passenger = await person('PASSENGER', 'cancel-push-retry');
+    const tripId = await passenger.create();
+    await admin().firestore.doc(`tripRequests/${tripId}`).update({ status: 'CANCELLED' });
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await serverCancelTripRequest(
+      { firestore: admin().firestore, push },
+      { uid: passenger.uid, role: 'PASSENGER', emailVerified: true },
+      { tripId },
+    );
+
+    expect(result).toEqual({ status: 'unchanged' });
+    expect(push.sent).toEqual([]);
   });
 });

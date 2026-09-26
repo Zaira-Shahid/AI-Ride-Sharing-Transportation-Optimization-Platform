@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   completeDropoff as driverCompleteDropoff,
   headToPickup as driverHeadToPickup,
+  startTransit as driverStartTransit,
 } from '../../functions/src/tripExecution';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
@@ -275,6 +276,31 @@ describe('startTransit (functions + firestore emulators)', () => {
     const tripId = await tripAt('PICKED_UP', driver.uid);
 
     expect(await refusal(other.call('startTransit', { tripId }))).toBe('NOT_FOUND');
+  });
+
+  it('pushes the passenger (Module 10.8), called directly with a fake PushProvider', async () => {
+    const driver = await person('DRIVER', 'transit-push');
+    const passenger = await person('PASSENGER', 'transit-push-p');
+    const tripId = await tripAt('PICKED_UP', driver.uid, { passengerId: passenger.uid });
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await driverStartTransit(
+      { firestore: admin().firestore, push },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      { tripId },
+    );
+
+    expect(result.status).toBe('updated');
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Trip started',
+        body: 'Your trip has started.',
+      },
+    ]);
   });
 });
 
@@ -612,9 +638,17 @@ describe('completeDropoff (functions + firestore emulators)', () => {
       const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
       expect(trip?.paymentStatus).toBe('CAPTURED');
 
-      // Module 10.4 (payment captured push): both the passenger (charged) and the driver (earned).
-      // Sent concurrently (Promise.all), so order between the two is not guaranteed.
-      expect(push.sent).toHaveLength(2);
+      // Module 10.8 (trip completed push) + Module 10.4 (payment captured push): the passenger gets
+      // both "Trip completed" (from advance() itself) and "Payment captured", plus the driver gets
+      // "You got paid" - the latter two sent concurrently (Promise.all), so order between them is not
+      // guaranteed, but "Trip completed" is always first (advance() resolves before captureTripPayment
+      // is even called).
+      expect(push.sent).toHaveLength(3);
+      expect(push.sent[0]).toEqual({
+        token: 'ExponentPushToken[passenger]',
+        title: 'Trip completed',
+        body: 'Your trip is complete. Thanks for riding with us.',
+      });
       expect(push.sent).toContainEqual({
         token: 'ExponentPushToken[passenger]',
         title: 'Payment captured',

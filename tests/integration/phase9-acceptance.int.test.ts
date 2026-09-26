@@ -168,10 +168,18 @@ describe('Phase 9 acceptance (functions + firestore emulators)', () => {
     });
     expect(receipt).not.toHaveProperty('platformFeeMinorUnits');
 
+    // Module 10.8: the passenger also gets "Trip completed", from advance() itself, before
+    // captureTripPayment is even called.
+    expect(push.sent[0]).toEqual({
+      token: 'ExponentPushToken[passenger]',
+      title: 'Trip completed',
+      body: 'Your trip is complete. Thanks for riding with us.',
+    });
+
     // Module 10.4: both the passenger (charged $10.00, the final fare) and the driver (earned $8.00,
     // the final fare minus the platform fee) get a push. Sent concurrently (Promise.all), so order
     // between the two is not guaranteed.
-    expect(push.sent).toHaveLength(2);
+    expect(push.sent).toHaveLength(3);
     expect(push.sent).toContainEqual({
       token: 'ExponentPushToken[passenger]',
       title: 'Payment captured',

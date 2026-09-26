@@ -353,6 +353,7 @@ export function confirmPickup(
 /**
  * The driver confirms they are now driving with this passenger aboard (Module 7.4). Never blocked by
  * plan order: a passenger already PICKED_UP cannot be jumping ahead of anyone still waiting.
+ * Module 10.8 (trip started push): pushes the passenger.
  */
 export function startTransit(
   deps: { firestore: Firestore; push: PushProvider },
@@ -367,6 +368,9 @@ export function startTransit(
     'IN_TRANSIT',
     'TRIP_IN_TRANSIT',
     'Driver started the trip',
+    {
+      notifyPassenger: { title: 'Trip started', body: 'Your trip has started.' },
+    },
   );
 }
 
@@ -398,6 +402,8 @@ export function approachDropoff(
  * to capture the held payment (Module 9.4) - a safe no-op today when nothing was ever authorized (no
  * card-entry UI exists yet). A capture problem never fails this call: the ride itself already
  * happened, and captureTripPayment's own FAILED status is what a future module resolves.
+ * Module 10.8 (trip completed push): pushes the passenger - a distinct milestone from module 10.4's
+ * own "payment captured" push (which may not even fire, e.g. no payment was ever authorized).
  */
 export async function completeDropoff(
   deps: { firestore: Firestore; stripe?: StripeProvider; push: PushProvider },
@@ -412,7 +418,15 @@ export async function completeDropoff(
     'COMPLETED',
     'TRIP_COMPLETED',
     'Driver completed the drop-off',
-    { checkStopOrder: 'dropoff', finalizeIfLastDropoff: true, finalizeFare: true },
+    {
+      checkStopOrder: 'dropoff',
+      finalizeIfLastDropoff: true,
+      finalizeFare: true,
+      notifyPassenger: {
+        title: 'Trip completed',
+        body: 'Your trip is complete. Thanks for riding with us.',
+      },
+    },
   );
 
   if (result.status === 'updated' && deps.stripe) {
