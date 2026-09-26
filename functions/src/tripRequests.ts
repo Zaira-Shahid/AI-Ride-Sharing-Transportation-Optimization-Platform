@@ -56,6 +56,12 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   // Where the matched driver currently is (Module 7.6), copied in by updateDriverLocation; null
   // until a reading arrives.
   driverLocation: null,
+  // Whether this request's own journey ever had another matched passenger at the same time (Module
+  // 6.9's batch match or Module 8.4's insertion); set once, at match time.
+  sharedRide: false,
+  // The fare actually owed and the platform's own cut of it (Module 9.3), filled in at completion.
+  finalFareMinorUnits: null,
+  platformFeeMinorUnits: null,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;

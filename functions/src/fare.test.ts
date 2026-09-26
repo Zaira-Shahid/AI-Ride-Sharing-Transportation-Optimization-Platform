@@ -3,9 +3,12 @@ import {
   AUTHORIZATION_BUFFER_PERCENT,
   computeAuthorizationAmountMinorUnits,
   computeFareMinorUnits,
+  computeFinalFareMinorUnits,
+  computePlatformFeeMinorUnits,
 } from './fare';
 
 const RATES = { baseFareMinorUnits: 250, perKmMinorUnits: 120, perMinuteMinorUnits: 15 };
+const SHARED_RATES = { ...RATES, sharedRideDiscountPercent: 20 };
 
 describe('computeFareMinorUnits', () => {
   it('sums base + per-km + per-minute', () => {
@@ -29,5 +32,26 @@ describe('computeAuthorizationAmountMinorUnits', () => {
     const authorized = computeAuthorizationAmountMinorUnits(RATES, 5_000, 600);
     expect(authorized).toBe(Math.round(fare * (1 + AUTHORIZATION_BUFFER_PERCENT / 100)));
     expect(authorized).toBe(1_200);
+  });
+});
+
+describe('computeFinalFareMinorUnits', () => {
+  it('is just the plain fare when the ride was not shared', () => {
+    expect(computeFinalFareMinorUnits(SHARED_RATES, 5_000, 600, false)).toBe(1_000);
+  });
+
+  it('discounts the whole fare by sharedRideDiscountPercent when the ride was shared', () => {
+    // 1000 * (1 - 20/100) = 800
+    expect(computeFinalFareMinorUnits(SHARED_RATES, 5_000, 600, true)).toBe(800);
+  });
+});
+
+describe('computePlatformFeeMinorUnits', () => {
+  it('takes platformFeePercent of the final fare', () => {
+    expect(computePlatformFeeMinorUnits({ platformFeePercent: 20 }, 800)).toBe(160);
+  });
+
+  it('rounds to the nearest minor unit', () => {
+    expect(computePlatformFeeMinorUnits({ platformFeePercent: 15 }, 999)).toBe(150);
   });
 });

@@ -214,6 +214,8 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
     expect(trip?.status).toBe('PICKUP_ASSIGNED');
     expect(trip?.matchedJourneyId).toBe(fixture.journeyId);
     expect(trip?.matchedDriverId).toBe(fixture.driverId);
+    // Module 9.3: insertion always makes a journey shared, for the new passenger too.
+    expect(trip?.sharedRide).toBe(true);
     const newPlanId = trip?.assignedPlanId as string;
     expect(newPlanId).not.toBe(fixture.oldPlanId);
 
@@ -242,6 +244,8 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
     ).data();
     expect(existingTrip?.assignedPlanId).toBe(newPlanId);
     expect(existingTrip?.status).toBe('PICKUP_ASSIGNED');
+    // Module 9.3: the existing passenger's own ride is shared too, now that the journey has 2+.
+    expect(existingTrip?.sharedRide).toBe(true);
 
     const journey = (
       await admin().firestore.doc(`driverJourneys/${fixture.journeyId}`).get()

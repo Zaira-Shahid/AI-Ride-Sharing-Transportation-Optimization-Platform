@@ -147,6 +147,21 @@ export interface TripRequest {
   /** The time for that route in whole SECONDS, without traffic; null like estimatedDistance. */
   estimatedDuration: number | null;
   assignedPlanId: string | null;
+  /**
+   * Whether this request's own journey ever had another matched passenger on it at the same time
+   * (Module 6.9's own batch match, or Module 8.4's insertion into an already-matching journey - the
+   * only two places a journey gains a second passenger). Set once, at match time; never re-derived
+   * later, so a passenger dropped by a later re-plan still shows as having been on a shared ride.
+   */
+  sharedRide: boolean;
+  /**
+   * The fare the passenger actually owes (Module 9.3), filled in at trip completion from the same
+   * estimatedDistance/estimatedDuration used throughout - sharedRideDiscountPercent taken off the
+   * whole fare when sharedRide is true. Null until the trip is COMPLETED.
+   */
+  finalFareMinorUnits: number | null;
+  /** The platform's own cut of finalFareMinorUnits (Module 9.3); null until finalFareMinorUnits is. */
+  platformFeeMinorUnits: number | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -168,6 +183,9 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   vehicleModel: null,
   vehiclePlateNumber: null,
   driverLocation: null,
+  sharedRide: false,
+  finalFareMinorUnits: null,
+  platformFeeMinorUnits: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

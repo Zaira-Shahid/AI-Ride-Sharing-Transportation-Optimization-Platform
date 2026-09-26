@@ -458,6 +458,9 @@ async function matchIntoAvailableJourneys(deps: {
           vehicleMake,
           vehicleModel,
           vehiclePlateNumber,
+          // Module 9.3: this journey has more than one passenger from the moment this plan is
+          // written if OR-Tools itself pooled several requests together in one batch run.
+          sharedRide: plan.request_ids.length > 1,
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
