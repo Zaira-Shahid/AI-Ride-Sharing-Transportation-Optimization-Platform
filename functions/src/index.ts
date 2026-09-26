@@ -13,9 +13,14 @@ import { runBatchOptimization } from './optimizationRun.js';
 import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
 import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
 import { voidStaleAuthorization } from './paymentVoid.js';
+import { handleStripeWebhook } from './paymentWebhook.js';
 import { registerUser } from './registration.js';
 import { reoptimizeDelayedJourney } from './routeModification.js';
-import { createStripeProvider, stripeConfigFromEnvironment } from './stripeProvider.js';
+import {
+  createStripeProvider,
+  stripeConfigFromEnvironment,
+  stripeWebhookSecretFromEnvironment,
+} from './stripeProvider.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
   declareDestination as declareDriverDestination,
@@ -48,6 +53,47 @@ setGlobalOptions({ region: 'europe-west1' });
 
 export const healthCheck = onRequest((_request, response) => {
   response.status(200).json(buildHealthResponse());
+});
+
+/**
+ * Module 9.9 (webhooks): Stripe posts events here (a dispute is the only one currently acted on - see
+ * paymentWebhook.ts's own note on why). `request.rawBody` (Firebase Functions' own raw, unparsed
+ * request body) is required for signature verification - never `request.body`, which has already been
+ * JSON-parsed and re-serializing it would not match Stripe's own signed bytes. 503 when Stripe/the
+ * webhook secret is not configured yet (same "not configured yet" stance as everywhere else in this
+ * codebase); 400 for a missing or invalid signature; 200 for anything else, verified or not otherwise
+ * actionable - Stripe retries on non-2xx, and an ignored event type is not a failure worth retrying.
+ */
+export const stripeWebhook = onRequest(async (request, response) => {
+  const stripeConfig = stripeConfigFromEnvironment();
+  const webhookSecret = stripeWebhookSecretFromEnvironment();
+  if (!stripeConfig || !webhookSecret) {
+    response.status(503).send('Stripe webhooks are not configured yet.');
+    return;
+  }
+
+  const signature = request.headers['stripe-signature'];
+  if (typeof signature !== 'string') {
+    response.status(400).send('Missing signature.');
+    return;
+  }
+
+  try {
+    const outcome = await handleStripeWebhook(
+      { firestore: getFirestore(), stripe: createStripeProvider(stripeConfig) },
+      request.rawBody,
+      signature,
+      webhookSecret,
+    );
+    if (outcome === 'invalid') {
+      response.status(400).send('Invalid signature.');
+      return;
+    }
+    response.status(200).send('ok');
+  } catch (error) {
+    logger.error('Stripe webhook handling failed.', error);
+    response.status(500).send('Webhook handling failed.');
+  }
 });
 
 export const completeRegistration = onCall(async (request) => {
