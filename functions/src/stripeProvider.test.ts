@@ -197,3 +197,37 @@ describe('createStripeProvider.refundPayment', () => {
     expect(await provider.refundPayment(params)).toEqual({ status: 'failed' });
   });
 });
+
+describe('createStripeProvider.verifyWebhookEvent', () => {
+  const params = {
+    payload: '{"id":"evt_123"}',
+    signature: 't=1,v1=abc',
+    webhookSecret: 'whsec_abc',
+  };
+
+  it('is verified when the signature checks out', () => {
+    const fakeEvent = { id: 'evt_123', type: 'charge.dispute.created' };
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      webhooks: {
+        constructEvent: (payload: string, signature: string, secret: string) => {
+          expect(payload).toBe(params.payload);
+          expect(signature).toBe(params.signature);
+          expect(secret).toBe(params.webhookSecret);
+          return fakeEvent;
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(provider.verifyWebhookEvent(params)).toEqual({ status: 'verified', event: fakeEvent });
+  });
+
+  it('is invalid when the client throws (a missing or mismatched signature)', () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      webhooks: {
+        constructEvent: () => {
+          throw new Error('No signatures found matching the expected signature for payload.');
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(provider.verifyWebhookEvent(params)).toEqual({ status: 'invalid' });
+  });
+});
