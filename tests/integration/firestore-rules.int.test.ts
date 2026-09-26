@@ -843,3 +843,56 @@ describe('config (Module 9.1)', () => {
     await assertFails(deleteDoc(doc(db, 'config/fare')));
   });
 });
+
+describe('driverEarnings (Module 9.5)', () => {
+  const earning = (driverId: string) => ({
+    driverId,
+    tripId: 'trip-1',
+    amountMinorUnits: 640,
+    currency: 'usd',
+    createdAt: Timestamp.fromDate(new Date('2026-01-01T00:00:00Z')),
+  });
+  const as = (uid: string, claims: Record<string, unknown>) =>
+    env.authenticatedContext(uid, claims).firestore();
+
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'driverEarnings/earning-1'), earning('driver-1'));
+    });
+  });
+
+  it('lets the driver it is for read it', async () => {
+    const snapshot = await assertSucceeds(
+      getDoc(doc(as('driver-1', verified('DRIVER')), 'driverEarnings/earning-1')),
+    );
+    expect(snapshot.get('amountMinorUnits')).toBe(640);
+  });
+
+  it('lets staff read it', async () => {
+    for (const role of ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN']) {
+      await assertSucceeds(getDoc(doc(as('staff-1', verified(role)), 'driverEarnings/earning-1')));
+    }
+  });
+
+  it('does not let a different driver, or a passenger, read it', async () => {
+    await assertFails(getDoc(doc(as('driver-2', verified('DRIVER')), 'driverEarnings/earning-1')));
+    await assertFails(
+      getDoc(doc(as('passenger-1', verified('PASSENGER')), 'driverEarnings/earning-1')),
+    );
+  });
+
+  it('requires a verified email', async () => {
+    const unverified = as('driver-1', { email_verified: false, role: 'DRIVER' });
+    await assertFails(getDoc(doc(unverified, 'driverEarnings/earning-1')));
+    await assertFails(
+      getDoc(doc(env.unauthenticatedContext().firestore(), 'driverEarnings/earning-1')),
+    );
+  });
+
+  it('denies every client write', async () => {
+    const db = as('driver-1', verified('DRIVER'));
+    await assertFails(updateDoc(doc(db, 'driverEarnings/earning-1'), { amountMinorUnits: 0 }));
+    await assertFails(setDoc(doc(db, 'driverEarnings/new-one'), earning('driver-1')));
+    await assertFails(deleteDoc(doc(db, 'driverEarnings/earning-1')));
+  });
+});

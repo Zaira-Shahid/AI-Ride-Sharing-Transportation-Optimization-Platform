@@ -1,4 +1,7 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { recordDriverEarning } from './driverEarnings.js';
+import { computeDriverEarningsMinorUnits } from './fare.js';
+import { readFareConfig } from './fareConfig.js';
 import type { StripeProvider } from './stripeProvider.js';
 
 // Module 9.4 (payment capture): once a trip is COMPLETED and its final fare is known (Module 9.3),
@@ -14,6 +17,11 @@ import type { StripeProvider } from './stripeProvider.js';
 // back to - the passenger already got their ride. User-approved: mark paymentStatus FAILED and stop;
 // a future module (webhooks, an admin dashboard, a retry/dunning flow) is what actually resolves it,
 // not this one.
+//
+// A successful capture also writes a driverEarnings ledger entry (Module 9.5, driverEarnings.ts) -
+// user-approved: only on an actual capture, matching the spec's own acceptance line order ("Complete
+// trip -> automatic payment -> earnings record"). Skipped (not a failure) if the trip's own driverId
+// or platformFeeMinorUnits is somehow missing - a bookkeeping gap, not a payment one.
 
 export type PaymentCaptureOutcome = 'captured' | 'failed' | 'skipped';
 
@@ -48,10 +56,13 @@ export async function captureTripPayment(
     return 'skipped';
   }
 
-  const outcome = await deps.stripe.capturePayment({
-    paymentIntentId,
-    amountMinorUnits: finalFareMinorUnits,
-  });
+  const driverId = tripSnap.get('matchedDriverId');
+  const platformFeeMinorUnits = tripSnap.get('platformFeeMinorUnits');
+
+  const [outcome, fareConfig] = await Promise.all([
+    deps.stripe.capturePayment({ paymentIntentId, amountMinorUnits: finalFareMinorUnits }),
+    readFareConfig(firestore),
+  ]);
 
   await firestore.runTransaction(async (tx) => {
     const current = await tx.get(tripRef);
@@ -68,8 +79,20 @@ export async function captureTripPayment(
         newState: { paymentStatus: 'FAILED' },
         reason: 'Payment could not be captured',
       });
-    } else {
-      tx.update(tripRef, { paymentStatus: 'CAPTURED', updatedAt: FieldValue.serverTimestamp() });
+      return;
+    }
+
+    tx.update(tripRef, { paymentStatus: 'CAPTURED', updatedAt: FieldValue.serverTimestamp() });
+    if (typeof driverId === 'string' && driverId && typeof platformFeeMinorUnits === 'number') {
+      recordDriverEarning(tx, firestore, {
+        driverId,
+        tripId,
+        amountMinorUnits: computeDriverEarningsMinorUnits(
+          finalFareMinorUnits,
+          platformFeeMinorUnits,
+        ),
+        currency: fareConfig.currency,
+      });
     }
   });
 
