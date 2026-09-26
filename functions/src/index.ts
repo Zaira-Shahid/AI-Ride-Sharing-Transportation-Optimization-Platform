@@ -14,6 +14,7 @@ import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
 import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
 import { voidStaleAuthorization } from './paymentVoid.js';
 import { handleStripeWebhook } from './paymentWebhook.js';
+import { savePushToken as savePersonPushToken } from './pushTokens.js';
 import { registerUser } from './registration.js';
 import { reoptimizeDelayedJourney } from './routeModification.js';
 import {
@@ -238,6 +239,11 @@ export const completeDropoff = onCall((request) => {
     request.data,
   );
 });
+
+/** Module 10.2 (push tokens): saves the calling passenger's or driver's own Expo push token. */
+export const savePushToken = onCall((request) =>
+  savePersonPushToken({ firestore: getFirestore() }, callerOf(request), request.data),
+);
 
 export const setJourneyOrigin = onCall((request) =>
   setDriverJourneyOrigin({ firestore: getFirestore() }, callerOf(request), request.data),

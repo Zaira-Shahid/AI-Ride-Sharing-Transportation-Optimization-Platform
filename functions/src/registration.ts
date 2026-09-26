@@ -76,6 +76,8 @@ export async function registerUser(
       phone: input.phone ?? null,
       photoUrl: user.photoURL ?? null,
       status: 'ACTIVE',
+      // An Expo push token (Module 10.2); null until the app saves one via savePushToken.
+      pushToken: null,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
