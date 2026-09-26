@@ -111,6 +111,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A per-trip earnings ledger entry (Module 9.5), server-written only when a payment is actually
+    // captured (Module 9.4). Readable by the driver it is for, and by staff (commercially sensitive) -
+    // the same "the owner can read their own" pattern drivers/vehicles/driverJourneys already use,
+    // even though no earnings screen exists yet to show it.
+    match /driverEarnings/{earningId} {
+      allow read: if isVerified()
+                  && ((request.auth.uid == resource.data.driverId && role() == 'DRIVER')
+                      || isStaff());
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;

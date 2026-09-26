@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTHORIZATION_BUFFER_PERCENT,
   computeAuthorizationAmountMinorUnits,
+  computeDriverEarningsMinorUnits,
   computeFareMinorUnits,
   computeFinalFareMinorUnits,
   computePlatformFeeMinorUnits,
@@ -53,5 +54,15 @@ describe('computePlatformFeeMinorUnits', () => {
 
   it('rounds to the nearest minor unit', () => {
     expect(computePlatformFeeMinorUnits({ platformFeePercent: 15 }, 999)).toBe(150);
+  });
+});
+
+describe('computeDriverEarningsMinorUnits', () => {
+  it('is the final fare minus the platform fee', () => {
+    expect(computeDriverEarningsMinorUnits(800, 160)).toBe(640);
+  });
+
+  it('is the whole final fare when the platform fee is zero', () => {
+    expect(computeDriverEarningsMinorUnits(1_000, 0)).toBe(1_000);
   });
 });
