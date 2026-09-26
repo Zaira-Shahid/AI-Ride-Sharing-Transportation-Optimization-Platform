@@ -5,6 +5,7 @@ import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { computeFinalFareMinorUnits, computePlatformFeeMinorUnits } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
 import { captureTripPayment } from './paymentCapture.js';
+import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
 import type { StripeProvider } from './stripeProvider.js';
 import { canTransition } from './tripRequests.js';
@@ -114,7 +115,7 @@ function refuse(
 }
 
 async function advance(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
   from: string,
@@ -126,6 +127,14 @@ async function advance(
     activateJourney?: boolean;
     finalizeIfLastDropoff?: boolean;
     finalizeFare?: boolean;
+    /**
+     * Module 10.6+ (trip execution pushes): pushed to the trip's own passenger right after this
+     * transaction commits (a network call, never inside it) - only on a real transition (never the
+     * idempotent 'unchanged' retry, same as every other push module's own "only on an actual change"
+     * stance). Reusable across headToPickup/startTransit/completeDropoff's own future pushes; not
+     * every transition needs one (confirmPickup/approachDropoff pass nothing today).
+     */
+    notifyPassenger?: { title: string; body: string };
   } = {},
 ): Promise<AdvanceTripResult> {
   requireVerifiedDriver(caller);
@@ -146,8 +155,9 @@ async function advance(
   // transactionally sensitive to this request's own document, the same stance paymentAuthorization.ts
   // already takes reading it before deciding an authorization amount.
   const fareConfig = options.finalizeFare ? await readFareConfig(firestore) : null;
+  let passengerIdToNotify: string | null = null;
 
-  return firestore.runTransaction(async (tx): Promise<AdvanceTripResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<AdvanceTripResult> => {
     const trip = await tx.get(tripRef);
     if (!trip.exists || trip.get('matchedDriverId') !== caller.uid) {
       throw refuse('not-found', 'NOT_FOUND', 'That ride request was not found.');
@@ -236,6 +246,13 @@ async function advance(
       }
     }
 
+    if (options.notifyPassenger) {
+      const passengerId = trip.get('passengerId');
+      if (typeof passengerId === 'string' && passengerId) {
+        passengerIdToNotify = passengerId;
+      }
+    }
+
     tx.update(tripRef, {
       status: to,
       ...fareFields,
@@ -276,11 +293,21 @@ async function advance(
     });
     return { status: 'updated' };
   });
+
+  if (options.notifyPassenger && passengerIdToNotify) {
+    await sendPushToUser(deps, passengerIdToNotify, options.notifyPassenger);
+  }
+
+  return result;
 }
 
-/** The driver starts toward the passenger's pickup point. Manual (user decision, this session). */
+/**
+ * The driver starts toward the passenger's pickup point. Manual (user decision, this session).
+ * Module 10.6 (driver arrival push): pushes the passenger - the one still-uncovered "driver arriving"
+ * spot in section 40's own notification-types list.
+ */
 export function headToPickup(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -292,7 +319,13 @@ export function headToPickup(
     'DRIVER_ARRIVING',
     'TRIP_DRIVER_ARRIVING',
     'Driver headed to pickup',
-    { checkStopOrder: 'pickup' },
+    {
+      checkStopOrder: 'pickup',
+      notifyPassenger: {
+        title: 'Driver arriving',
+        body: 'Your driver is on the way to pick you up.',
+      },
+    },
   );
 }
 
@@ -301,7 +334,7 @@ export function headToPickup(
  * Also moves the journey MATCHING -> ACTIVE if this is its first confirmed pickup (Module 7.4).
  */
 export function confirmPickup(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -322,7 +355,7 @@ export function confirmPickup(
  * plan order: a passenger already PICKED_UP cannot be jumping ahead of anyone still waiting.
  */
 export function startTransit(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -339,7 +372,7 @@ export function startTransit(
 
 /** The driver starts toward the passenger's destination. Manual (user decision, Module 7.5). */
 export function approachDropoff(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -372,7 +405,7 @@ export async function completeDropoff(
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
   const result = await advance(
-    { firestore: deps.firestore },
+    { firestore: deps.firestore, push: deps.push },
     caller,
     rawInput,
     'DROPOFF_APPROACHING',

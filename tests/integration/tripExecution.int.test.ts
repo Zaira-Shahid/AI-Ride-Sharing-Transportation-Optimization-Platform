@@ -1,6 +1,9 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
-import { completeDropoff as driverCompleteDropoff } from '../../functions/src/tripExecution';
+import {
+  completeDropoff as driverCompleteDropoff,
+  headToPickup as driverHeadToPickup,
+} from '../../functions/src/tripExecution';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { admin, createClient, signUp, verifyEmail } from './support';
@@ -103,6 +106,50 @@ describe('headToPickup (functions + firestore emulators)', () => {
 
     const result = await driver.call('headToPickup', { tripId });
     expect((result.data as { status: string }).status).toBe('unchanged');
+  });
+
+  it('pushes the passenger (Module 10.6), called directly with a fake PushProvider', async () => {
+    const driver = await person('DRIVER', 'head-push');
+    const passenger = await person('PASSENGER', 'head-push-p');
+    const tripId = await tripAt('PICKUP_ASSIGNED', driver.uid, { passengerId: passenger.uid });
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await driverHeadToPickup(
+      { firestore: admin().firestore, push },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      { tripId },
+    );
+
+    expect(result.status).toBe('updated');
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Driver arriving',
+        body: 'Your driver is on the way to pick you up.',
+      },
+    ]);
+  });
+
+  it('does not push again on an idempotent retry (Module 10.6)', async () => {
+    const driver = await person('DRIVER', 'head-push-retry');
+    const passenger = await person('PASSENGER', 'head-push-retry-p');
+    const tripId = await tripAt('DRIVER_ARRIVING', driver.uid, { passengerId: passenger.uid });
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await driverHeadToPickup(
+      { firestore: admin().firestore, push },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      { tripId },
+    );
+
+    expect(result.status).toBe('unchanged');
+    expect(push.sent).toEqual([]);
   });
 
   it('refuses a status other than PICKUP_ASSIGNED or DRIVER_ARRIVING', async () => {
