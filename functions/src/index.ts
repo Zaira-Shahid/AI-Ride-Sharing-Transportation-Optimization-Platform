@@ -174,9 +174,23 @@ export const approachDropoff = onCall((request) =>
   driverApproachDropoff({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
-export const completeDropoff = onCall((request) =>
-  driverCompleteDropoff({ firestore: getFirestore() }, callerOf(request), request.data),
-);
+/**
+ * Module 9.4 (payment capture): stripe is only passed in when configured (Spark-plan/local
+ * environments, or simply no real Stripe account yet, leave it undefined) - completeDropoff's own
+ * capture attempt is a no-op without it, the same "not configured yet" stance as everywhere else this
+ * check appears.
+ */
+export const completeDropoff = onCall((request) => {
+  const stripeConfig = stripeConfigFromEnvironment();
+  return driverCompleteDropoff(
+    {
+      firestore: getFirestore(),
+      stripe: stripeConfig ? createStripeProvider(stripeConfig) : undefined,
+    },
+    callerOf(request),
+    request.data,
+  );
+});
 
 export const setJourneyOrigin = onCall((request) =>
   setDriverJourneyOrigin({ firestore: getFirestore() }, callerOf(request), request.data),

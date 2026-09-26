@@ -15,6 +15,7 @@ function fakeStripe(overrides: Partial<StripeProvider> = {}): StripeProvider {
     ping: async () => true,
     createCustomer: async () => 'cus_fake',
     authorizePayment: async () => ({ status: 'authorized', paymentIntentId: 'pi_fake' }),
+    capturePayment: async () => ({ status: 'captured' }),
     ...overrides,
   };
 }

@@ -168,7 +168,7 @@ export async function authorizeTripPayment(
 
   await tripRef.update({
     paymentIntentId: outcome.paymentIntentId,
-    paymentStatus: 'authorized',
+    paymentStatus: 'AUTHORIZED',
     estimatedFare,
     authorizedAmountMinorUnits: authorizationAmount,
     updatedAt: FieldValue.serverTimestamp(),

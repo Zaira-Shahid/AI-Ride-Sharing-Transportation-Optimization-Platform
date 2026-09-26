@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { flexibilityPreferencesSchema } from './flexibility';
 import { destinationSchema, type StoredDestination } from './journey';
-import type { TripRequestStatus } from './states';
+import type { PaymentStatus, TripRequestStatus } from './states';
 import type { FirestoreTimestamp } from './user';
 import type { VehicleType } from './vehicle';
 
@@ -162,6 +162,16 @@ export interface TripRequest {
   finalFareMinorUnits: number | null;
   /** The platform's own cut of finalFareMinorUnits (Module 9.3); null until finalFareMinorUnits is. */
   platformFeeMinorUnits: number | null;
+  /**
+   * Stripe's own reference for the hold placed at PICKUP_ASSIGNED (Module 9.2); null until an
+   * authorization is attempted (which itself is not wired into the live match pipeline yet - see
+   * paymentAuthorization.ts's own note).
+   */
+  paymentIntentId: string | null;
+  /** AUTHORIZED (a hold placed), CAPTURED or FAILED (Module 9.4) - null until authorization is attempted. */
+  paymentStatus: PaymentStatus | null;
+  /** What was actually held (Module 9.2's own AUTHORIZATION_BUFFER_PERCENT over the estimate); null until authorized. */
+  authorizedAmountMinorUnits: number | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -186,6 +196,9 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   sharedRide: false,
   finalFareMinorUnits: null,
   platformFeeMinorUnits: null,
+  paymentIntentId: null,
+  paymentStatus: null,
+  authorizedAmountMinorUnits: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary
