@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "expo-server-sdk": "^7.2.0",
     "firebase-admin": "^14.4.0",
     "firebase-functions": "^7.4.0",
     "stripe": "^22.6.2",

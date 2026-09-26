@@ -22,6 +22,8 @@ export interface UserProfile {
   status: UserStatus;
   /** A passenger's open trip request (Module 3.7); set and cleared by server functions only. */
   currentTripRequestId?: string | null;
+  /** An Expo push token (Module 10.2), kept up to date by the app; null until one is saved. */
+  pushToken: string | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
