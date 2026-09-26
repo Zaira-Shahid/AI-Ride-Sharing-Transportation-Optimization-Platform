@@ -31,6 +31,18 @@ export function stripeConfigFromEnvironment(
 }
 
 /**
+ * Module 9.9 (webhooks): STRIPE_WEBHOOK_SECRET from the environment, separate from STRIPE_SECRET_KEY -
+ * a webhook endpoint's own signing secret, set once a real Stripe webhook is configured in Stripe's own
+ * dashboard (not yet - same scaffolding-only stance as everywhere else in this file). Null until set.
+ */
+export function stripeWebhookSecretFromEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const secret = env.STRIPE_WEBHOOK_SECRET?.trim();
+  return secret ? secret : null;
+}
+
+/**
  * The one capability this foundation module needs: proof that the configured key can actually reach
  * Stripe. Later modules (9.2 onwards) add the real operations (payment intents, refunds, ...) as their
  * own narrow methods here, the same way RoutingProvider only ever grew one method per module that
@@ -74,6 +86,17 @@ export interface RefundPaymentParams {
 
 export type RefundPaymentOutcome = { status: 'refunded' } | { status: 'failed' };
 
+export interface VerifyWebhookEventParams {
+  /** The exact raw request body bytes - signature verification fails on anything re-serialized. */
+  payload: string | Buffer;
+  /** The request's own `Stripe-Signature` header. */
+  signature: string;
+  webhookSecret: string;
+}
+
+export type VerifyWebhookEventOutcome =
+  { status: 'verified'; event: Stripe.Event } | { status: 'invalid' };
+
 export interface StripeProvider {
   ping(): Promise<boolean>;
   /** Creates a new Stripe Customer and returns its id. */
@@ -104,9 +127,20 @@ export interface StripeProvider {
    * stance as capturePayment's own 'failed'.
    */
   refundPayment(params: RefundPaymentParams): Promise<RefundPaymentOutcome>;
+  /**
+   * Module 9.9 (webhooks): verifies the request actually came from Stripe (spec section 57's own
+   * "payment webhook verification" security requirement) and parses it. Synchronous - this is a local
+   * signature check (HMAC over the raw payload), never a network call. 'invalid' covers a missing,
+   * malformed, or mismatched signature - never thrown, an untrusted payload is an expected possibility
+   * for a public endpoint, not a system failure.
+   */
+  verifyWebhookEvent(params: VerifyWebhookEventParams): VerifyWebhookEventOutcome;
 }
 
-type StripeClient = Pick<Stripe, 'balance' | 'customers' | 'paymentIntents' | 'refunds'>;
+type StripeClient = Pick<
+  Stripe,
+  'balance' | 'customers' | 'paymentIntents' | 'refunds' | 'webhooks'
+>;
 
 /**
  * `stripeClient` is normally omitted (a real Stripe client is built from `config`); tests inject a
@@ -185,6 +219,19 @@ export function createStripeProvider(
         return { status: 'refunded' };
       } catch {
         return { status: 'failed' };
+      }
+    },
+
+    verifyWebhookEvent(params) {
+      try {
+        const event = client.webhooks.constructEvent(
+          params.payload,
+          params.signature,
+          params.webhookSecret,
+        );
+        return { status: 'verified', event };
+      } catch {
+        return { status: 'invalid' };
       }
     },
   };

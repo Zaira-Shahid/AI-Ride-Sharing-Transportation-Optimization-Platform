@@ -506,6 +506,7 @@ describe('completeDropoff (functions + firestore emulators)', () => {
         capturePayment: async () => ({ status: 'captured' }),
         voidPayment: async () => ({ status: 'voided' }),
         refundPayment: async () => ({ status: 'refunded' }),
+        verifyWebhookEvent: () => ({ status: 'invalid' }),
         ...overrides,
       };
     }
