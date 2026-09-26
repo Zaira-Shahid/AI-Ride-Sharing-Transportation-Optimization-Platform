@@ -114,7 +114,7 @@ export const saveVehicle = onCall(async (request) => {
     throw new HttpsError('unauthenticated', 'Sign in to continue.');
   }
   return saveDriverVehicle(
-    { firestore: getFirestore() },
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
     {
       uid: request.auth.uid,
       role: request.auth.token.role,
@@ -129,7 +129,7 @@ export const setVehicleCapacity = onCall(async (request) => {
     throw new HttpsError('unauthenticated', 'Sign in to continue.');
   }
   return setDriverVehicleCapacity(
-    { firestore: getFirestore() },
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
     {
       uid: request.auth.uid,
       role: request.auth.token.role,
@@ -153,11 +153,21 @@ function callerOf(request: {
 }
 
 export const reviewDriver = onCall((request) =>
-  reviewAsStaff({ firestore: getFirestore() }, 'DRIVER', callerOf(request), request.data),
+  reviewAsStaff(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    'DRIVER',
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const reviewVehicle = onCall((request) =>
-  reviewAsStaff({ firestore: getFirestore() }, 'VEHICLE', callerOf(request), request.data),
+  reviewAsStaff(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    'VEHICLE',
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const requestReview = onCall((request) =>
@@ -165,7 +175,11 @@ export const requestReview = onCall((request) =>
 );
 
 export const setAvailability = onCall((request) =>
-  setDriverAvailability({ firestore: getFirestore() }, callerOf(request), request.data),
+  setDriverAvailability(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const declareDestination = onCall((request) =>
@@ -417,6 +431,7 @@ export const routeModificationOnDelay = onDocumentUpdated(
           firestore: getFirestore(),
           provider: osrmFromEnvironment(),
           optimizationService: { baseUrl },
+          push: createPushProvider(pushConfigFromEnvironment()),
         },
         event.params.journeyId,
       );

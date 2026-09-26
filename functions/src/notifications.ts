@@ -1,4 +1,6 @@
 import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/firestore';
+import { sendPushToUser } from './pushNotifications.js';
+import type { PushProvider } from './pushProvider.js';
 
 // Module 8.9 (notification): an in-app signal only - a Firestore `notifications` collection the
 // recipient can read live, no Firebase Cloud Messaging (real push, background delivery) yet. That is
@@ -57,4 +59,43 @@ export function createNotification(
     read: false,
     createdAt: FieldValue.serverTimestamp(),
   });
+}
+
+/**
+ * Module 10.7 (route changes push): one push, queued in `pending`, per in-app notification written
+ * this way - `input.message` is reused verbatim as the push body (the same wording already approved
+ * for the in-app one), `pushTitle` is the only new thing each call site provides. Never sent here: a
+ * push is a network call and this runs inside the caller's own transaction (createNotification's own
+ * write does too) - queue now, actually send once the transaction has committed, via
+ * sendQueuedPushes below. One call instead of two at every site that wants both, so an in-app
+ * notification can no longer be added without its own matching push - a mistake it's on this function
+ * to prevent, not each of its callers.
+ */
+export interface PendingPush {
+  recipientId: string;
+  title: string;
+  body: string;
+}
+
+export function notifyWithPush(
+  tx: Transaction,
+  firestore: Firestore,
+  input: NotificationInput,
+  pushTitle: string,
+  pending: PendingPush[],
+): void {
+  createNotification(tx, firestore, input);
+  pending.push({ recipientId: input.recipientId, title: pushTitle, body: input.message });
+}
+
+/** Sends every push `notifyWithPush` queued - call once, after the transaction that queued them commits. */
+export async function sendQueuedPushes(
+  deps: { firestore: Firestore; push: PushProvider },
+  pending: PendingPush[],
+): Promise<void> {
+  await Promise.all(
+    pending.map((queued) =>
+      sendPushToUser(deps, queued.recipientId, { title: queued.title, body: queued.body }),
+    ),
+  );
 }

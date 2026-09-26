@@ -1,7 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import { reoptimizeDelayedJourney } from '../../functions/src/routeModification';
 import type { RoutePoint, RoutingProvider } from '../../functions/src/routing';
 import { admin } from './support';
+
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
+
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 // Module 8.7 (route modification) against the Firestore emulator. Same stand-in RoutingProvider and
 // fake optimization-service fetch as planInsertion.int.test.ts and optimizationRun.int.test.ts: this
@@ -163,7 +177,7 @@ async function delayedJourneyWithTwoWaitingPassengers(
   };
 }
 
-function reoptimize(fixture: Fixture, optimizeResponse: unknown) {
+function reoptimize(fixture: Fixture, optimizeResponse: unknown, push: PushProvider = noopPush) {
   return reoptimizeDelayedJourney(
     {
       firestore: admin().firestore,
@@ -173,6 +187,7 @@ function reoptimize(fixture: Fixture, optimizeResponse: unknown) {
         baseUrl: 'https://opt.example',
         fetchImpl: fakeOptimizeFetch(optimizeResponse),
       },
+      push,
     },
     fixture.journeyId,
   );
@@ -278,8 +293,21 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
 
   it('releases a passenger the optimizer could not keep back to SEARCHING, keeping the other', async () => {
     const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-drop');
+    const tripAPassengerId = (
+      await admin().firestore.doc(`tripRequests/${fixture.tripAId}`).get()
+    ).data()?.passengerId as string;
+    const tripBPassengerId = (
+      await admin().firestore.doc(`tripRequests/${fixture.tripBId}`).get()
+    ).data()?.passengerId as string;
+    await admin()
+      .firestore.doc(`users/${tripAPassengerId}`)
+      .set({ pushToken: 'ExponentPushToken[a]' });
+    await admin()
+      .firestore.doc(`users/${tripBPassengerId}`)
+      .set({ pushToken: 'ExponentPushToken[b]' });
+    const push = recordingPush();
 
-    const outcome = await reoptimize(fixture, planResponse(fixture, [fixture.tripAId]));
+    const outcome = await reoptimize(fixture, planResponse(fixture, [fixture.tripAId]), push);
     expect(outcome).toBe('reoptimized');
 
     const journey = (
@@ -325,6 +353,20 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
     ).docs;
     expect(tripBNotifications).toHaveLength(1);
     expect(tripBNotifications[0]?.data()).toMatchObject({ type: 'RELEASED_TO_SEARCHING' });
+
+    // Module 10.7 (route changes push): the same two, also pushed. Sent concurrently (Promise.all),
+    // so order between the two is not guaranteed.
+    expect(push.sent).toHaveLength(2);
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[a]',
+      title: 'Route updated',
+      body: "Your driver's route was updated after a delay.",
+    });
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[b]',
+      title: 'Finding a new driver',
+      body: 'Your ride could not be kept after a delay. We are looking for a new match for you.',
+    });
   });
 
   it('is skipped when the journey is no longer flagged delayed', async () => {

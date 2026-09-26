@@ -1,7 +1,12 @@
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { LookupLimits } from './lookupLimits.js';
 import { findCandidateJourneys, type CandidateSourceJourney } from './matching.js';
-import { createNotification } from './notifications.js';
+import {
+  createNotification,
+  notifyWithPush,
+  sendQueuedPushes,
+  type PendingPush,
+} from './notifications.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
@@ -452,6 +457,7 @@ export async function tryInsertIntoMatchingJourney(
   );
   const driverUserRef = firestore.collection('users').doc(plan.driverId);
   const vehicleRef = firestore.collection('vehicles').doc(plan.driverId);
+  const pendingPushes: PendingPush[] = [];
 
   const applied = await firestore.runTransaction(async (tx) => {
     const [journeySnap, oldPlanSnap, newTripSnap, existingTripSnaps, driverUserSnap, vehicleSnap] =
@@ -543,12 +549,18 @@ export async function tryInsertIntoMatchingJourney(
       relatedEntity: `tripRequests/${request.id}`,
     });
     for (const passenger of plan.existingPassengers.values()) {
-      createNotification(tx, firestore, {
-        recipientId: passenger.passengerId,
-        type: 'ROUTE_ADJUSTED_FOR_NEW_PASSENGER',
-        message: "Your driver's route was adjusted to pick up another passenger.",
-        relatedEntity: `tripRequests/${passenger.id}`,
-      });
+      notifyWithPush(
+        tx,
+        firestore,
+        {
+          recipientId: passenger.passengerId,
+          type: 'ROUTE_ADJUSTED_FOR_NEW_PASSENGER',
+          message: "Your driver's route was adjusted to pick up another passenger.",
+          relatedEntity: `tripRequests/${passenger.id}`,
+        },
+        'Route updated',
+        pendingPushes,
+      );
     }
     return true;
   });
@@ -567,6 +579,9 @@ export async function tryInsertIntoMatchingJourney(
         title: 'Trip matched',
         body: "You've been matched with a driver.",
       }),
+      // Module 10.7 (route changes push): every existing passenger whose plan changed to fit the new
+      // one in, queued above via notifyWithPush.
+      sendQueuedPushes(deps, pendingPushes),
     ]);
   }
 
