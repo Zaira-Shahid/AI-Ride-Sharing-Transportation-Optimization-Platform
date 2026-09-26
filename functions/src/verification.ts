@@ -10,6 +10,8 @@ import {
   releaseMatchedTrips,
 } from './availability.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
+import { sendQueuedPushes, type PendingPush } from './notifications.js';
+import type { PushProvider } from './pushProvider.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -50,7 +52,7 @@ export interface StaffCaller {
 
 /** Records a staff decision on a driver or a vehicle. `actor` is the staff uid or a script name. */
 export async function reviewVerification(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   target: ReviewTarget,
   actor: string,
   rawInput: unknown,
@@ -66,8 +68,9 @@ export async function reviewVerification(
   const collection = COLLECTIONS[target];
   const ref = firestore.collection(collection).doc(driverId);
   const driverRef = firestore.collection('drivers').doc(driverId);
+  const pendingPushes: PendingPush[] = [];
 
-  return firestore.runTransaction(async (tx): Promise<ReviewResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<ReviewResult> => {
     const [snapshot, driverSnapshot] = await Promise.all([tx.get(ref), tx.get(driverRef)]);
     // Read now (Module 5.1): all of a transaction's reads must happen before any of its writes.
     const ownJourney = await readOwnJourney(tx, firestore, driverId, driverSnapshot);
@@ -107,6 +110,7 @@ export async function reviewVerification(
           releasable,
           actor,
           `The ${target.toLowerCase()} is no longer verified`,
+          pendingPushes,
         );
       }
       auditTakenOffline(
@@ -131,6 +135,9 @@ export async function reviewVerification(
     });
     return { status: 'reviewed' };
   });
+
+  await sendQueuedPushes(deps, pendingPushes);
+  return result;
 }
 
 /**
@@ -138,7 +145,7 @@ export async function reviewVerification(
  * from the signed token (a custom claim only server code can set), never from a document.
  */
 export function reviewAsStaff(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   target: ReviewTarget,
   caller: StaffCaller,
   rawInput: unknown,

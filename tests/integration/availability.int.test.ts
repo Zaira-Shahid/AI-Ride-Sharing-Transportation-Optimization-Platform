@@ -1,6 +1,8 @@
 import { doc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { setAvailability as serverSetAvailability } from '../../functions/src/availability';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import {
   describeAuthError,
   declareDestination,
@@ -94,6 +96,20 @@ async function failureOf(promise: Promise<unknown>) {
     return error;
   }
   throw new Error('Expected the promise to reject.');
+}
+
+// Module 10.7 (route changes push): records what a direct call to functions/src/availability.ts's own
+// setAvailability sends - not through the real callable above (packages/firebase's own setAvailability
+// wrapper), which never gets a fake PushProvider.
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
 }
 
 // Plates are unique, so every test starts without vehicles.
@@ -719,6 +735,32 @@ describe('driver cancellation: going offline mid-match (Module 8.5)', () => {
     expect(await setAvailability(driver.client, 'OFFLINE')).toBe('updated');
     expect(await offlineAudit(driver.uid)).toHaveLength(0);
     expect((await journeyDoc(driver.uid))?.status).toBe('DRAFT');
+  });
+
+  it('pushes the released passenger (Module 10.7), called directly with a fake PushProvider', async () => {
+    const driver = await onlineDriver('avl-cancel-push');
+    const journeyId = (await driverDoc(driver.uid))?.currentJourneyId as string;
+    const tripId = await matchedTripAt('PICKUP_ASSIGNED', driver.uid, journeyId);
+    await matchJourneyTo(driver.uid, 'MATCHING', [tripId]);
+    await admin()
+      .firestore.doc('users/passenger-fixture')
+      .set({ pushToken: 'ExponentPushToken[passenger]' }, { merge: true });
+    const push = recordingPush();
+
+    const result = await serverSetAvailability(
+      { firestore: admin().firestore, push },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      { status: 'OFFLINE' },
+    );
+
+    expect(result).toEqual({ status: 'updated' });
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Finding a new driver',
+        body: 'Your driver is no longer available. We are looking for a new match for you.',
+      },
+    ]);
   });
 });
 

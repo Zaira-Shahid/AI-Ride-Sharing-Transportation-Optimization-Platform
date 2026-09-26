@@ -7,9 +7,10 @@ import {
   type OptimizationServiceConfig,
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
-import { createNotification } from './notifications.js';
+import { notifyWithPush, sendQueuedPushes, type PendingPush } from './notifications.js';
 import { legsForPlanPath } from './optimizationRun.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
+import type { PushProvider } from './pushProvider.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 
 // Module 8.7 (route modification): once a driver is flagged behind their plan's own pace (Module
@@ -72,6 +73,7 @@ function releaseDroppedRequest(
   firestore: Firestore,
   trip: FirebaseFirestore.DocumentSnapshot,
   actor: string,
+  pending: PendingPush[],
 ): void {
   const previousStatus = trip.get('status');
   tx.update(trip.ref, {
@@ -100,12 +102,19 @@ function releaseDroppedRequest(
   });
   const passengerId = trip.get('passengerId');
   if (typeof passengerId === 'string' && passengerId) {
-    createNotification(tx, firestore, {
-      recipientId: passengerId,
-      type: 'RELEASED_TO_SEARCHING',
-      message: 'Your ride could not be kept after a delay. We are looking for a new match for you.',
-      relatedEntity: `tripRequests/${trip.id}`,
-    });
+    notifyWithPush(
+      tx,
+      firestore,
+      {
+        recipientId: passengerId,
+        type: 'RELEASED_TO_SEARCHING',
+        message:
+          'Your ride could not be kept after a delay. We are looking for a new match for you.',
+        relatedEntity: `tripRequests/${trip.id}`,
+      },
+      'Finding a new driver',
+      pending,
+    );
   }
 }
 
@@ -126,6 +135,7 @@ export async function reoptimizeDelayedJourney(
     firestore: Firestore;
     provider: RoutingProvider;
     optimizationService: OptimizationServiceConfig;
+    push: PushProvider;
     limits?: LookupLimits;
     now?: () => number;
   },
@@ -349,6 +359,7 @@ export async function reoptimizeDelayedJourney(
   const newPlanRef = firestore.collection('journeyPlans').doc();
   const keptTripRefs = plan.request_ids.map((id) => firestore.collection('tripRequests').doc(id));
   const droppedTripRefs = droppedSnaps.map((snap) => snap.ref);
+  const pendingPushes: PendingPush[] = [];
 
   const applied = await firestore.runTransaction(async (tx) => {
     const [currentJourney, currentOldPlan, currentKeptTrips, currentDroppedTrips] =
@@ -404,16 +415,22 @@ export async function reoptimizeDelayedJourney(
       // schedule is itself relevant to everyone on this journey.
       const passengerId = currentKeptTrips[index]?.get('passengerId');
       if (typeof passengerId === 'string' && passengerId) {
-        createNotification(tx, firestore, {
-          recipientId: passengerId,
-          type: 'ROUTE_UPDATED_AFTER_DELAY',
-          message: "Your driver's route was updated after a delay.",
-          relatedEntity: `tripRequests/${ref.id}`,
-        });
+        notifyWithPush(
+          tx,
+          firestore,
+          {
+            recipientId: passengerId,
+            type: 'ROUTE_UPDATED_AFTER_DELAY',
+            message: "Your driver's route was updated after a delay.",
+            relatedEntity: `tripRequests/${ref.id}`,
+          },
+          'Route updated',
+          pendingPushes,
+        );
       }
     }
     for (const trip of currentDroppedTrips) {
-      releaseDroppedRequest(tx, firestore, trip, driverId);
+      releaseDroppedRequest(tx, firestore, trip, driverId, pendingPushes);
     }
     tx.create(firestore.collection('auditLogs').doc(), {
       timestamp: FieldValue.serverTimestamp(),
@@ -426,6 +443,10 @@ export async function reoptimizeDelayedJourney(
     });
     return true;
   });
+
+  if (applied) {
+    await sendQueuedPushes(deps, pendingPushes);
+  }
 
   return applied ? 'reoptimized' : 'unchanged';
 }

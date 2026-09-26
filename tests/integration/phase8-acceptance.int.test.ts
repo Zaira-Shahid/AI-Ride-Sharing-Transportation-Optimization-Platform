@@ -284,6 +284,7 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
         provider,
         optimizationService: { baseUrl: optimizationService.baseUrl },
         limits: NO_LIMITS,
+        push: noopPush,
       },
       driver.journeyId,
     );

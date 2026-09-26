@@ -1,7 +1,8 @@
 import { FieldValue, type DocumentSnapshot, type Firestore } from 'firebase-admin/firestore';
 import { computeAuthorizationAmountMinorUnits, computeFareMinorUnits } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
-import { createNotification } from './notifications.js';
+import { notifyWithPush, sendQueuedPushes, type PendingPush } from './notifications.js';
+import type { PushProvider } from './pushProvider.js';
 import type { StripeProvider } from './stripeProvider.js';
 
 // Module 9.2 (payment authorization): given one just-matched trip request, holds (capture_method:
@@ -38,15 +39,17 @@ export type PaymentAuthorizationOutcome = 'authorized' | 'declined' | 'skipped';
  * other matched passenger - all in one transaction, plus the usual audit entry and notification.
  */
 async function releaseUnauthorizedTrip(
-  firestore: Firestore,
+  deps: { firestore: Firestore; push: PushProvider },
   trip: DocumentSnapshot,
   passengerId: string,
 ): Promise<void> {
+  const { firestore } = deps;
   const journeyId = trip.get('matchedJourneyId');
   const journeyRef =
     typeof journeyId === 'string' && journeyId
       ? firestore.collection('driverJourneys').doc(journeyId)
       : null;
+  const pendingPushes: PendingPush[] = [];
 
   await firestore.runTransaction(async (tx) => {
     const [currentTrip, currentJourney] = await Promise.all([
@@ -78,12 +81,18 @@ async function releaseUnauthorizedTrip(
       newState: { status: 'SEARCHING' },
       reason: 'Payment could not be authorized',
     });
-    createNotification(tx, firestore, {
-      recipientId: passengerId,
-      type: 'RELEASED_TO_SEARCHING',
-      message: 'Your payment could not be authorized. We are looking for a new match for you.',
-      relatedEntity: `tripRequests/${trip.id}`,
-    });
+    notifyWithPush(
+      tx,
+      firestore,
+      {
+        recipientId: passengerId,
+        type: 'RELEASED_TO_SEARCHING',
+        message: 'Your payment could not be authorized. We are looking for a new match for you.',
+        relatedEntity: `tripRequests/${trip.id}`,
+      },
+      'Finding a new driver',
+      pendingPushes,
+    );
 
     if (currentJourney?.exists) {
       const matchedIds = currentJourney.get('matchedTripRequestIds');
@@ -104,6 +113,8 @@ async function releaseUnauthorizedTrip(
       }
     }
   });
+
+  await sendQueuedPushes(deps, pendingPushes);
 }
 
 /**
@@ -113,7 +124,7 @@ async function releaseUnauthorizedTrip(
  * having no payment method saved at all - either way the passenger is released, see the file's own note.
  */
 export async function authorizeTripPayment(
-  deps: { firestore: Firestore; stripe: StripeProvider },
+  deps: { firestore: Firestore; stripe: StripeProvider; push: PushProvider },
   tripId: string,
 ): Promise<PaymentAuthorizationOutcome> {
   const { firestore } = deps;
@@ -162,7 +173,7 @@ export async function authorizeTripPayment(
       : ({ status: 'declined' } as const);
 
   if (outcome.status === 'declined') {
-    await releaseUnauthorizedTrip(firestore, tripSnap, passengerId);
+    await releaseUnauthorizedTrip({ firestore, push: deps.push }, tripSnap, passengerId);
     return 'declined';
   }
 
