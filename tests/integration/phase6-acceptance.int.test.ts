@@ -12,6 +12,7 @@ import {
 } from '../../packages/firebase/src';
 import { runBatchOptimization } from '../../functions/src/optimizationRun';
 import { claimImmediateOptimizationRun } from '../../functions/src/optimizationTrigger';
+import type { PushProvider } from '../../functions/src/pushProvider';
 import { createOsrmProvider, type RoutingProvider } from '../../functions/src/routing';
 import { FAKE_OSRM_BASE_PATH, FAKE_OSRM_PORT, startFakeOsrm, type FakeOsrm } from '../fake-osrm';
 import { startOptimizationService, type OptimizationService } from '../optimization-service';
@@ -27,6 +28,10 @@ import { admin, createClient, signUp, verifyEmail } from './support';
 // fast and deterministic; only the optimization service itself is real.
 
 const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+
+// Module 10.3 (trip matched push): this file is about the real Python service, not push delivery
+// (which has its own tests) - a no-op stand-in is enough everywhere runBatchOptimization is called.
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
 
 // Its own corner of the world, away from every other integration test file's coordinates, so no
 // leftover driver or request from another file is ever a candidate here.
@@ -172,6 +177,7 @@ describe('Phase 6 acceptance (functions + firestore emulators, the real optimiza
       provider,
       optimizationService: { baseUrl: optimizationService.baseUrl },
       limits: NO_LIMITS,
+      push: noopPush,
     });
 
     // Other integration test files leave their own SEARCHING requests and AVAILABLE journeys behind
@@ -222,6 +228,7 @@ describe('Phase 6 acceptance (functions + firestore emulators, the real optimiza
       provider,
       optimizationService: { baseUrl: optimizationService.baseUrl },
       limits: NO_LIMITS,
+      push: noopPush,
     });
 
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();

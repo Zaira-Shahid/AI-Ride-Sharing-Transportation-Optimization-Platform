@@ -4,7 +4,12 @@ import {
   claimImmediateOptimizationRun,
   runImmediateOptimizationIfDue,
 } from '../../functions/src/optimizationTrigger';
+import type { PushProvider } from '../../functions/src/pushProvider';
 import { admin } from './support';
+
+// Module 10.3 (trip matched push): this file is about the debounce/delegation, not push delivery
+// (which has its own tests) - a no-op stand-in is enough for both calls below.
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
 
 // Phase 8, modules 8.1/8.2 (event detection, optimization trigger), against the Firestore emulator:
 // the debounce itself (claimImmediateOptimizationRun) and its delegation to runBatchOptimization
@@ -75,6 +80,7 @@ describe('runImmediateOptimizationIfDue (functions + firestore emulators)', () =
             json: () => Promise.resolve({ candidates: [] }),
           })) as unknown as typeof fetch,
       },
+      push: noopPush,
       now: () => start,
     });
 
@@ -96,6 +102,7 @@ describe('runImmediateOptimizationIfDue (functions + firestore emulators)', () =
           throw new Error('should not be called');
         }) as unknown as typeof fetch,
       },
+      push: noopPush,
       now: () => start + 1,
     });
 

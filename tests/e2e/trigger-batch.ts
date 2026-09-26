@@ -101,5 +101,8 @@ export async function triggerBatchOptimization(scenario: BatchTriggerScenario): 
     provider,
     optimizationService: { baseUrl: 'https://e2e-optimization.example', fetchImpl },
     limits: { globalSpacingMs: 0, perCallerPerMinute: 1_000 },
+    // Module 10.3 (trip matched push): this e2e helper is about the Firestore trigger chain, not push
+    // delivery (which has its own tests) - a no-op stand-in is enough.
+    push: { sendPush: () => Promise.resolve({ status: 'sent' }) },
   });
 }

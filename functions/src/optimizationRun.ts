@@ -42,6 +42,8 @@ import {
 } from './optimizationClient.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { tryInsertIntoMatchingJourney, type PlanLeg } from './planInsertion.js';
+import { sendPushToUser } from './pushNotifications.js';
+import type { PushProvider } from './pushProvider.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
 
@@ -267,6 +269,7 @@ async function matchIntoAvailableJourneys(deps: {
   firestore: Firestore;
   provider: RoutingProvider;
   optimizationService: OptimizationServiceConfig;
+  push: PushProvider;
   limits?: LookupLimits;
   now?: () => number;
 }): Promise<Omit<BatchOptimizationOutcome, 'insertedRequestCount'>> {
@@ -470,6 +473,29 @@ async function matchIntoAvailableJourneys(deps: {
     if (applied) {
       matchedRequestCount += plan.request_ids.length;
       matchedJourneyCount += 1;
+
+      // Module 10.3 (trip matched push): sent AFTER the transaction above commits (a network call,
+      // never inside a Firestore transaction) - one push to the driver (count-based, since OR-Tools
+      // may have pooled several passengers into this one plan) and one to each newly matched
+      // passenger. sendPushToUser never throws and no-ops for anyone with no saved token.
+      const passengerCount = plan.request_ids.length;
+      await Promise.all([
+        sendPushToUser(deps, plan.driver_id, {
+          title: 'New passenger' + (passengerCount > 1 ? 's' : ''),
+          body:
+            passengerCount === 1
+              ? "You've been matched with 1 passenger."
+              : `You've been matched with ${passengerCount} passengers.`,
+        }),
+        ...plan.request_ids.map((requestId) => {
+          const passengerId = requestById.get(requestId)?.passengerId;
+          if (!passengerId) return Promise.resolve();
+          return sendPushToUser(deps, passengerId, {
+            title: 'Trip matched',
+            body: "You've been matched with a driver.",
+          });
+        }),
+      ]);
     }
   }
 
@@ -494,6 +520,7 @@ async function matchIntoAvailableJourneys(deps: {
 async function insertStillSearchingRequests(deps: {
   firestore: Firestore;
   provider: RoutingProvider;
+  push: PushProvider;
   limits?: LookupLimits;
   now?: () => number;
 }): Promise<number> {
@@ -532,6 +559,7 @@ export async function runBatchOptimization(deps: {
   firestore: Firestore;
   provider: RoutingProvider;
   optimizationService: OptimizationServiceConfig;
+  push: PushProvider;
   limits?: LookupLimits;
   now?: () => number;
 }): Promise<BatchOptimizationOutcome> {
