@@ -11,8 +11,10 @@ import { matchTripRequest } from './matching.js';
 import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
 import { runBatchOptimization } from './optimizationRun.js';
 import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
+import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
 import { registerUser } from './registration.js';
 import { reoptimizeDelayedJourney } from './routeModification.js';
+import { createStripeProvider, stripeConfigFromEnvironment } from './stripeProvider.js';
 import { setAvailability as setDriverAvailability } from './availability.js';
 import {
   declareDestination as declareDriverDestination,
@@ -136,6 +138,25 @@ export const createTripRequest = onCall((request) =>
 export const cancelTripRequest = onCall((request) =>
   cancelPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
 );
+
+/**
+ * Module 9.2 (payment authorization): saves a Stripe payment method reference for the calling
+ * passenger. `failed-precondition` when STRIPE_SECRET_KEY is not configured (Spark-plan/local
+ * environments, or simply no real Stripe account yet - module 9.1's own scaffolding-only decision) -
+ * the same stance batchOptimizationRun takes when OPTIMIZATION_SERVICE_URL is unset, just surfaced as
+ * an error here since a caller is actually waiting on an answer, not a schedule quietly skipping a run.
+ */
+export const savePaymentMethod = onCall((request) => {
+  const stripeConfig = stripeConfigFromEnvironment();
+  if (!stripeConfig) {
+    throw new HttpsError('failed-precondition', 'Payments are not available yet.');
+  }
+  return savePassengerPaymentMethod(
+    { firestore: getFirestore(), stripe: createStripeProvider(stripeConfig) },
+    callerOf(request),
+    request.data,
+  );
+});
 
 export const headToPickup = onCall((request) =>
   driverHeadToPickup({ firestore: getFirestore() }, callerOf(request), request.data),
