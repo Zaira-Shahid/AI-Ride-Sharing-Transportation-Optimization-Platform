@@ -195,11 +195,19 @@ export const setJourneyDetour = onCall((request) =>
 );
 
 export const createTripRequest = onCall((request) =>
-  createPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
+  createPassengerTripRequest(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const cancelTripRequest = onCall((request) =>
-  cancelPassengerTripRequest({ firestore: getFirestore() }, callerOf(request), request.data),
+  cancelPassengerTripRequest(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 /**

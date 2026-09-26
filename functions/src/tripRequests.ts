@@ -3,6 +3,8 @@ import { HttpsError, type FunctionsErrorCode } from 'firebase-functions/v2/https
 import { z } from 'zod';
 import { requireVerifiedPassenger, type PassengerCaller } from './callers.js';
 import { destinationSchema } from './journeys.js';
+import { sendPushToUser } from './pushNotifications.js';
+import type { PushProvider } from './pushProvider.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types (trip-request.ts,
 // trip.ts, trip-times.ts, flexibility.ts). tests/roles-parity.test.ts fails if they diverge.
@@ -248,7 +250,7 @@ export function firstNameOf(name: unknown, fallback = 'Passenger'): string {
 }
 
 export async function createTripRequest(
-  deps: { firestore: Firestore; now?: () => number },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: PassengerCaller,
   rawInput: unknown,
 ): Promise<CreateTripRequestResult> {
@@ -295,7 +297,7 @@ export async function createTripRequest(
   const userRef = firestore.collection('users').doc(caller.uid);
   const trips = firestore.collection('tripRequests');
 
-  return firestore.runTransaction(async (tx): Promise<CreateTripRequestResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<CreateTripRequestResult> => {
     const user = await tx.get(userRef);
     if (!user.exists || user.get('status') !== 'ACTIVE') {
       throw refuse(
@@ -350,6 +352,16 @@ export async function createTripRequest(
     });
     return { tripId: tripRef.id };
   });
+
+  // Module 10.8 (trip requested push): sent AFTER the transaction above commits (a network call,
+  // never inside a Firestore transaction) - a self-confirmation to the passenger who just requested
+  // it, in case the app is backgrounded right after.
+  await sendPushToUser(deps, caller.uid, {
+    title: 'Trip requested',
+    body: "We're searching for a driver for you.",
+  });
+
+  return result;
 }
 
 /**
@@ -359,7 +371,7 @@ export async function createTripRequest(
  * pointer to it. Somebody else's request is reported as not found.
  */
 export async function cancelTripRequest(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: PassengerCaller,
   rawInput: unknown,
 ): Promise<CancelTripRequestResult> {
@@ -378,7 +390,7 @@ export async function cancelTripRequest(
   const userRef = firestore.collection('users').doc(caller.uid);
   const tripRef = firestore.collection('tripRequests').doc(tripId);
 
-  return firestore.runTransaction(async (tx): Promise<CancelTripRequestResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<CancelTripRequestResult> => {
     const [user, trip] = await Promise.all([tx.get(userRef), tx.get(tripRef)]);
     if (!trip.exists || trip.get('passengerId') !== caller.uid) {
       throw refuse('not-found', 'NOT_FOUND', 'That ride request was not found.');
@@ -409,6 +421,18 @@ export async function cancelTripRequest(
     });
     return { status: 'cancelled' };
   });
+
+  // Module 10.8 (trip cancelled push): sent AFTER the transaction above commits (a network call,
+  // never inside a Firestore transaction) - a self-confirmation, same reasoning as createTripRequest's
+  // own "trip requested" push. Never on the idempotent 'unchanged' retry (already CANCELLED).
+  if (result.status === 'cancelled') {
+    await sendPushToUser(deps, caller.uid, {
+      title: 'Trip cancelled',
+      body: 'Your ride request has been cancelled.',
+    });
+  }
+
+  return result;
 }
 
 // How a request may move between statuses (spec section 73). Mirrors trip-request.ts in
