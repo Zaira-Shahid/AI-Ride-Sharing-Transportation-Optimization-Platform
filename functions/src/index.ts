@@ -14,6 +14,7 @@ import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
 import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
 import { voidStaleAuthorization } from './paymentVoid.js';
 import { handleStripeWebhook } from './paymentWebhook.js';
+import { createPushProvider, pushConfigFromEnvironment } from './pushProvider.js';
 import { savePushToken as savePersonPushToken } from './pushTokens.js';
 import { registerUser } from './registration.js';
 import { reoptimizeDelayedJourney } from './routeModification.js';
@@ -332,6 +333,7 @@ export const batchOptimizationRun = onSchedule('every 2 minutes', async () => {
       firestore: getFirestore(),
       provider: osrmFromEnvironment(),
       optimizationService: { baseUrl },
+      push: createPushProvider(pushConfigFromEnvironment()),
     });
     logger.info('Batch optimization run finished.', outcome);
   } catch {
@@ -361,6 +363,7 @@ export const optimizationRunOnSearching = onDocumentUpdated(
         firestore: getFirestore(),
         provider: osrmFromEnvironment(),
         optimizationService: { baseUrl },
+        push: createPushProvider(pushConfigFromEnvironment()),
       });
       if (outcome) logger.info('Immediate batch optimization run finished.', outcome);
     } catch {

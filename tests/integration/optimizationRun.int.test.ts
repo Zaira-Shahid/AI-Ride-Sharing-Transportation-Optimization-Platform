@@ -11,6 +11,7 @@ import {
   setVehicleCapacity,
 } from '../../packages/firebase/src';
 import { runBatchOptimization } from '../../functions/src/optimizationRun';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { RoutePoint, RoutingProvider } from '../../functions/src/routing';
 import { admin, createClient, signUp, verifyEmail } from './support';
 
@@ -45,6 +46,21 @@ function positionalProvider(): RoutingProvider {
         geometry: '_p~iF~ps|U',
         legs,
       });
+    },
+  };
+}
+
+// Module 10.3 (trip matched push): a no-op stand-in for tests not about push delivery itself, and a
+// recording one (below) for the one test that checks it actually fires.
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
+
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
     },
   };
 }
@@ -155,7 +171,7 @@ function fakeOptimizationFetch(script: { candidates: unknown; optimize: unknown 
 describe('runBatchOptimization (functions + firestore emulators, stand-in provider and optimization service)', () => {
   it('matches a request and writes a journey plan when the optimization service returns one', async () => {
     const { journeyId, uid: driverId } = await driverWithJourney();
-    const { tripId } = await passengerWithFarRequest();
+    const { uid: passengerId, tripId } = await passengerWithFarRequest();
 
     const script = {
       candidates: {
@@ -203,6 +219,13 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
       },
     };
 
+    // Module 10.3 (trip matched push): both saved their own token ahead of time.
+    await admin().firestore.doc(`users/${driverId}`).update({ pushToken: 'ExponentPushToken[d]' });
+    await admin()
+      .firestore.doc(`users/${passengerId}`)
+      .update({ pushToken: 'ExponentPushToken[p]' });
+    const push = recordingPush();
+
     const outcome = await runBatchOptimization({
       firestore: admin().firestore,
       provider: positionalProvider(),
@@ -211,10 +234,24 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
         baseUrl: 'https://opt.example',
         fetchImpl: fakeOptimizationFetch(script),
       },
+      push,
     });
 
     expect(outcome.matchedRequestCount).toBe(1);
     expect(outcome.matchedJourneyCount).toBe(1);
+
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[d]',
+        title: 'New passenger',
+        body: "You've been matched with 1 passenger.",
+      },
+      {
+        token: 'ExponentPushToken[p]',
+        title: 'Trip matched',
+        body: "You've been matched with a driver.",
+      },
+    ]);
 
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
     expect(trip?.status).toBe('PICKUP_ASSIGNED');
@@ -304,6 +341,9 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
       },
     };
 
+    await admin().firestore.doc(`users/${driverId}`).update({ pushToken: 'ExponentPushToken[d2]' });
+    const push = recordingPush();
+
     await runBatchOptimization({
       firestore: admin().firestore,
       provider: positionalProvider(),
@@ -312,12 +352,22 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
         baseUrl: 'https://opt.example',
         fetchImpl: fakeOptimizationFetch(script),
       },
+      push,
     });
 
     const firstTrip = (await admin().firestore.doc(`tripRequests/${firstTripId}`).get()).data();
     const secondTrip = (await admin().firestore.doc(`tripRequests/${secondTripId}`).get()).data();
     expect(firstTrip?.sharedRide).toBe(true);
     expect(secondTrip?.sharedRide).toBe(true);
+
+    // Module 10.3 (trip matched push): the driver gets ONE count-based push for this whole pooled
+    // plan, not one per passenger.
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[d2]',
+      title: 'New passengers',
+      body: "You've been matched with 2 passengers.",
+    });
+    expect(push.sent.filter((p) => p.token === 'ExponentPushToken[d2]')).toHaveLength(1);
   });
 
   it('matches nothing when the optimization service returns no candidates', async () => {
@@ -336,6 +386,7 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
         baseUrl: 'https://opt.example',
         fetchImpl: fakeOptimizationFetch({ candidates: { candidates: [] }, optimize: null }),
       },
+      push: noopPush,
     });
 
     expect(outcome.matchedRequestCount).toBe(0);
