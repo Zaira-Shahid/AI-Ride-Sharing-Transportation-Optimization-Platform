@@ -208,19 +208,35 @@ export const savePaymentMethod = onCall((request) => {
 });
 
 export const headToPickup = onCall((request) =>
-  driverHeadToPickup({ firestore: getFirestore() }, callerOf(request), request.data),
+  driverHeadToPickup(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const confirmPickup = onCall((request) =>
-  driverConfirmPickup({ firestore: getFirestore() }, callerOf(request), request.data),
+  driverConfirmPickup(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const startTransit = onCall((request) =>
-  driverStartTransit({ firestore: getFirestore() }, callerOf(request), request.data),
+  driverStartTransit(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const approachDropoff = onCall((request) =>
-  driverApproachDropoff({ firestore: getFirestore() }, callerOf(request), request.data),
+  driverApproachDropoff(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 /**
@@ -252,7 +268,11 @@ export const setJourneyOrigin = onCall((request) =>
 );
 
 export const updateDriverLocation = onCall((request) =>
-  updateDriverJourneyLocation({ firestore: getFirestore() }, callerOf(request), request.data),
+  updateDriverJourneyLocation(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const reverseGeocode = onCall((request) =>

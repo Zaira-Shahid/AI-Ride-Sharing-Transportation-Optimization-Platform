@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { updateDriverLocation as serverUpdateDriverLocation } from '../../functions/src/locations';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import {
   declareDestination,
   saveVehicle,
@@ -11,6 +13,21 @@ import {
   updateDriverLocation,
 } from '../../packages/firebase/src';
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
+
+// Module 10.5 (driver delayed push): records what a direct call to functions/src/locations.ts's own
+// updateDriverLocation sends (not through the real callable above, which never gets a fake
+// PushProvider) - the same "call the function directly" approach every other push module's own
+// dedicated test takes.
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 const OFFICE = {
   latitude: 51.5049,
@@ -461,6 +478,65 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
       recipientId: 'loc-delay-flag-passenger',
       type: 'DRIVER_DELAYED',
     });
+  });
+
+  it('pushes each still-active matched passenger when newly flagged (Module 10.5)', async () => {
+    const { driver, tripRef } = await driverWithMatchedPlan('loc-delay-push', {
+      createdAgoMs: 20 * 60_000,
+      tripStatus: 'PICKUP_ASSIGNED',
+    });
+    await admin()
+      .firestore.doc('users/loc-delay-push-passenger')
+      .set({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
+
+    const result = await serverUpdateDriverLocation(
+      { firestore: admin().firestore, push },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      MOVED,
+    );
+
+    expect(result).toEqual({ status: 'updated' });
+    expect((await tripRef.get()).data()?.driverDelay).toEqual({ extraMinutes: 15 });
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Driver delayed',
+        body: 'Your driver is running about 15 minutes behind schedule.',
+      },
+    ]);
+  });
+
+  it('pushes nobody when the delay flag clears (Module 10.5)', async () => {
+    const { driver, journeyId, tripRef } = await driverWithMatchedPlan('loc-delay-push-clear', {
+      createdAgoMs: 16 * 60_000,
+      tripStatus: 'PICKUP_ASSIGNED',
+    });
+    await admin()
+      .firestore.doc('users/loc-delay-push-clear-passenger')
+      .set({ pushToken: 'ExponentPushToken[passenger]' });
+    const firstPush = recordingPush();
+    await serverUpdateDriverLocation(
+      { firestore: admin().firestore, push: firstPush },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      START,
+    );
+    expect(firstPush.sent).toHaveLength(1);
+
+    await tripRef.update({ status: 'COMPLETED' });
+    await admin()
+      .firestore.doc(`driverJourneys/${journeyId}`)
+      .update({ 'currentLocation.updatedAt': new Date(Date.now() - 20_000) });
+    const clearingPush = recordingPush();
+
+    await serverUpdateDriverLocation(
+      { firestore: admin().firestore, push: clearingPush },
+      { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+      MOVED,
+    );
+
+    expect((await journeyOf(driver.uid)).data?.delay).toBeNull();
+    expect(clearingPush.sent).toEqual([]);
   });
 
   it("does not flag a delay while still within the current leg's own allotted time", async () => {
