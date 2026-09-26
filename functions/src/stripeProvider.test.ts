@@ -88,3 +88,40 @@ describe('createStripeProvider.authorizePayment', () => {
     expect(await provider.authorizePayment(params)).toEqual({ status: 'declined' });
   });
 });
+
+describe('createStripeProvider.capturePayment', () => {
+  const params = { paymentIntentId: 'pi_123', amountMinorUnits: 800 };
+
+  it('is captured when Stripe confirms the capture (succeeded)', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        capture: async (id: string, opts: { amount_to_capture: number }) => {
+          expect(id).toBe('pi_123');
+          expect(opts.amount_to_capture).toBe(800);
+          return { id, status: 'succeeded' };
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.capturePayment(params)).toEqual({ status: 'captured' });
+  });
+
+  it('is failed when the client throws', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        capture: async () => {
+          throw new Error('The payment intent could not be captured.');
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.capturePayment(params)).toEqual({ status: 'failed' });
+  });
+
+  it('is failed when Stripe answers without ever reaching succeeded', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        capture: async () => ({ id: 'pi_123', status: 'canceled' }),
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.capturePayment(params)).toEqual({ status: 'failed' });
+  });
+});

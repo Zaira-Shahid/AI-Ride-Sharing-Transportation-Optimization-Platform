@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { computeFinalFareMinorUnits, computePlatformFeeMinorUnits } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
+import { captureTripPayment } from './paymentCapture.js';
+import type { StripeProvider } from './stripeProvider.js';
 import { canTransition } from './tripRequests.js';
 
 // Module 7.2 (trip execution, Phase 7): advances a matched request one step at a time, through
@@ -358,15 +360,18 @@ export function approachDropoff(
  * currentJourneyId) once every one of its matched requests has reached COMPLETED. Also computes and
  * stores the passenger's final fare and the platform's own cut of it (Module 9.3) - from the same
  * estimatedDistance/estimatedDuration used throughout, since no real "distance actually traveled" is
- * tracked; skipped (left null) if either is somehow missing.
+ * tracked; skipped (left null) if either is somehow missing. Then, if Stripe is configured, attempts
+ * to capture the held payment (Module 9.4) - a safe no-op today when nothing was ever authorized (no
+ * card-entry UI exists yet). A capture problem never fails this call: the ride itself already
+ * happened, and captureTripPayment's own FAILED status is what a future module resolves.
  */
-export function completeDropoff(
-  deps: { firestore: Firestore },
+export async function completeDropoff(
+  deps: { firestore: Firestore; stripe?: StripeProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
-  return advance(
-    deps,
+  const result = await advance(
+    { firestore: deps.firestore },
     caller,
     rawInput,
     'DROPOFF_APPROACHING',
@@ -375,4 +380,16 @@ export function completeDropoff(
     'Driver completed the drop-off',
     { checkStopOrder: 'dropoff', finalizeIfLastDropoff: true, finalizeFare: true },
   );
+
+  if (result.status === 'updated' && deps.stripe) {
+    const parsed = advanceTripInputSchema.safeParse(rawInput);
+    if (parsed.success) {
+      await captureTripPayment(
+        { firestore: deps.firestore, stripe: deps.stripe },
+        parsed.data.tripId,
+      ).catch(() => undefined);
+    }
+  }
+
+  return result;
 }

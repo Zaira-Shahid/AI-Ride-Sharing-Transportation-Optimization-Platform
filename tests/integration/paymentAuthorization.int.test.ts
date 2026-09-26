@@ -14,6 +14,7 @@ function fakeStripe(overrides: Partial<StripeProvider> = {}): StripeProvider {
     ping: async () => true,
     createCustomer: async () => 'cus_fake',
     authorizePayment: async () => ({ status: 'authorized', paymentIntentId: 'pi_fake' }),
+    capturePayment: async () => ({ status: 'captured' }),
     ...overrides,
   };
 }
@@ -105,7 +106,7 @@ describe('authorizeTripPayment (functions + firestore emulator, fake Stripe)', (
 
     const trip = (await admin().firestore.doc(`tripRequests/${fixture.tripId}`).get()).data();
     expect(trip?.paymentIntentId).toBe('pi_ok');
-    expect(trip?.paymentStatus).toBe('authorized');
+    expect(trip?.paymentStatus).toBe('AUTHORIZED');
     expect(trip?.estimatedFare).toBe(1_000);
     expect(trip?.authorizedAmountMinorUnits).toBe(1_200);
     expect(trip?.status).toBe('PICKUP_ASSIGNED');
