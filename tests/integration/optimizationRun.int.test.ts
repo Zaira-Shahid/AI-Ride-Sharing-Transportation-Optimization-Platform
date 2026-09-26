@@ -226,6 +226,8 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
     expect(trip?.vehicleMake).toBe('Toyota');
     expect(trip?.vehicleModel).toBe('Corolla');
     expect(typeof trip?.vehiclePlateNumber).toBe('string');
+    // Module 9.3: a solo passenger's own plan is not a shared ride.
+    expect(trip?.sharedRide).toBe(false);
 
     const journey = (await admin().firestore.doc(`driverJourneys/${journeyId}`).get()).data();
     expect(journey?.status).toBe('MATCHING');
@@ -239,6 +241,83 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
       { kind: 'pickup', requestId: tripId },
       { kind: 'dropoff', requestId: tripId },
     ]);
+  });
+
+  it('marks every passenger sharedRide when one plan pools more than one request (Module 9.3)', async () => {
+    const { journeyId, uid: driverId } = await driverWithJourney(2);
+    const { tripId: firstTripId } = await passengerWithFarRequest();
+    const { tripId: secondTripId } = await passengerWithFarRequest();
+
+    const script = {
+      candidates: {
+        candidates: [
+          {
+            request_id: firstTripId,
+            journey_id: journeyId,
+            driver_id: driverId,
+            distance_meters: 1000,
+            bearing_difference_degrees: 5,
+          },
+          {
+            request_id: secondTripId,
+            journey_id: journeyId,
+            driver_id: driverId,
+            distance_meters: 1000,
+            bearing_difference_degrees: 5,
+          },
+        ],
+      },
+      optimize: {
+        plans: [
+          {
+            journey_id: journeyId,
+            driver_id: driverId,
+            stops: [
+              { kind: 'pickup', request_id: firstTripId },
+              { kind: 'pickup', request_id: secondTripId },
+              { kind: 'dropoff', request_id: firstTripId },
+              { kind: 'dropoff', request_id: secondTripId },
+            ],
+            request_ids: [firstTripId, secondTripId],
+            dropped_request_ids: [],
+            total_distance_meters: 2000,
+            total_duration_seconds: 2000,
+          },
+        ],
+        explanations: [
+          { request_id: firstTripId, status: 'matched', journey_id: journeyId, reason: 'matched' },
+          { request_id: secondTripId, status: 'matched', journey_id: journeyId, reason: 'matched' },
+        ],
+        validation_issues: [],
+        summary: {
+          requested_count: 2,
+          matched_count: 2,
+          dropped_after_sharing_count: 0,
+          unmatched_count: 0,
+          unmatched_by_reason: {},
+          journeys_used: 1,
+          total_distance_meters: 2000,
+          total_duration_seconds: 2000,
+          validation_issue_count: 0,
+          run_duration_seconds: 0.01,
+        },
+      },
+    };
+
+    await runBatchOptimization({
+      firestore: admin().firestore,
+      provider: positionalProvider(),
+      limits: NO_LIMITS,
+      optimizationService: {
+        baseUrl: 'https://opt.example',
+        fetchImpl: fakeOptimizationFetch(script),
+      },
+    });
+
+    const firstTrip = (await admin().firestore.doc(`tripRequests/${firstTripId}`).get()).data();
+    const secondTrip = (await admin().firestore.doc(`tripRequests/${secondTripId}`).get()).data();
+    expect(firstTrip?.sharedRide).toBe(true);
+    expect(secondTrip?.sharedRide).toBe(true);
   });
 
   it('matches nothing when the optimization service returns no candidates', async () => {

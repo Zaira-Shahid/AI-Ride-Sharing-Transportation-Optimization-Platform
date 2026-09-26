@@ -2,6 +2,8 @@ import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/fir
 import { HttpsError, type FunctionsErrorCode } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
+import { computeFinalFareMinorUnits, computePlatformFeeMinorUnits } from './fare.js';
+import { readFareConfig } from './fareConfig.js';
 import { canTransition } from './tripRequests.js';
 
 // Module 7.2 (trip execution, Phase 7): advances a matched request one step at a time, through
@@ -120,6 +122,7 @@ async function advance(
     checkStopOrder?: 'pickup' | 'dropoff';
     activateJourney?: boolean;
     finalizeIfLastDropoff?: boolean;
+    finalizeFare?: boolean;
   } = {},
 ): Promise<AdvanceTripResult> {
   requireVerifiedDriver(caller);
@@ -135,6 +138,11 @@ async function advance(
 
   const { firestore } = deps;
   const tripRef = firestore.collection('tripRequests').doc(tripId);
+
+  // Module 9.3 (fare calculation): read once, outside the transaction - the config is not
+  // transactionally sensitive to this request's own document, the same stance paymentAuthorization.ts
+  // already takes reading it before deciding an authorization amount.
+  const fareConfig = options.finalizeFare ? await readFareConfig(firestore) : null;
 
   return firestore.runTransaction(async (tx): Promise<AdvanceTripResult> => {
     const trip = await tx.get(tripRef);
@@ -207,7 +215,29 @@ async function advance(
       }
     }
 
-    tx.update(tripRef, { status: to, updatedAt: FieldValue.serverTimestamp() });
+    let fareFields: { finalFareMinorUnits: number; platformFeeMinorUnits: number } | null = null;
+    if (fareConfig) {
+      const estimatedDistance = trip.get('estimatedDistance');
+      const estimatedDuration = trip.get('estimatedDuration');
+      if (typeof estimatedDistance === 'number' && typeof estimatedDuration === 'number') {
+        const finalFareMinorUnits = computeFinalFareMinorUnits(
+          fareConfig,
+          estimatedDistance,
+          estimatedDuration,
+          trip.get('sharedRide') === true,
+        );
+        fareFields = {
+          finalFareMinorUnits,
+          platformFeeMinorUnits: computePlatformFeeMinorUnits(fareConfig, finalFareMinorUnits),
+        };
+      }
+    }
+
+    tx.update(tripRef, {
+      status: to,
+      ...fareFields,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
     if (journeyToActivateRef) {
       tx.update(journeyToActivateRef, {
         status: 'ACTIVE',
@@ -325,7 +355,10 @@ export function approachDropoff(
 /**
  * The driver confirms the passenger has been dropped off (Module 7.5). Clears the passenger's own
  * open-request pointer if it still points here, and completes the journey (freeing the driver's own
- * currentJourneyId) once every one of its matched requests has reached COMPLETED.
+ * currentJourneyId) once every one of its matched requests has reached COMPLETED. Also computes and
+ * stores the passenger's final fare and the platform's own cut of it (Module 9.3) - from the same
+ * estimatedDistance/estimatedDuration used throughout, since no real "distance actually traveled" is
+ * tracked; skipped (left null) if either is somehow missing.
  */
 export function completeDropoff(
   deps: { firestore: Firestore },
@@ -340,6 +373,6 @@ export function completeDropoff(
     'COMPLETED',
     'TRIP_COMPLETED',
     'Driver completed the drop-off',
-    { checkStopOrder: 'dropoff', finalizeIfLastDropoff: true },
+    { checkStopOrder: 'dropoff', finalizeIfLastDropoff: true, finalizeFare: true },
   );
 }

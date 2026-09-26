@@ -493,6 +493,9 @@ export async function tryInsertIntoMatchingJourney(
     for (const existingRef of existingTripRefs) {
       tx.update(existingRef, {
         assignedPlanId: newPlanRef.id,
+        // Module 9.3: insertion always makes this journey shared (it went from one passenger to
+        // two-or-more in this very step), for the existing passenger(s) as much as the new one.
+        sharedRide: true,
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
@@ -506,6 +509,7 @@ export async function tryInsertIntoMatchingJourney(
       vehicleMake,
       vehicleModel,
       vehiclePlateNumber,
+      sharedRide: true,
       updatedAt: FieldValue.serverTimestamp(),
     });
     tx.create(firestore.collection('auditLogs').doc(), {
