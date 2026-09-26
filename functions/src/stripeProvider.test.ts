@@ -125,3 +125,75 @@ describe('createStripeProvider.capturePayment', () => {
     expect(await provider.capturePayment(params)).toEqual({ status: 'failed' });
   });
 });
+
+describe('createStripeProvider.voidPayment', () => {
+  const params = { paymentIntentId: 'pi_123' };
+
+  it('is voided when Stripe confirms the cancellation (canceled)', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        cancel: async (id: string) => {
+          expect(id).toBe('pi_123');
+          return { id, status: 'canceled' };
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.voidPayment(params)).toEqual({ status: 'voided' });
+  });
+
+  it('is failed when the client throws', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        cancel: async () => {
+          throw new Error('The payment intent cannot be canceled.');
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.voidPayment(params)).toEqual({ status: 'failed' });
+  });
+
+  it('is failed when Stripe answers without ever reaching canceled', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        cancel: async () => ({ id: 'pi_123', status: 'requires_capture' }),
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.voidPayment(params)).toEqual({ status: 'failed' });
+  });
+});
+
+describe('createStripeProvider.refundPayment', () => {
+  const params = { paymentIntentId: 'pi_123', amountMinorUnits: 640 };
+
+  it('is refunded when Stripe confirms it', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      refunds: {
+        create: async (opts: { payment_intent: string; amount: number }) => {
+          expect(opts).toEqual({ payment_intent: 'pi_123', amount: 640 });
+          return { id: 're_123', status: 'succeeded' };
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.refundPayment(params)).toEqual({ status: 'refunded' });
+  });
+
+  it('is failed when the client throws', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      refunds: {
+        create: async () => {
+          throw new Error('The charge has already been refunded.');
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.refundPayment(params)).toEqual({ status: 'failed' });
+  });
+
+  it('is failed when Stripe reports the refund itself failed', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      refunds: {
+        create: async () => ({ id: 're_123', status: 'failed' }),
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.refundPayment(params)).toEqual({ status: 'failed' });
+  });
+});

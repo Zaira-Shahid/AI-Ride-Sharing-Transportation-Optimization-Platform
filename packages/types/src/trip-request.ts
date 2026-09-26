@@ -168,10 +168,16 @@ export interface TripRequest {
    * paymentAuthorization.ts's own note).
    */
   paymentIntentId: string | null;
-  /** AUTHORIZED (a hold placed), CAPTURED or FAILED (Module 9.4) - null until authorization is attempted. */
+  /**
+   * AUTHORIZED (a hold placed), CAPTURED, FAILED (Module 9.4), REFUNDED or PARTIALLY_REFUNDED (Module
+   * 9.7) - null until authorization is attempted (or once a stale hold is voided back to null - see
+   * paymentVoid.ts).
+   */
   paymentStatus: PaymentStatus | null;
   /** What was actually held (Module 9.2's own AUTHORIZATION_BUFFER_PERCENT over the estimate); null until authorized. */
   authorizedAmountMinorUnits: number | null;
+  /** What was actually returned to the passenger (Module 9.7); null until a refund succeeds. */
+  refundedAmountMinorUnits: number | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -199,6 +205,7 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   paymentIntentId: null,
   paymentStatus: null,
   authorizedAmountMinorUnits: null,
+  refundedAmountMinorUnits: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary
