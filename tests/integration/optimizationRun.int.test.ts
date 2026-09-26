@@ -240,18 +240,19 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
     expect(outcome.matchedRequestCount).toBe(1);
     expect(outcome.matchedJourneyCount).toBe(1);
 
-    expect(push.sent).toEqual([
-      {
-        token: 'ExponentPushToken[d]',
-        title: 'New passenger',
-        body: "You've been matched with 1 passenger.",
-      },
-      {
-        token: 'ExponentPushToken[p]',
-        title: 'Trip matched',
-        body: "You've been matched with a driver.",
-      },
-    ]);
+    // Sent concurrently (Promise.all), so order between the driver's and the passenger's own push is
+    // not guaranteed.
+    expect(push.sent).toHaveLength(2);
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[d]',
+      title: 'New passenger',
+      body: "You've been matched with 1 passenger.",
+    });
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[p]',
+      title: 'Trip matched',
+      body: "You've been matched with a driver.",
+    });
 
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
     expect(trip?.status).toBe('PICKUP_ASSIGNED');
