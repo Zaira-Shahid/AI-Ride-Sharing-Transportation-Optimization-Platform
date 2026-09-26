@@ -12,6 +12,7 @@ import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
 import { runBatchOptimization } from './optimizationRun.js';
 import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
 import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
+import { voidStaleAuthorization } from './paymentVoid.js';
 import { registerUser } from './registration.js';
 import { reoptimizeDelayedJourney } from './routeModification.js';
 import { createStripeProvider, stripeConfigFromEnvironment } from './stripeProvider.js';
@@ -350,6 +351,49 @@ export const routeModificationOnDelay = onDocumentUpdated(
     } catch {
       logger.warn('Route re-optimization after a traffic delay failed.', {
         journeyId: event.params.journeyId,
+      });
+    }
+  },
+);
+
+/**
+ * Module 9.7 (refunds), first half: voids a stale AUTHORIZED hold the moment a trip that had one moves
+ * to SEARCHING or CANCELLED without ever being captured - whichever release path caused it (Module
+ * 8.5 driver cancellation, Module 8.7 route modification, or any future one; see paymentVoid.ts's own
+ * note on why this lives here rather than in each release path itself). Fires only on the transition
+ * INTO a released status while paymentStatus stays AUTHORIZED throughout (a capture racing to CAPTURED
+ * around the same time is left alone - nothing to void once it succeeds). Does nothing when Stripe is
+ * not configured, same as everywhere else this check appears; never throws.
+ */
+export const voidStaleAuthorizationOnRelease = onDocumentUpdated(
+  'tripRequests/{tripId}',
+  async (event) => {
+    const before = event.data?.before;
+    const after = event.data?.after;
+    if (!before || !after) return;
+    if (
+      before.get('paymentStatus') !== 'AUTHORIZED' ||
+      after.get('paymentStatus') !== 'AUTHORIZED'
+    ) {
+      return;
+    }
+    const released = new Set(['SEARCHING', 'CANCELLED']);
+    if (!released.has(after.get('status')) || released.has(before.get('status'))) return;
+
+    const stripeConfig = stripeConfigFromEnvironment();
+    if (!stripeConfig) return;
+    try {
+      const outcome = await voidStaleAuthorization(
+        { firestore: getFirestore(), stripe: createStripeProvider(stripeConfig) },
+        event.params.tripId,
+      );
+      logger.info('Stale payment authorization void attempt finished.', {
+        tripId: event.params.tripId,
+        outcome,
+      });
+    } catch {
+      logger.warn('Failed to void a stale payment authorization.', {
+        tripId: event.params.tripId,
       });
     }
   },

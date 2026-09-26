@@ -504,6 +504,8 @@ describe('completeDropoff (functions + firestore emulators)', () => {
         createCustomer: async () => 'cus_fake',
         authorizePayment: async () => ({ status: 'authorized', paymentIntentId: 'pi_fake' }),
         capturePayment: async () => ({ status: 'captured' }),
+        voidPayment: async () => ({ status: 'voided' }),
+        refundPayment: async () => ({ status: 'refunded' }),
         ...overrides,
       };
     }

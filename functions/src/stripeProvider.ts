@@ -61,6 +61,19 @@ export interface CapturePaymentParams {
 
 export type CapturePaymentOutcome = { status: 'captured' } | { status: 'failed' };
 
+export interface VoidPaymentParams {
+  paymentIntentId: string;
+}
+
+export type VoidPaymentOutcome = { status: 'voided' } | { status: 'failed' };
+
+export interface RefundPaymentParams {
+  paymentIntentId: string;
+  amountMinorUnits: number;
+}
+
+export type RefundPaymentOutcome = { status: 'refunded' } | { status: 'failed' };
+
 export interface StripeProvider {
   ping(): Promise<boolean>;
   /** Creates a new Stripe Customer and returns its id. */
@@ -79,9 +92,21 @@ export interface StripeProvider {
    * authorizePayment's own 'declined'.
    */
   capturePayment(params: CapturePaymentParams): Promise<CapturePaymentOutcome>;
+  /**
+   * Module 9.7 (refunds): cancels a hold that was never captured (a stale authorization - a trip
+   * released before completion, module 9.2's own hold no longer needed). Not a refund in Stripe's own
+   * terms (no money was ever taken), but the same family of "give up on this payment intent" call.
+   */
+  voidPayment(params: VoidPaymentParams): Promise<VoidPaymentOutcome>;
+  /**
+   * Module 9.7 (refunds): returns `amountMinorUnits` of an already-captured payment to the passenger,
+   * full or partial. 'failed' covers every reason Stripe would not confirm it - never thrown, same
+   * stance as capturePayment's own 'failed'.
+   */
+  refundPayment(params: RefundPaymentParams): Promise<RefundPaymentOutcome>;
 }
 
-type StripeClient = Pick<Stripe, 'balance' | 'customers' | 'paymentIntents'>;
+type StripeClient = Pick<Stripe, 'balance' | 'customers' | 'paymentIntents' | 'refunds'>;
 
 /**
  * `stripeClient` is normally omitted (a real Stripe client is built from `config`); tests inject a
@@ -135,6 +160,29 @@ export function createStripeProvider(
         });
         if (intent.status !== 'succeeded') return { status: 'failed' };
         return { status: 'captured' };
+      } catch {
+        return { status: 'failed' };
+      }
+    },
+
+    async voidPayment(params) {
+      try {
+        const intent = await client.paymentIntents.cancel(params.paymentIntentId);
+        if (intent.status !== 'canceled') return { status: 'failed' };
+        return { status: 'voided' };
+      } catch {
+        return { status: 'failed' };
+      }
+    },
+
+    async refundPayment(params) {
+      try {
+        const refund = await client.refunds.create({
+          payment_intent: params.paymentIntentId,
+          amount: params.amountMinorUnits,
+        });
+        if (refund.status === 'failed') return { status: 'failed' };
+        return { status: 'refunded' };
       } catch {
         return { status: 'failed' };
       }
