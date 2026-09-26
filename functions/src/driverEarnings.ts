@@ -7,6 +7,10 @@ import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/fir
 // -> automatic payment -> earnings record"): no money was actually collected until capture succeeds,
 // so nothing is owed to the driver from it yet either. This is a bookkeeping figure only: no Stripe
 // Connect account exists to actually pay a driver out (module 9.1's own deferred decision).
+//
+// User-decided policy (module 9.7): an entry, once written, is FINAL - a later refund (paymentRefund.ts)
+// never adjusts or reverses it. A refund comes out of the platform's own margin, not the driver's
+// payout, since the driver already completed the trip and a refund decision is outside their control.
 
 export interface DriverEarningRecord {
   driverId: string;

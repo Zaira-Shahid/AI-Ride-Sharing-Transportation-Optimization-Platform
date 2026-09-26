@@ -8,11 +8,14 @@ import type { StripeProvider } from './stripeProvider.js';
 // now, wire it into a real trigger once one exists" stance Module 9.2's own authorizeTripPayment
 // already takes - nothing in this file is called from index.ts.
 //
-// KNOWN ACCEPTED GAP (documented, not resolved here, same spirit as other modules' own accepted gaps):
-// a refund does not adjust or reverse the driver's own driverEarnings ledger entry (Module 9.5) -
-// whether a refund should come out of the driver's payout or the platform's own margin is a business
-// policy this session was not asked to decide, and since no real Stripe Connect payout exists yet
-// either (Module 9.1's own deferred decision), nothing is actually transferred in either direction.
+// User-decided policy: a refund never adjusts or reverses the driver's own driverEarnings ledger
+// entry (Module 9.5) - it comes out of the platform's own margin, not the driver's payout, since the
+// driver already completed the trip and a refund decision is outside their control (the standard
+// stance in ride-sharing apps; a driver-fault refund would need its own separate policy later, e.g.
+// once fraud detection exists). driverEarnings entries are therefore FINAL once written: nothing in
+// this codebase ever revisits one after the fact, refund or not. Mostly a documented decision for now
+// rather than something wired up - no real Stripe Connect payout exists yet either way (Module 9.1's
+// own deferred decision), so nothing is actually transferred in any direction yet regardless.
 
 export type PaymentRefundOutcome = 'refunded' | 'failed' | 'skipped';
 
