@@ -2,9 +2,23 @@ import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import { authorizeTripPayment } from '../../functions/src/paymentAuthorization';
 import { voidStaleAuthorization } from '../../functions/src/paymentVoid';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { completeDropoff as driverCompleteDropoff } from '../../functions/src/tripExecution';
 import { admin, createClient, signUp, verifyEmail } from './support';
+
+// Module 10.4 (payment captured push): records what the acceptance test's own driverCompleteDropoff
+// call sends, to check it actually fires.
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 // Phase 9 acceptance ("Complete trip -> automatic payment -> earnings record"): the spec's own
 // Stripe flow (section 9) end to end, through every module this phase built (9.1-9.8), plus the
@@ -78,7 +92,13 @@ async function matchedTrip(prefix: string) {
 
 describe('Phase 9 acceptance (functions + firestore emulators)', () => {
   it('authorizes at pickup, finalizes and captures the fare at completion, and records driver earnings and a receipt', async () => {
-    const { driver, tripRef } = await matchedTrip('p9a');
+    const { driver, passenger, tripRef } = await matchedTrip('p9a');
+    await admin()
+      .firestore.doc(`users/${driver.uid}`)
+      .update({ pushToken: 'ExponentPushToken[driver]' });
+    await admin()
+      .firestore.doc(`users/${passenger.uid}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
 
     // Module 9.2: a hold for the estimate plus AUTHORIZATION_BUFFER_PERCENT - 250+120*5+15*10=1000,
     // *1.2 = 1200.
@@ -100,6 +120,7 @@ describe('Phase 9 acceptance (functions + firestore emulators)', () => {
     // Modules 9.3/9.4: completeDropoff finalizes the fare (the plain 1000, no shared discount) and
     // captures exactly that - never the full 1200 buffer.
     let capturedAmount: number | null = null;
+    const push = recordingPush();
     const result = await driverCompleteDropoff(
       {
         firestore: admin().firestore,
@@ -109,6 +130,7 @@ describe('Phase 9 acceptance (functions + firestore emulators)', () => {
             return { status: 'captured' };
           },
         }),
+        push,
       },
       { uid: driver.uid, role: 'DRIVER', emailVerified: true },
       { tripId: tripRef.id },
@@ -145,6 +167,21 @@ describe('Phase 9 acceptance (functions + firestore emulators)', () => {
       sharedRideDiscountMinorUnits: 0,
     });
     expect(receipt).not.toHaveProperty('platformFeeMinorUnits');
+
+    // Module 10.4: both the passenger (charged $10.00, the final fare) and the driver (earned $8.00,
+    // the final fare minus the platform fee) get a push. Sent concurrently (Promise.all), so order
+    // between the two is not guaranteed.
+    expect(push.sent).toHaveLength(2);
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[passenger]',
+      title: 'Payment captured',
+      body: 'You were charged $10.00 for your trip.',
+    });
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[driver]',
+      title: 'You got paid',
+      body: 'You earned $8.00 for this trip.',
+    });
   }, 60_000);
 
   it('voids the stale hold, not collecting anything, when the trip is released before completion', async () => {

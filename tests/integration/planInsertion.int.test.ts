@@ -330,18 +330,18 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
 
     expect(await insert(tripId, request, push)).toBe('inserted');
 
-    expect(push.sent).toEqual([
-      {
-        token: 'ExponentPushToken[driver]',
-        title: 'New passenger',
-        body: 'A new passenger has been matched to your journey.',
-      },
-      {
-        token: 'ExponentPushToken[passenger]',
-        title: 'Trip matched',
-        body: "You've been matched with a driver.",
-      },
-    ]);
+    // Sent concurrently (Promise.all), so order between the two is not guaranteed.
+    expect(push.sent).toHaveLength(2);
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[driver]',
+      title: 'New passenger',
+      body: 'A new passenger has been matched to your journey.',
+    });
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[passenger]',
+      title: 'Trip matched',
+      body: "You've been matched with a driver.",
+    });
   });
 
   it('is unmatched when no MATCHING journey is nearby', async () => {

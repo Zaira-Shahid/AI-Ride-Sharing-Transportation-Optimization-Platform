@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { captureTripPayment } from '../../functions/src/paymentCapture';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { admin } from './support';
+
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
+
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 // Module 9.4's own capture logic, tested directly against captureTripPayment (not wired into any live
 // trigger except completeDropoff, which has its own tests) with a fake StripeProvider - the same
@@ -46,8 +60,8 @@ async function capturedTrip(
   return tripRef.id;
 }
 
-const capture = (stripe: StripeProvider, tripId: string) =>
-  captureTripPayment({ firestore: admin().firestore, stripe }, tripId);
+const capture = (stripe: StripeProvider, tripId: string, push: PushProvider = noopPush) =>
+  captureTripPayment({ firestore: admin().firestore, stripe, push }, tripId);
 
 describe('captureTripPayment (functions + firestore emulator, fake Stripe)', () => {
   it('captures exactly the final fare (not the full authorized hold) and marks CAPTURED', async () => {
@@ -216,6 +230,70 @@ describe('captureTripPayment (functions + firestore emulator, fake Stripe)', () 
         await admin().firestore.collection('receipts').where('tripId', '==', tripId).get()
       ).docs;
       expect(entries).toHaveLength(0);
+    });
+  });
+
+  describe('payment captured push (Module 10.4)', () => {
+    async function withPushTokens(prefix: string) {
+      const driverId = `${prefix}-driver`;
+      const passengerId = `${prefix}-passenger`;
+      const tripId = await capturedTrip(prefix, {
+        matchedDriverId: driverId,
+        passengerId,
+      });
+      await admin()
+        .firestore.doc(`users/${driverId}`)
+        .set({ pushToken: 'ExponentPushToken[driver]' });
+      await admin()
+        .firestore.doc(`users/${passengerId}`)
+        .set({ pushToken: 'ExponentPushToken[passenger]' });
+      return tripId;
+    }
+
+    it('pushes both the passenger (charged) and the driver (earned) on a successful capture', async () => {
+      const tripId = await withPushTokens('push-ok');
+      const push = recordingPush();
+
+      expect(await capture(fakeStripe(), tripId, push)).toBe('captured');
+
+      // capturedTrip's own defaults: finalFareMinorUnits 800, platformFeeMinorUnits 160 -> driver
+      // earns 640, in the config default currency 'usd'.
+      // Sent concurrently (Promise.all), so order between the two is not guaranteed.
+      expect(push.sent).toHaveLength(2);
+      expect(push.sent).toContainEqual({
+        token: 'ExponentPushToken[passenger]',
+        title: 'Payment captured',
+        body: 'You were charged $8.00 for your trip.',
+      });
+      expect(push.sent).toContainEqual({
+        token: 'ExponentPushToken[driver]',
+        title: 'You got paid',
+        body: 'You earned $6.40 for this trip.',
+      });
+    });
+
+    it('pushes nobody when the capture fails', async () => {
+      const tripId = await withPushTokens('push-failed');
+      const push = recordingPush();
+
+      expect(
+        await capture(
+          fakeStripe({ capturePayment: async () => ({ status: 'failed' }) }),
+          tripId,
+          push,
+        ),
+      ).toBe('failed');
+
+      expect(push.sent).toEqual([]);
+    });
+
+    it('pushes nobody with no saved token (never throws)', async () => {
+      const tripId = await capturedTrip('push-notoken');
+      const push = recordingPush();
+
+      expect(await capture(fakeStripe(), tripId, push)).toBe('captured');
+
+      expect(push.sent).toEqual([]);
     });
   });
 });

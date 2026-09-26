@@ -1,8 +1,24 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import { completeDropoff as driverCompleteDropoff } from '../../functions/src/tripExecution';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { admin, createClient, signUp, verifyEmail } from './support';
+
+// Module 10.4 (payment captured push): a no-op stand-in for tests not about push delivery itself, and
+// a recording one (below) for the one test that checks it actually fires.
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
+
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 // Module 7.2: headToPickup (PICKUP_ASSIGNED -> DRIVER_ARRIVING) and confirmPickup (DRIVER_ARRIVING ->
 // PICKED_UP). Module 7.4 adds startTransit (PICKED_UP -> IN_TRANSIT), stop-order enforcement for the
@@ -513,13 +529,22 @@ describe('completeDropoff (functions + firestore emulators)', () => {
 
     it('captures the held payment right after a real completion', async () => {
       const driver = await person('DRIVER', 'complete-capture-ok');
-      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+      const passenger = await person('PASSENGER', 'complete-capture-ok-p');
+      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid, {
+        passengerId: passenger.uid,
+      });
       await admin().firestore.doc(`tripRequests/${tripId}`).update({
         paymentIntentId: 'pi_fixture',
         paymentStatus: 'AUTHORIZED',
         estimatedDistance: 5_000,
         estimatedDuration: 600,
       });
+      await admin()
+        .firestore.doc(`users/${driver.uid}`)
+        .update({ pushToken: 'ExponentPushToken[driver]' });
+      await admin()
+        .firestore.doc(`users/${passenger.uid}`)
+        .update({ pushToken: 'ExponentPushToken[passenger]' });
       let capturedAmount: number | null = null;
       const stripe = fakeStripe({
         capturePayment: async (params) => {
@@ -527,9 +552,10 @@ describe('completeDropoff (functions + firestore emulators)', () => {
           return { status: 'captured' };
         },
       });
+      const push = recordingPush();
 
       const result = await driverCompleteDropoff(
-        { firestore: admin().firestore, stripe },
+        { firestore: admin().firestore, stripe, push },
         { uid: driver.uid, role: 'DRIVER', emailVerified: true },
         { tripId },
       );
@@ -538,6 +564,20 @@ describe('completeDropoff (functions + firestore emulators)', () => {
       expect(capturedAmount).toBe(1_000);
       const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
       expect(trip?.paymentStatus).toBe('CAPTURED');
+
+      // Module 10.4 (payment captured push): both the passenger (charged) and the driver (earned).
+      // Sent concurrently (Promise.all), so order between the two is not guaranteed.
+      expect(push.sent).toHaveLength(2);
+      expect(push.sent).toContainEqual({
+        token: 'ExponentPushToken[passenger]',
+        title: 'Payment captured',
+        body: 'You were charged $10.00 for your trip.',
+      });
+      expect(push.sent).toContainEqual({
+        token: 'ExponentPushToken[driver]',
+        title: 'You got paid',
+        body: expect.stringMatching(/^You earned \$\d+\.\d{2} for this trip\.$/),
+      });
     });
 
     it('never attempts a capture on an idempotent retry (already COMPLETED)', async () => {
@@ -556,7 +596,7 @@ describe('completeDropoff (functions + firestore emulators)', () => {
       });
 
       const result = await driverCompleteDropoff(
-        { firestore: admin().firestore, stripe },
+        { firestore: admin().firestore, stripe, push: noopPush },
         { uid: driver.uid, role: 'DRIVER', emailVerified: true },
         { tripId },
       );

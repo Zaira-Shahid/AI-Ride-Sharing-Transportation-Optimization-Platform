@@ -235,6 +235,7 @@ export const completeDropoff = onCall((request) => {
     {
       firestore: getFirestore(),
       stripe: stripeConfig ? createStripeProvider(stripeConfig) : undefined,
+      push: createPushProvider(pushConfigFromEnvironment()),
     },
     callerOf(request),
     request.data,

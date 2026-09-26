@@ -5,6 +5,7 @@ import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { computeFinalFareMinorUnits, computePlatformFeeMinorUnits } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
 import { captureTripPayment } from './paymentCapture.js';
+import type { PushProvider } from './pushProvider.js';
 import type { StripeProvider } from './stripeProvider.js';
 import { canTransition } from './tripRequests.js';
 
@@ -366,7 +367,7 @@ export function approachDropoff(
  * happened, and captureTripPayment's own FAILED status is what a future module resolves.
  */
 export async function completeDropoff(
-  deps: { firestore: Firestore; stripe?: StripeProvider },
+  deps: { firestore: Firestore; stripe?: StripeProvider; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -385,7 +386,7 @@ export async function completeDropoff(
     const parsed = advanceTripInputSchema.safeParse(rawInput);
     if (parsed.success) {
       await captureTripPayment(
-        { firestore: deps.firestore, stripe: deps.stripe },
+        { firestore: deps.firestore, stripe: deps.stripe, push: deps.push },
         parsed.data.tripId,
       ).catch(() => undefined);
     }
