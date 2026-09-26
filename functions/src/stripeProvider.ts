@@ -51,6 +51,16 @@ export interface AuthorizePaymentParams {
 export type AuthorizePaymentOutcome =
   { status: 'authorized'; paymentIntentId: string } | { status: 'declined' };
 
+export interface CapturePaymentParams {
+  paymentIntentId: string;
+  /** Module 9.4: always the final fare (fare.ts), never the full held amount - the hold included
+   * AUTHORIZATION_BUFFER_PERCENT precisely so a lower amount could be captured without a second
+   * authorization. */
+  amountMinorUnits: number;
+}
+
+export type CapturePaymentOutcome = { status: 'captured' } | { status: 'failed' };
+
 export interface StripeProvider {
   ping(): Promise<boolean>;
   /** Creates a new Stripe Customer and returns its id. */
@@ -63,6 +73,12 @@ export interface StripeProvider {
    * failure" stance checkCandidateRoute's own 'unavailable' takes.
    */
   authorizePayment(params: AuthorizePaymentParams): Promise<AuthorizePaymentOutcome>;
+  /**
+   * Module 9.4 (payment capture): actually takes `amountMinorUnits` from the hold `authorizePayment`
+   * placed. 'failed' covers every reason Stripe would not confirm it - never thrown, same stance as
+   * authorizePayment's own 'declined'.
+   */
+  capturePayment(params: CapturePaymentParams): Promise<CapturePaymentOutcome>;
 }
 
 type StripeClient = Pick<Stripe, 'balance' | 'customers' | 'paymentIntents'>;
@@ -109,6 +125,18 @@ export function createStripeProvider(
         return { status: 'authorized', paymentIntentId: intent.id };
       } catch {
         return { status: 'declined' };
+      }
+    },
+
+    async capturePayment(params) {
+      try {
+        const intent = await client.paymentIntents.capture(params.paymentIntentId, {
+          amount_to_capture: params.amountMinorUnits,
+        });
+        if (intent.status !== 'succeeded') return { status: 'failed' };
+        return { status: 'captured' };
+      } catch {
+        return { status: 'failed' };
       }
     },
   };

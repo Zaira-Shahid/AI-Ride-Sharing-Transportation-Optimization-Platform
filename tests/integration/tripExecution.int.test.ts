@@ -1,5 +1,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
+import { completeDropoff as driverCompleteDropoff } from '../../functions/src/tripExecution';
+import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { admin, createClient, signUp, verifyEmail } from './support';
 
 // Module 7.2: headToPickup (PICKUP_ASSIGNED -> DRIVER_ARRIVING) and confirmPickup (DRIVER_ARRIVING ->
@@ -488,6 +490,93 @@ describe('completeDropoff (functions + firestore emulators)', () => {
       const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
       expect(trip?.finalFareMinorUnits).toBeNull();
       expect(trip?.platformFeeMinorUnits).toBeNull();
+    });
+  });
+
+  describe('payment capture (Module 9.4)', () => {
+    // completeDropoff itself is called directly here (not through the httpsCallable, which never
+    // gets a fake stripe - the real callable's own env-var check is covered separately below) so a
+    // fake StripeProvider can be injected, the same "call the function directly" approach
+    // paymentAuthorization.int.test.ts and paymentCapture.int.test.ts already take.
+    function fakeStripe(overrides: Partial<StripeProvider> = {}): StripeProvider {
+      return {
+        ping: async () => true,
+        createCustomer: async () => 'cus_fake',
+        authorizePayment: async () => ({ status: 'authorized', paymentIntentId: 'pi_fake' }),
+        capturePayment: async () => ({ status: 'captured' }),
+        ...overrides,
+      };
+    }
+
+    it('captures the held payment right after a real completion', async () => {
+      const driver = await person('DRIVER', 'complete-capture-ok');
+      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+      await admin().firestore.doc(`tripRequests/${tripId}`).update({
+        paymentIntentId: 'pi_fixture',
+        paymentStatus: 'AUTHORIZED',
+        estimatedDistance: 5_000,
+        estimatedDuration: 600,
+      });
+      let capturedAmount: number | null = null;
+      const stripe = fakeStripe({
+        capturePayment: async (params) => {
+          capturedAmount = params.amountMinorUnits;
+          return { status: 'captured' };
+        },
+      });
+
+      const result = await driverCompleteDropoff(
+        { firestore: admin().firestore, stripe },
+        { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+        { tripId },
+      );
+
+      expect(result.status).toBe('updated');
+      expect(capturedAmount).toBe(1_000);
+      const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+      expect(trip?.paymentStatus).toBe('CAPTURED');
+    });
+
+    it('never attempts a capture on an idempotent retry (already COMPLETED)', async () => {
+      const driver = await person('DRIVER', 'complete-capture-retry');
+      const tripId = await tripAt('COMPLETED', driver.uid);
+      await admin().firestore.doc(`tripRequests/${tripId}`).update({
+        paymentIntentId: 'pi_fixture',
+        paymentStatus: 'AUTHORIZED',
+      });
+      let calls = 0;
+      const stripe = fakeStripe({
+        capturePayment: async () => {
+          calls += 1;
+          return { status: 'captured' };
+        },
+      });
+
+      const result = await driverCompleteDropoff(
+        { firestore: admin().firestore, stripe },
+        { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+        { tripId },
+      );
+
+      expect(result.status).toBe('unchanged');
+      expect(calls).toBe(0);
+    });
+
+    it('leaves the trip AUTHORIZED, never attempting a capture, when Stripe is not configured', async () => {
+      const driver = await person('DRIVER', 'complete-capture-noconfig');
+      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+      await admin().firestore.doc(`tripRequests/${tripId}`).update({
+        paymentIntentId: 'pi_fixture',
+        paymentStatus: 'AUTHORIZED',
+      });
+
+      // The real callable never gets a stripe provider without STRIPE_SECRET_KEY set (Module 9.1's
+      // own scaffolding-only decision) - the same real path a driver's app actually goes through.
+      await driver.call('completeDropoff', { tripId });
+
+      const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+      expect(trip?.status).toBe('COMPLETED');
+      expect(trip?.paymentStatus).toBe('AUTHORIZED');
     });
   });
 });

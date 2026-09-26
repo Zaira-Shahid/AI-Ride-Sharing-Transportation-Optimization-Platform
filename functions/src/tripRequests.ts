@@ -62,6 +62,11 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   // The fare actually owed and the platform's own cut of it (Module 9.3), filled in at completion.
   finalFareMinorUnits: null,
   platformFeeMinorUnits: null,
+  // Stripe's own reference and status for the hold/capture (Modules 9.2/9.4); null until an
+  // authorization is attempted.
+  paymentIntentId: null,
+  paymentStatus: null,
+  authorizedAmountMinorUnits: null,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;
