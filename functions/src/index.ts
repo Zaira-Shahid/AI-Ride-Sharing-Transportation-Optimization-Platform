@@ -252,7 +252,11 @@ export const setJourneyOrigin = onCall((request) =>
 );
 
 export const updateDriverLocation = onCall((request) =>
-  updateDriverJourneyLocation({ firestore: getFirestore() }, callerOf(request), request.data),
+  updateDriverJourneyLocation(
+    { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const reverseGeocode = onCall((request) =>

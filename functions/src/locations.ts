@@ -3,6 +3,8 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { createNotification } from './notifications.js';
+import { sendPushToUser } from './pushNotifications.js';
+import type { PushProvider } from './pushProvider.js';
 import { computeDelayFlag, type DelayFlag } from './trafficDelay.js';
 
 // Functions deploy from this directory alone, so these mirror gps.ts in @ridemesh/types.
@@ -56,9 +58,13 @@ export function isUsableAccuracy(accuracy: number | null | undefined): boolean {
  * journey and every matched request the same way currentLocation is; an audit log entry is written
  * only when the flag actually changes (not on every throttled update), to keep the log itself
  * meaningful rather than a running commentary.
+ *
+ * Module 10.5 (driver delayed push): each still-active matched passenger also gets a push, same scope
+ * as the in-app notification right below it (module 8.9) - only when the flag newly turns on, never
+ * when it clears, and never the driver themself (they already know; it's their own GPS causing it).
  */
 export async function updateDriverLocation(
-  deps: { firestore: Firestore; now?: () => number },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<UpdateDriverLocationResult> {
@@ -76,7 +82,10 @@ export async function updateDriverLocation(
   const userRef = firestore.collection('users').doc(caller.uid);
   const driverRef = firestore.collection('drivers').doc(caller.uid);
 
-  return firestore.runTransaction(async (tx): Promise<UpdateDriverLocationResult> => {
+  const newlyDelayedPassengerIds: string[] = [];
+  let extraMinutesForPush = 0;
+
+  const result = await firestore.runTransaction(async (tx): Promise<UpdateDriverLocationResult> => {
     const [user, driver] = await Promise.all([tx.get(userRef), tx.get(driverRef)]);
     if (!user.exists || user.get('status') !== 'ACTIVE' || !driver.exists) {
       throw new HttpsError('failed-precondition', 'This account cannot share a location.');
@@ -175,6 +184,7 @@ export async function updateDriverLocation(
       // only a still-active request (a COMPLETED/CANCELLED one lingering in matchedTripRequestIds has
       // nobody left to tell).
       if (delay) {
+        extraMinutesForPush = delay.extraMinutes;
         for (const tripSnap of tripSnaps) {
           const status = tripStatusById.get(tripSnap.id);
           if (status === 'COMPLETED' || status === 'CANCELLED') continue;
@@ -186,9 +196,25 @@ export async function updateDriverLocation(
             message: `Your driver is running about ${delay.extraMinutes} minutes behind schedule.`,
             relatedEntity: `tripRequests/${tripSnap.id}`,
           });
+          // Module 10.5 (driver delayed push): same recipient, same wording, sent as a push after
+          // this transaction commits (below) - never inside it, a network call.
+          newlyDelayedPassengerIds.push(passengerId);
         }
       }
     }
     return { status: 'updated' };
   });
+
+  if (newlyDelayedPassengerIds.length > 0) {
+    await Promise.all(
+      newlyDelayedPassengerIds.map((passengerId) =>
+        sendPushToUser(deps, passengerId, {
+          title: 'Driver delayed',
+          body: `Your driver is running about ${extraMinutesForPush} minutes behind schedule.`,
+        }),
+      ),
+    );
+  }
+
+  return result;
 }
