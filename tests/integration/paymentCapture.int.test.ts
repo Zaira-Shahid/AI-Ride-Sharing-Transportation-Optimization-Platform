@@ -28,10 +28,12 @@ async function capturedTrip(
   const tripRef = admin().firestore.collection('tripRequests').doc();
   await tripRef.set({
     passengerId: `${prefix}-passenger-${counter}`,
+    matchedDriverId: `${prefix}-driver-${counter}`,
     status: 'COMPLETED',
     paymentIntentId: 'pi_fixture',
     paymentStatus: 'AUTHORIZED',
     finalFareMinorUnits: 800,
+    platformFeeMinorUnits: 160,
     authorizedAmountMinorUnits: 1_200,
     ...overrides,
   });
@@ -111,5 +113,48 @@ describe('captureTripPayment (functions + firestore emulator, fake Stripe)', () 
     const tripId = await capturedTrip('capture-nofare', { finalFareMinorUnits: null });
 
     expect(await capture(fakeStripe(), tripId)).toBe('skipped');
+  });
+
+  describe('driver earnings ledger entry (Module 9.5)', () => {
+    it('records final fare minus platform fee, in the config currency, on a successful capture', async () => {
+      const tripId = await capturedTrip('capture-earns', { matchedDriverId: 'earns-driver-1' });
+
+      expect(await capture(fakeStripe(), tripId)).toBe('captured');
+
+      const entries = (
+        await admin().firestore.collection('driverEarnings').where('tripId', '==', tripId).get()
+      ).docs;
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.data()).toMatchObject({
+        driverId: 'earns-driver-1',
+        tripId,
+        amountMinorUnits: 640,
+        currency: 'usd',
+      });
+    });
+
+    it('records nothing when the capture fails', async () => {
+      const tripId = await capturedTrip('capture-earns-failed');
+
+      expect(
+        await capture(fakeStripe({ capturePayment: async () => ({ status: 'failed' }) }), tripId),
+      ).toBe('failed');
+
+      const entries = (
+        await admin().firestore.collection('driverEarnings').where('tripId', '==', tripId).get()
+      ).docs;
+      expect(entries).toHaveLength(0);
+    });
+
+    it('captures the payment but records nothing when the trip has no matched driver', async () => {
+      const tripId = await capturedTrip('capture-earns-nodriver', { matchedDriverId: null });
+
+      expect(await capture(fakeStripe(), tripId)).toBe('captured');
+
+      const entries = (
+        await admin().firestore.collection('driverEarnings').where('tripId', '==', tripId).get()
+      ).docs;
+      expect(entries).toHaveLength(0);
+    });
   });
 });

@@ -67,14 +67,27 @@ export function computeFinalFareMinorUnits(
 }
 
 /**
- * The platform's own cut of `finalFareMinorUnits` (the rest is the driver's payout - module 9.5, not
- * built yet). Informational only for now: no Stripe Connect account exists to actually pay a driver
- * out (module 9.1's own deferred decision), so this is stored on the trip for a later module to use,
- * not transferred anywhere by this one.
+ * The platform's own cut of `finalFareMinorUnits` (the rest is the driver's payout - module 9.5).
+ * Informational only for now: no Stripe Connect account exists to actually pay a driver out (module
+ * 9.1's own deferred decision), so this is stored on the trip for a later module to use, not
+ * transferred anywhere by this one.
  */
 export function computePlatformFeeMinorUnits(
   rates: Pick<FareConfig, 'platformFeePercent'>,
   finalFareMinorUnits: number,
 ): number {
   return Math.round(finalFareMinorUnits * (rates.platformFeePercent / 100));
+}
+
+/**
+ * Module 9.5 (driver earnings): what the driver is owed for a trip - the final fare minus the
+ * platform's own cut of it. A bookkeeping figure only: no Stripe Connect account exists to actually
+ * pay a driver out (module 9.1's own deferred decision), so this only ever becomes a driverEarnings
+ * ledger entry (driverEarnings.ts), never a real transfer.
+ */
+export function computeDriverEarningsMinorUnits(
+  finalFareMinorUnits: number,
+  platformFeeMinorUnits: number,
+): number {
+  return finalFareMinorUnits - platformFeeMinorUnits;
 }
