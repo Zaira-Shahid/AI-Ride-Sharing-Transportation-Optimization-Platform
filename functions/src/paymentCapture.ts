@@ -2,6 +2,9 @@ import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { recordDriverEarning } from './driverEarnings.js';
 import { computeDriverEarningsMinorUnits, computeFareBreakdown } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
+import { formatMinorUnits } from './money.js';
+import { sendPushToUser } from './pushNotifications.js';
+import type { PushProvider } from './pushProvider.js';
 import { recordReceipt } from './receipts.js';
 import type { StripeProvider } from './stripeProvider.js';
 
@@ -28,6 +31,13 @@ import type { StripeProvider } from './stripeProvider.js';
 // own fare breakdown, recomputed from the same estimatedDistance/estimatedDuration/sharedRide already
 // used to reach finalFareMinorUnits in the first place (Module 9.3), never platformFeeMinorUnits
 // (deliberately excluded from what a passenger's receipt shows).
+//
+// Module 10.4 (payment captured push): a successful capture also pushes both sides - the passenger
+// (charged) and the driver (their own earnings entry just written, above) - each told the actual
+// amount (money.ts's own formatMinorUnits, the first display-currency formatting in this codebase). A
+// FAILED capture pushes nobody - user-approved: with no retry/card-update UI yet, a push about it would
+// not be actionable for either side (the same "actionable and minimal" rule 8.9's own notifications
+// already follow), so it stays a FAILED status + audit log for a future module to resolve.
 
 export type PaymentCaptureOutcome = 'captured' | 'failed' | 'skipped';
 
@@ -37,7 +47,7 @@ export type PaymentCaptureOutcome = 'captured' | 'failed' | 'skipped';
  * captured/failed/never-authorized trips are left alone, 'skipped').
  */
 export async function captureTripPayment(
-  deps: { firestore: Firestore; stripe: StripeProvider },
+  deps: { firestore: Firestore; stripe: StripeProvider; push: PushProvider },
   tripId: string,
 ): Promise<PaymentCaptureOutcome> {
   const { firestore } = deps;
@@ -74,9 +84,14 @@ export async function captureTripPayment(
     readFareConfig(firestore),
   ]);
 
-  await firestore.runTransaction(async (tx) => {
+  const driverEarningsAmountMinorUnits =
+    typeof driverId === 'string' && driverId && typeof platformFeeMinorUnits === 'number'
+      ? computeDriverEarningsMinorUnits(finalFareMinorUnits, platformFeeMinorUnits)
+      : null;
+
+  const captured = await firestore.runTransaction(async (tx) => {
     const current = await tx.get(tripRef);
-    if (!current.exists || current.get('paymentStatus') !== 'AUTHORIZED') return;
+    if (!current.exists || current.get('paymentStatus') !== 'AUTHORIZED') return false;
 
     if (outcome.status === 'failed') {
       tx.update(tripRef, { paymentStatus: 'FAILED', updatedAt: FieldValue.serverTimestamp() });
@@ -89,18 +104,15 @@ export async function captureTripPayment(
         newState: { paymentStatus: 'FAILED' },
         reason: 'Payment could not be captured',
       });
-      return;
+      return false;
     }
 
     tx.update(tripRef, { paymentStatus: 'CAPTURED', updatedAt: FieldValue.serverTimestamp() });
-    if (typeof driverId === 'string' && driverId && typeof platformFeeMinorUnits === 'number') {
+    if (driverEarningsAmountMinorUnits !== null && typeof driverId === 'string' && driverId) {
       recordDriverEarning(tx, firestore, {
         driverId,
         tripId,
-        amountMinorUnits: computeDriverEarningsMinorUnits(
-          finalFareMinorUnits,
-          platformFeeMinorUnits,
-        ),
+        amountMinorUnits: driverEarningsAmountMinorUnits,
         currency: fareConfig.currency,
       });
     }
@@ -122,7 +134,29 @@ export async function captureTripPayment(
         ),
       });
     }
+    return true;
   });
+
+  if (captured) {
+    // Module 10.4 (payment captured push): sent AFTER the transaction above commits (a network call,
+    // never inside a Firestore transaction). sendPushToUser never throws and no-ops for anyone with
+    // no saved token.
+    const chargeAmount = formatMinorUnits(finalFareMinorUnits, fareConfig.currency);
+    await Promise.all([
+      typeof passengerId === 'string' && passengerId
+        ? sendPushToUser(deps, passengerId, {
+            title: 'Payment captured',
+            body: `You were charged ${chargeAmount} for your trip.`,
+          })
+        : Promise.resolve(),
+      driverEarningsAmountMinorUnits !== null && typeof driverId === 'string' && driverId
+        ? sendPushToUser(deps, driverId, {
+            title: 'You got paid',
+            body: `You earned ${formatMinorUnits(driverEarningsAmountMinorUnits, fareConfig.currency)} for this trip.`,
+          })
+        : Promise.resolve(),
+    ]);
+  }
 
   return outcome.status === 'failed' ? 'failed' : 'captured';
 }
