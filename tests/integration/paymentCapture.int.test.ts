@@ -34,6 +34,9 @@ async function capturedTrip(
     status: 'COMPLETED',
     paymentIntentId: 'pi_fixture',
     paymentStatus: 'AUTHORIZED',
+    estimatedDistance: 5_000,
+    estimatedDuration: 600,
+    sharedRide: true,
     finalFareMinorUnits: 800,
     platformFeeMinorUnits: 160,
     authorizedAmountMinorUnits: 1_200,
@@ -155,6 +158,61 @@ describe('captureTripPayment (functions + firestore emulator, fake Stripe)', () 
 
       const entries = (
         await admin().firestore.collection('driverEarnings').where('tripId', '==', tripId).get()
+      ).docs;
+      expect(entries).toHaveLength(0);
+    });
+  });
+
+  describe('receipt (Module 9.8)', () => {
+    it('records the passenger fare breakdown, without the platform fee, on a successful capture', async () => {
+      const tripId = await capturedTrip('capture-receipt', { passengerId: 'receipt-passenger-1' });
+
+      expect(await capture(fakeStripe(), tripId)).toBe('captured');
+
+      const entries = (
+        await admin().firestore.collection('receipts').where('tripId', '==', tripId).get()
+      ).docs;
+      expect(entries).toHaveLength(1);
+      const data = entries[0]?.data();
+      expect(data).toMatchObject({
+        passengerId: 'receipt-passenger-1',
+        tripId,
+        currency: 'usd',
+        baseFareMinorUnits: 250,
+        distanceTimeComponentMinorUnits: 750,
+        sharedRideDiscountMinorUnits: 200,
+        totalMinorUnits: 800,
+      });
+      expect(data).not.toHaveProperty('platformFeeMinorUnits');
+    });
+
+    it('shows zero discount for a solo ride', async () => {
+      const tripId = await capturedTrip('capture-receipt-solo', {
+        sharedRide: false,
+        finalFareMinorUnits: 1_000,
+        platformFeeMinorUnits: 200,
+      });
+
+      expect(await capture(fakeStripe(), tripId)).toBe('captured');
+
+      const entries = (
+        await admin().firestore.collection('receipts').where('tripId', '==', tripId).get()
+      ).docs;
+      expect(entries[0]?.data()).toMatchObject({
+        sharedRideDiscountMinorUnits: 0,
+        totalMinorUnits: 1_000,
+      });
+    });
+
+    it('records nothing when the capture fails', async () => {
+      const tripId = await capturedTrip('capture-receipt-failed');
+
+      expect(
+        await capture(fakeStripe({ capturePayment: async () => ({ status: 'failed' }) }), tripId),
+      ).toBe('failed');
+
+      const entries = (
+        await admin().firestore.collection('receipts').where('tripId', '==', tripId).get()
       ).docs;
       expect(entries).toHaveLength(0);
     });

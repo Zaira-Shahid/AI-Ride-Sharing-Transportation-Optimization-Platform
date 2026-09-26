@@ -91,3 +91,41 @@ export function computeDriverEarningsMinorUnits(
 ): number {
   return finalFareMinorUnits - platformFeeMinorUnits;
 }
+
+/**
+ * Module 9.8 (receipts): the passenger-facing fare breakdown - deliberately does NOT include
+ * platformFeeMinorUnits (an internal split, not something ride-sharing receipts typically show the
+ * passenger). distanceTimeComponentMinorUnits and sharedRideDiscountMinorUnits are both derived as
+ * differences of already-computed totals (never recomputed independently), so the four fields always
+ * reconcile exactly: baseFareMinorUnits + distanceTimeComponentMinorUnits - sharedRideDiscountMinorUnits
+ * === totalMinorUnits.
+ */
+export interface FareBreakdown {
+  baseFareMinorUnits: number;
+  distanceTimeComponentMinorUnits: number;
+  /** 0 when the ride was not shared. */
+  sharedRideDiscountMinorUnits: number;
+  /** What the passenger actually paid - the same figure as finalFareMinorUnits (fare.ts). */
+  totalMinorUnits: number;
+}
+
+export function computeFareBreakdown(
+  rates: SharedRideFareRates,
+  distanceMeters: number,
+  durationSeconds: number,
+  sharedRide: boolean,
+): FareBreakdown {
+  const plainFare = computeFareMinorUnits(rates, distanceMeters, durationSeconds);
+  const totalMinorUnits = computeFinalFareMinorUnits(
+    rates,
+    distanceMeters,
+    durationSeconds,
+    sharedRide,
+  );
+  return {
+    baseFareMinorUnits: rates.baseFareMinorUnits,
+    distanceTimeComponentMinorUnits: plainFare - rates.baseFareMinorUnits,
+    sharedRideDiscountMinorUnits: plainFare - totalMinorUnits,
+    totalMinorUnits,
+  };
+}
