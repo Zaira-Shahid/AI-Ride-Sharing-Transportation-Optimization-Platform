@@ -28,7 +28,14 @@ async function person(role: 'DRIVER' | 'PASSENGER', prefix: string) {
 async function tripAt(
   status: string,
   driverId: string | null,
-  extra: { journeyId?: string; assignedPlanId?: string; passengerId?: string } = {},
+  extra: {
+    journeyId?: string;
+    assignedPlanId?: string;
+    passengerId?: string;
+    estimatedDistance?: number;
+    estimatedDuration?: number;
+    sharedRide?: boolean;
+  } = {},
 ) {
   const ref = admin().firestore.collection('tripRequests').doc();
   await ref.set({
@@ -40,6 +47,11 @@ async function tripAt(
     matchedDriverId: driverId,
     matchedJourneyId: driverId ? (extra.journeyId ?? 'journey-fixture') : null,
     assignedPlanId: extra.assignedPlanId ?? null,
+    estimatedDistance: extra.estimatedDistance ?? null,
+    estimatedDuration: extra.estimatedDuration ?? null,
+    sharedRide: extra.sharedRide ?? false,
+    finalFareMinorUnits: null,
+    platformFeeMinorUnits: null,
   });
   return ref.id;
 }
@@ -432,5 +444,50 @@ describe('completeDropoff (functions + firestore emulators)', () => {
     expect((await journeyRef.get()).data()?.status).toBe('ACTIVE');
     const driverDoc = (await admin().firestore.doc(`drivers/${driver.uid}`).get()).data();
     expect(driverDoc?.currentJourneyId).toBe(journeyRef.id);
+  });
+
+  describe('fare finalization (Module 9.3)', () => {
+    it('computes the plain fare (no discount) for a solo ride, using the default fare config', async () => {
+      const driver = await person('DRIVER', 'complete-fare-solo');
+      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid, {
+        estimatedDistance: 5_000,
+        estimatedDuration: 600,
+        sharedRide: false,
+      });
+
+      await driver.call('completeDropoff', { tripId });
+
+      // Default config: 250 + 120*5 + 15*10 = 1000; platform fee 20% of 1000 = 200.
+      const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+      expect(trip?.finalFareMinorUnits).toBe(1_000);
+      expect(trip?.platformFeeMinorUnits).toBe(200);
+    });
+
+    it('discounts the whole fare when the trip was a shared ride', async () => {
+      const driver = await person('DRIVER', 'complete-fare-shared');
+      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid, {
+        estimatedDistance: 5_000,
+        estimatedDuration: 600,
+        sharedRide: true,
+      });
+
+      await driver.call('completeDropoff', { tripId });
+
+      // 1000 fare, 20% shared-ride discount -> 800; platform fee 20% of 800 = 160.
+      const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+      expect(trip?.finalFareMinorUnits).toBe(800);
+      expect(trip?.platformFeeMinorUnits).toBe(160);
+    });
+
+    it('leaves the fare fields null when no route estimate exists', async () => {
+      const driver = await person('DRIVER', 'complete-fare-missing');
+      const tripId = await tripAt('DROPOFF_APPROACHING', driver.uid);
+
+      await driver.call('completeDropoff', { tripId });
+
+      const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+      expect(trip?.finalFareMinorUnits).toBeNull();
+      expect(trip?.platformFeeMinorUnits).toBeNull();
+    });
   });
 });
