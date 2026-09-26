@@ -320,18 +320,24 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
       estimatedDistanceMeters: 1000,
     });
     const request = await buildInsertable(tripId);
+    const existingPassengerId = (
+      await admin().firestore.doc(`tripRequests/${fixture.existingTripId}`).get()
+    ).data()?.passengerId as string;
     await admin()
       .firestore.doc(`users/${fixture.driverId}`)
       .set({ pushToken: 'ExponentPushToken[driver]' });
     await admin()
       .firestore.doc(`users/${request.passengerId}`)
       .set({ pushToken: 'ExponentPushToken[passenger]' });
+    await admin()
+      .firestore.doc(`users/${existingPassengerId}`)
+      .set({ pushToken: 'ExponentPushToken[existing]' });
     const push = recordingPush();
 
     expect(await insert(tripId, request, push)).toBe('inserted');
 
-    // Sent concurrently (Promise.all), so order between the two is not guaranteed.
-    expect(push.sent).toHaveLength(2);
+    // Sent concurrently (Promise.all), so order between them is not guaranteed.
+    expect(push.sent).toHaveLength(3);
     expect(push.sent).toContainEqual({
       token: 'ExponentPushToken[driver]',
       title: 'New passenger',
@@ -341,6 +347,12 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
       token: 'ExponentPushToken[passenger]',
       title: 'Trip matched',
       body: "You've been matched with a driver.",
+    });
+    // Module 10.7 (route changes push): the existing passenger, whose plan changed to fit the new one.
+    expect(push.sent).toContainEqual({
+      token: 'ExponentPushToken[existing]',
+      title: 'Route updated',
+      body: "Your driver's route was adjusted to pick up another passenger.",
     });
   });
 

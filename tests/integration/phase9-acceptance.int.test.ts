@@ -103,7 +103,7 @@ describe('Phase 9 acceptance (functions + firestore emulators)', () => {
     // Module 9.2: a hold for the estimate plus AUTHORIZATION_BUFFER_PERCENT - 250+120*5+15*10=1000,
     // *1.2 = 1200.
     const authOutcome = await authorizeTripPayment(
-      { firestore: admin().firestore, stripe: fakeStripe() },
+      { firestore: admin().firestore, stripe: fakeStripe(), push: recordingPush() },
       tripRef.id,
     );
     expect(authOutcome).toBe('authorized');
@@ -187,7 +187,10 @@ describe('Phase 9 acceptance (functions + firestore emulators)', () => {
   it('voids the stale hold, not collecting anything, when the trip is released before completion', async () => {
     const { tripRef } = await matchedTrip('p9a-release');
 
-    await authorizeTripPayment({ firestore: admin().firestore, stripe: fakeStripe() }, tripRef.id);
+    await authorizeTripPayment(
+      { firestore: admin().firestore, stripe: fakeStripe(), push: recordingPush() },
+      tripRef.id,
+    );
     expect((await tripRef.get()).get('paymentStatus')).toBe('AUTHORIZED');
 
     // Whatever released this trip (Module 8.5 driver cancellation, 8.7 route modification - both

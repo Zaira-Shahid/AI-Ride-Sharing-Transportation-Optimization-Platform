@@ -7,7 +7,8 @@ import {
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
-import { createNotification } from './notifications.js';
+import { notifyWithPush, sendQueuedPushes, type PendingPush } from './notifications.js';
+import type { PushProvider } from './pushProvider.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -102,7 +103,7 @@ export type SetAvailabilityResult = { status: 'updated' | 'unchanged' };
  * taken offline by the system is (see offlineFields).
  */
 export async function setAvailability(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<SetAvailabilityResult> {
@@ -118,8 +119,9 @@ export async function setAvailability(
   const userRef = firestore.collection('users').doc(caller.uid);
   const driverRef = firestore.collection('drivers').doc(caller.uid);
   const vehicleRef = firestore.collection('vehicles').doc(caller.uid);
+  const pendingPushes: PendingPush[] = [];
 
-  return firestore.runTransaction(async (tx): Promise<SetAvailabilityResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<SetAvailabilityResult> => {
     const [user, driver, vehicle] = await Promise.all([
       tx.get(userRef),
       tx.get(driverRef),
@@ -196,6 +198,7 @@ export async function setAvailability(
         tripsToRelease,
         caller.uid,
         'Driver went offline before pickup',
+        pendingPushes,
       );
     }
 
@@ -206,6 +209,9 @@ export async function setAvailability(
     });
     return { status: 'updated' };
   });
+
+  await sendQueuedPushes(deps, pendingPushes);
+  return result;
 }
 
 /**
@@ -303,6 +309,7 @@ export function releaseMatchedTrips(
   releasable: DocumentSnapshot[],
   actor: string,
   reason: string,
+  pending: PendingPush[],
 ): void {
   for (const trip of releasable) {
     const previousStatus = trip.get('status');
@@ -332,12 +339,18 @@ export function releaseMatchedTrips(
     // has one - defensive only).
     const passengerId = trip.get('passengerId');
     if (typeof passengerId === 'string' && passengerId) {
-      createNotification(tx, firestore, {
-        recipientId: passengerId,
-        type: 'RELEASED_TO_SEARCHING',
-        message: 'Your driver is no longer available. We are looking for a new match for you.',
-        relatedEntity: `tripRequests/${trip.id}`,
-      });
+      notifyWithPush(
+        tx,
+        firestore,
+        {
+          recipientId: passengerId,
+          type: 'RELEASED_TO_SEARCHING',
+          message: 'Your driver is no longer available. We are looking for a new match for you.',
+          relatedEntity: `tripRequests/${trip.id}`,
+        },
+        'Finding a new driver',
+        pending,
+      );
     }
   }
   if (releasable.length > 0) {

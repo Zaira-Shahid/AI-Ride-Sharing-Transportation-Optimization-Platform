@@ -10,6 +10,8 @@ import {
   releaseMatchedTrips,
 } from './availability.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
+import { sendQueuedPushes, type PendingPush } from './notifications.js';
+import type { PushProvider } from './pushProvider.js';
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -71,7 +73,7 @@ const IDENTITY_FIELDS = ['type', 'make', 'model', 'plateNumber', 'plateKey'] as 
  * verification was for the earlier details. Saving identical details changes nothing.
  */
 export async function saveVehicle(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<SaveVehicleResult> {
@@ -90,8 +92,9 @@ export async function saveVehicle(
   const userRef = firestore.collection('users').doc(caller.uid);
   const driverRef = firestore.collection('drivers').doc(caller.uid);
   const samePlate = firestore.collection('vehicles').where('plateKey', '==', plate.plateKey);
+  const pendingPushes: PendingPush[] = [];
 
-  return firestore.runTransaction(async (tx): Promise<SaveVehicleResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<SaveVehicleResult> => {
     const [user, driver, vehicle, plateOwners] = await Promise.all([
       tx.get(userRef),
       tx.get(driverRef),
@@ -176,12 +179,16 @@ export async function saveVehicle(
           releasable,
           caller.uid,
           'Vehicle details changed',
+          pendingPushes,
         );
       }
       auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle details changed');
     }
     return { status: 'updated' };
   });
+
+  await sendQueuedPushes(deps, pendingPushes);
+  return result;
 }
 
 export type SetVehicleCapacityResult = { status: 'updated' | 'unchanged' };
@@ -194,7 +201,7 @@ export type SetVehicleCapacityResult = { status: 'updated' | 'unchanged' };
  * lowered to match, so they can never be more than the vehicle holds.
  */
 export async function setVehicleCapacity(
-  deps: { firestore: Firestore },
+  deps: { firestore: Firestore; push: PushProvider },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<SetVehicleCapacityResult> {
@@ -210,8 +217,9 @@ export async function setVehicleCapacity(
   const vehicleRef = firestore.collection('vehicles').doc(caller.uid);
   const userRef = firestore.collection('users').doc(caller.uid);
   const driverRef = firestore.collection('drivers').doc(caller.uid);
+  const pendingPushes: PendingPush[] = [];
 
-  return firestore.runTransaction(async (tx): Promise<SetVehicleCapacityResult> => {
+  const result = await firestore.runTransaction(async (tx): Promise<SetVehicleCapacityResult> => {
     const [user, vehicle, driver] = await Promise.all([
       tx.get(userRef),
       tx.get(vehicleRef),
@@ -278,10 +286,21 @@ export async function setVehicleCapacity(
         if (journeyUpdate) {
           tx.update(journey.ref, { ...journeyUpdate, updatedAt: FieldValue.serverTimestamp() });
         }
-        releaseMatchedTrips(tx, firestore, journey, releasable, caller.uid, 'Vehicle seats raised');
+        releaseMatchedTrips(
+          tx,
+          firestore,
+          journey,
+          releasable,
+          caller.uid,
+          'Vehicle seats raised',
+          pendingPushes,
+        );
       }
       auditTakenOffline(tx, firestore, caller.uid, caller.uid, 'Vehicle seats raised');
     }
     return { status: 'updated' };
   });
+
+  await sendQueuedPushes(deps, pendingPushes);
+  return result;
 }

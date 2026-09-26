@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { authorizeTripPayment } from '../../functions/src/paymentAuthorization';
+import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { admin } from './support';
+
+const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
+
+function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+  const sent: SendPushParams[] = [];
+  return {
+    sent,
+    sendPush: (params) => {
+      sent.push(params);
+      return Promise.resolve({ status: 'sent' });
+    },
+  };
+}
 
 // Module 9.2's own authorization logic, tested directly against authorizeTripPayment (not wired into
 // any live trigger yet - see the file's own note on why) with a fake StripeProvider, the same approach
@@ -87,8 +101,8 @@ async function matchedTrip(
   return { journeyId: journeyRef.id, tripId: tripRef.id, passengerId };
 }
 
-const authorize = (stripe: StripeProvider, tripId: string) =>
-  authorizeTripPayment({ firestore: admin().firestore, stripe }, tripId);
+const authorize = (stripe: StripeProvider, tripId: string, push: PushProvider = noopPush) =>
+  authorizeTripPayment({ firestore: admin().firestore, stripe, push }, tripId);
 
 describe('authorizeTripPayment (functions + firestore emulator, fake Stripe)', () => {
   it('authorizes the estimate plus the buffer, and stores the result', async () => {
@@ -117,8 +131,12 @@ describe('authorizeTripPayment (functions + firestore emulator, fake Stripe)', (
 
   it('releases the passenger to SEARCHING and reverts the journey to AVAILABLE when nobody has a payment method', async () => {
     const fixture = await matchedTrip('auth-nomethod', { hasPaymentMethod: false });
+    await admin()
+      .firestore.doc(`users/${fixture.passengerId}`)
+      .update({ pushToken: 'ExponentPushToken[passenger]' });
+    const push = recordingPush();
 
-    expect(await authorize(fakeStripe(), fixture.tripId)).toBe('declined');
+    expect(await authorize(fakeStripe(), fixture.tripId, push)).toBe('declined');
 
     const trip = (await admin().firestore.doc(`tripRequests/${fixture.tripId}`).get()).data();
     expect(trip?.status).toBe('SEARCHING');
@@ -142,6 +160,15 @@ describe('authorizeTripPayment (functions + firestore emulator, fake Stripe)', (
       recipientId: fixture.passengerId,
       type: 'RELEASED_TO_SEARCHING',
     });
+
+    // Module 10.7 (route changes push): the same release, also pushed.
+    expect(push.sent).toEqual([
+      {
+        token: 'ExponentPushToken[passenger]',
+        title: 'Finding a new driver',
+        body: 'Your payment could not be authorized. We are looking for a new match for you.',
+      },
+    ]);
 
     const audit = (
       await admin()
