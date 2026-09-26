@@ -36,3 +36,55 @@ describe('createStripeProvider', () => {
     expect(await provider.ping()).toBe(false);
   });
 });
+
+describe('createStripeProvider.createCustomer', () => {
+  it("returns the client's own new customer id", async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      customers: { create: async () => ({ id: 'cus_123' }) },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.createCustomer({ email: 'pat@example.com', name: 'Pat' })).toBe(
+      'cus_123',
+    );
+  });
+});
+
+describe('createStripeProvider.authorizePayment', () => {
+  const params = {
+    stripeCustomerId: 'cus_123',
+    paymentMethodId: 'pm_123',
+    amountMinorUnits: 1_200,
+    currency: 'usd',
+  };
+
+  it('is authorized when Stripe confirms a hold (requires_capture)', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        create: async () => ({ id: 'pi_123', status: 'requires_capture' }),
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.authorizePayment(params)).toEqual({
+      status: 'authorized',
+      paymentIntentId: 'pi_123',
+    });
+  });
+
+  it('is declined when the client throws (a declined card, ...)', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        create: async () => {
+          throw new Error('Your card was declined.');
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.authorizePayment(params)).toEqual({ status: 'declined' });
+  });
+
+  it('is declined when Stripe answers without ever reaching requires_capture', async () => {
+    const provider = createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      paymentIntents: {
+        create: async () => ({ id: 'pi_123', status: 'requires_action' }),
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    expect(await provider.authorizePayment(params)).toEqual({ status: 'declined' });
+  });
+});
