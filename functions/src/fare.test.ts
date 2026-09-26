@@ -3,6 +3,7 @@ import {
   AUTHORIZATION_BUFFER_PERCENT,
   computeAuthorizationAmountMinorUnits,
   computeDriverEarningsMinorUnits,
+  computeFareBreakdown,
   computeFareMinorUnits,
   computeFinalFareMinorUnits,
   computePlatformFeeMinorUnits,
@@ -64,5 +65,37 @@ describe('computeDriverEarningsMinorUnits', () => {
 
   it('is the whole final fare when the platform fee is zero', () => {
     expect(computeDriverEarningsMinorUnits(1_000, 0)).toBe(1_000);
+  });
+});
+
+describe('computeFareBreakdown', () => {
+  it('has zero discount and reconciles exactly for a solo ride', () => {
+    const breakdown = computeFareBreakdown(SHARED_RATES, 5_000, 600, false);
+    expect(breakdown).toEqual({
+      baseFareMinorUnits: 250,
+      distanceTimeComponentMinorUnits: 750,
+      sharedRideDiscountMinorUnits: 0,
+      totalMinorUnits: 1_000,
+    });
+    expect(
+      breakdown.baseFareMinorUnits +
+        breakdown.distanceTimeComponentMinorUnits -
+        breakdown.sharedRideDiscountMinorUnits,
+    ).toBe(breakdown.totalMinorUnits);
+  });
+
+  it('shows the discount and still reconciles exactly for a shared ride', () => {
+    const breakdown = computeFareBreakdown(SHARED_RATES, 5_000, 600, true);
+    expect(breakdown).toEqual({
+      baseFareMinorUnits: 250,
+      distanceTimeComponentMinorUnits: 750,
+      sharedRideDiscountMinorUnits: 200,
+      totalMinorUnits: 800,
+    });
+    expect(
+      breakdown.baseFareMinorUnits +
+        breakdown.distanceTimeComponentMinorUnits -
+        breakdown.sharedRideDiscountMinorUnits,
+    ).toBe(breakdown.totalMinorUnits);
   });
 });

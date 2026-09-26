@@ -122,6 +122,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A per-trip, immutable fare-breakdown record (Module 9.8), server-written only when a payment is
+    // actually captured (Module 9.4). Readable by the passenger it is for, and by staff (billing
+    // support) - same pattern as driverEarnings, even though no receipts screen exists yet to show it.
+    match /receipts/{receiptId} {
+      allow read: if isVerified()
+                  && ((request.auth.uid == resource.data.passengerId && role() == 'PASSENGER')
+                      || isStaff());
+      allow write: if false;
+    }
+
     // Every other collection stays closed until the module that owns it defines its rules.
     match /{document=**} {
       allow read, write: if false;

@@ -1,7 +1,8 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { recordDriverEarning } from './driverEarnings.js';
-import { computeDriverEarningsMinorUnits } from './fare.js';
+import { computeDriverEarningsMinorUnits, computeFareBreakdown } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
+import { recordReceipt } from './receipts.js';
 import type { StripeProvider } from './stripeProvider.js';
 
 // Module 9.4 (payment capture): once a trip is COMPLETED and its final fare is known (Module 9.3),
@@ -22,6 +23,11 @@ import type { StripeProvider } from './stripeProvider.js';
 // user-approved: only on an actual capture, matching the spec's own acceptance line order ("Complete
 // trip -> automatic payment -> earnings record"). Skipped (not a failure) if the trip's own driverId
 // or platformFeeMinorUnits is somehow missing - a bookkeeping gap, not a payment one.
+//
+// The same successful capture also writes a receipts entry (Module 9.8, receipts.ts) - the passenger's
+// own fare breakdown, recomputed from the same estimatedDistance/estimatedDuration/sharedRide already
+// used to reach finalFareMinorUnits in the first place (Module 9.3), never platformFeeMinorUnits
+// (deliberately excluded from what a passenger's receipt shows).
 
 export type PaymentCaptureOutcome = 'captured' | 'failed' | 'skipped';
 
@@ -58,6 +64,10 @@ export async function captureTripPayment(
 
   const driverId = tripSnap.get('matchedDriverId');
   const platformFeeMinorUnits = tripSnap.get('platformFeeMinorUnits');
+  const passengerId = tripSnap.get('passengerId');
+  const estimatedDistance = tripSnap.get('estimatedDistance');
+  const estimatedDuration = tripSnap.get('estimatedDuration');
+  const sharedRide = tripSnap.get('sharedRide') === true;
 
   const [outcome, fareConfig] = await Promise.all([
     deps.stripe.capturePayment({ paymentIntentId, amountMinorUnits: finalFareMinorUnits }),
@@ -92,6 +102,24 @@ export async function captureTripPayment(
           platformFeeMinorUnits,
         ),
         currency: fareConfig.currency,
+      });
+    }
+    if (
+      typeof passengerId === 'string' &&
+      passengerId &&
+      typeof estimatedDistance === 'number' &&
+      typeof estimatedDuration === 'number'
+    ) {
+      recordReceipt(tx, firestore, {
+        passengerId,
+        tripId,
+        currency: fareConfig.currency,
+        breakdown: computeFareBreakdown(
+          fareConfig,
+          estimatedDistance,
+          estimatedDuration,
+          sharedRide,
+        ),
       });
     }
   });
