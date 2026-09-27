@@ -1,5 +1,11 @@
 export { MapView } from './MapView';
 export { decodePolyline } from './polyline';
+export {
+  TILE_ATTRIBUTION_HTML,
+  TILE_ATTRIBUTION_TEXT,
+  TILE_MAX_ZOOM,
+  TILE_URL_TEMPLATE,
+} from './tiles';
 export { useCurrentLocation } from './useCurrentLocation';
 export { useLocationWatch } from './useLocationWatch';
 export { frameMap, type MapFraming } from './view';
