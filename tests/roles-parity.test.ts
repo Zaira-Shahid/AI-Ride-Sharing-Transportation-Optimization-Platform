@@ -57,6 +57,11 @@ import {
   setUserStatusInputSchema as functionsSetStatusSchema,
 } from '../functions/src/userManagement';
 import {
+  TRIP_HISTORY_PAGE_SIZE as functionsHistoryPageSize,
+  getTripDetailInputSchema as functionsTripDetailSchema,
+  listTripHistoryInputSchema as functionsTripHistorySchema,
+} from '../functions/src/tripMonitoring';
+import {
   NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
   VEHICLE_TYPES as functionsVehicleTypes,
   isValidPlate as functionsIsValidPlate,
@@ -113,6 +118,9 @@ import {
   reviewInputSchema as sharedReviewSchema,
   SET_USER_STATUS_REASON_MAX_LENGTH,
   setUserStatusInputSchema as sharedSetStatusSchema,
+  TRIP_HISTORY_PAGE_SIZE,
+  getTripDetailInputSchema as sharedTripDetailSchema,
+  listTripHistoryInputSchema as sharedTripHistorySchema,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
   setVehicleCapacityInputSchema as sharedCapacitySchema,
@@ -333,6 +341,37 @@ describe('functions and shared types stay aligned', () => {
     for (const input of inputs) {
       expect(functionsSetStatusSchema.safeParse(input).success).toBe(
         sharedSetStatusSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('validates trip monitoring requests identically', () => {
+    expect(functionsHistoryPageSize).toBe(TRIP_HISTORY_PAGE_SIZE);
+    const historyInputs: unknown[] = [
+      {},
+      { cursor: null },
+      { cursor: { createdAtMs: 1, tripId: 'abc' } },
+      { cursor: { createdAtMs: 'x', tripId: 'abc' } },
+      { cursor: { createdAtMs: 1, tripId: '' } },
+      { cursor: { createdAtMs: 1, tripId: 'x'.repeat(201) } },
+      { cursor: { createdAtMs: 1 } },
+    ];
+    for (const input of historyInputs) {
+      expect(functionsTripHistorySchema.safeParse(input).success).toBe(
+        sharedTripHistorySchema.safeParse(input).success,
+      );
+    }
+    const detailInputs: unknown[] = [
+      { tripId: 'abc123' },
+      { tripId: '' },
+      { tripId: '   ' },
+      { tripId: 'x'.repeat(200) },
+      { tripId: 'x'.repeat(201) },
+      {},
+    ];
+    for (const input of detailInputs) {
+      expect(functionsTripDetailSchema.safeParse(input).success).toBe(
+        sharedTripDetailSchema.safeParse(input).success,
       );
     }
   });
