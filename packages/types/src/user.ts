@@ -20,6 +20,8 @@ export interface UserProfile {
   phone: string | null;
   photoUrl: string | null;
   status: UserStatus;
+  /** Why `status` is SUSPENDED (Module 11.3); null while ACTIVE, set by a staff decision only. */
+  statusReason: string | null;
   /** A passenger's open trip request (Module 3.7); set and cleared by server functions only. */
   currentTripRequestId?: string | null;
   /** An Expo push token (Module 10.2), kept up to date by the app; null until one is saved. */
