@@ -1,5 +1,11 @@
 import { APP_DISPLAY_NAMES } from '@ridemesh/config';
-import { validateLogin, type LoginFormValues, type SelfServiceRole } from '@ridemesh/types';
+import {
+  isStaffRole,
+  validateLogin,
+  type LoginFormValues,
+  type SelfServiceRole,
+  type StaffRole,
+} from '@ridemesh/types';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { AuthFlowError } from './auth-errors';
 import type { FirebaseClient } from './client';
@@ -49,6 +55,38 @@ export async function signIn(client: Client, input: SignInInput): Promise<SignIn
   if (role !== null && role !== input.expectedRole) {
     await signOut(client.auth).catch(() => undefined);
     throw new AuthFlowError('role-mismatch', roleMismatchMessage(role));
+  }
+  return { role };
+}
+
+export interface StaffSignInOutcome {
+  role: StaffRole;
+}
+
+/**
+ * Signs in a staff member (SUPPORT, OPERATIONS, ADMIN or SUPER_ADMIN) to the admin console. Staff
+ * accounts are never self-registered - a role is always already assigned server-side (by
+ * scripts/set-staff-role.mjs) before anyone can sign in here, so unlike signIn() above there is no
+ * "let a role-less account through to finish registration" case: a passenger/driver account, or one
+ * with no role at all, is signed out again and refused immediately.
+ */
+export async function signInStaff(
+  client: Client,
+  values: LoginFormValues,
+): Promise<StaffSignInOutcome> {
+  const validation = validateLogin(values);
+  if (!validation.ok) {
+    throw new AuthFlowError('validation', 'Please check the highlighted fields.');
+  }
+  const { email, password } = validation.data;
+
+  const credential = await signInWithEmailAndPassword(client.auth, email, password);
+  const { claims } = await credential.user.getIdTokenResult();
+  const role = typeof claims.role === 'string' ? claims.role : null;
+
+  if (!isStaffRole(role)) {
+    await signOut(client.auth).catch(() => undefined);
+    throw new AuthFlowError('role-mismatch', 'This account cannot be used in the admin console.');
   }
   return { role };
 }

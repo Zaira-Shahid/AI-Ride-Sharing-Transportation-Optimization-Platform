@@ -11,6 +11,7 @@
   "dependencies": {
     "@ridemesh/config": "*",
     "@ridemesh/firebase": "*",
+    "@ridemesh/types": "*",
     "@ridemesh/ui": "*",
     "next": "^16.3.5",
     "react": "19.2.3",
