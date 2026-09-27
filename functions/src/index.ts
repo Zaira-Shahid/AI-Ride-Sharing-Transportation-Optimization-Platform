@@ -44,6 +44,11 @@ import {
   headToPickup as driverHeadToPickup,
   startTransit as driverStartTransit,
 } from './tripExecution.js';
+import {
+  getTripDetailForStaff,
+  listActiveTripsForStaff,
+  listTripHistoryForStaff,
+} from './tripMonitoring.js';
 import { setUserStatusAsStaff } from './userManagement.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
@@ -177,6 +182,18 @@ export const requestReview = onCall((request) =>
 
 export const setUserStatus = onCall((request) =>
   setUserStatusAsStaff({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const listActiveTrips = onCall((request) =>
+  listActiveTripsForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const listTripHistory = onCall((request) =>
+  listTripHistoryForStaff({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const getTripDetail = onCall((request) =>
+  getTripDetailForStaff({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
 export const setAvailability = onCall((request) =>
