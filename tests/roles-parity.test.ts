@@ -53,6 +53,10 @@ import {
   reviewInputSchema as functionsReviewSchema,
 } from '../functions/src/verification';
 import {
+  SET_USER_STATUS_REASON_MAX_LENGTH as functionsStatusReasonMax,
+  setUserStatusInputSchema as functionsSetStatusSchema,
+} from '../functions/src/userManagement';
+import {
   NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
   VEHICLE_TYPES as functionsVehicleTypes,
   isValidPlate as functionsIsValidPlate,
@@ -107,6 +111,8 @@ import {
   SEAT_CAPACITY_MIN,
   requestReviewInputSchema as sharedRequestSchema,
   reviewInputSchema as sharedReviewSchema,
+  SET_USER_STATUS_REASON_MAX_LENGTH,
+  setUserStatusInputSchema as sharedSetStatusSchema,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
   setVehicleCapacityInputSchema as sharedCapacitySchema,
@@ -301,6 +307,32 @@ describe('functions and shared types stay aligned', () => {
     for (const input of requests) {
       expect(functionsRequestSchema.safeParse(input).success).toBe(
         sharedRequestSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('validates a user status change identically', () => {
+    expect(functionsStatusReasonMax).toBe(SET_USER_STATUS_REASON_MAX_LENGTH);
+    const inputs: unknown[] = [
+      { userId: 'abc123', status: 'ACTIVE' },
+      { userId: 'abc123', status: 'ACTIVE', reason: null },
+      { userId: 'abc123', status: 'SUSPENDED', reason: 'Fraudulent payment method.' },
+      { userId: 'abc123', status: 'SUSPENDED' },
+      { userId: 'abc123', status: 'SUSPENDED', reason: null },
+      { userId: 'abc123', status: 'SUSPENDED', reason: '   ' },
+      { userId: 'abc123', status: 'SUSPENDED', reason: 'x'.repeat(500) },
+      { userId: 'abc123', status: 'SUSPENDED', reason: 'x'.repeat(501) },
+      { userId: 'abc123', status: 'PENDING' },
+      { userId: 'users/abc', status: 'ACTIVE' },
+      { userId: '..', status: 'ACTIVE' },
+      { userId: '', status: 'ACTIVE' },
+      { userId: 'a'.repeat(129), status: 'ACTIVE' },
+      { status: 'ACTIVE' },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsSetStatusSchema.safeParse(input).success).toBe(
+        sharedSetStatusSchema.safeParse(input).success,
       );
     }
   });

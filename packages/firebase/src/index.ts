@@ -16,5 +16,6 @@ export * from './session';
 export * from './sign-in';
 export * from './trip';
 export * from './tripExecution';
+export * from './userManagement';
 export * from './verification';
 export * from './vehicle';

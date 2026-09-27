@@ -43,6 +43,7 @@ export async function assignStaffRole(
         phone: null,
         photoUrl: user.photoURL ?? null,
         status: 'ACTIVE',
+        statusReason: null,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });

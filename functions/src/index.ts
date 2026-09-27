@@ -44,6 +44,7 @@ import {
   headToPickup as driverHeadToPickup,
   startTransit as driverStartTransit,
 } from './tripExecution.js';
+import { setUserStatusAsStaff } from './userManagement.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
   saveVehicle as saveDriverVehicle,
@@ -172,6 +173,10 @@ export const reviewVehicle = onCall((request) =>
 
 export const requestReview = onCall((request) =>
   requestDriverReview({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const setUserStatus = onCall((request) =>
+  setUserStatusAsStaff({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
 export const setAvailability = onCall((request) =>
