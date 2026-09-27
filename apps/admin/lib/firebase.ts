@@ -1,4 +1,5 @@
-import { initializeFirebaseApp, parseFirebaseWebConfig } from '@ridemesh/firebase';
+import { createFirebaseClient, parseFirebaseWebConfig } from '@ridemesh/firebase';
+import { parsePortOffset } from '@ridemesh/config';
 
 export function readFirebaseConfig() {
   return parseFirebaseWebConfig({
@@ -12,6 +13,17 @@ export function readFirebaseConfig() {
   });
 }
 
-export function getFirebaseApp() {
-  return initializeFirebaseApp(readFirebaseConfig());
+/**
+ * Module 11.1 (admin dashboard foundation): the admin console's own auth+functions+firestore client -
+ * createFirebaseClient itself is platform-agnostic (the web Firebase SDK), unlike
+ * @ridemesh/mobile-auth's own createMobileFirebaseClient (Expo-specific persistence), so it is used
+ * directly here rather than through that package. No persistence option is passed, so it falls back to
+ * the web SDK's own default (which also loads popup/redirect sign-in support, unneeded here but
+ * harmless).
+ */
+export function getFirebaseClient() {
+  return createFirebaseClient(readFirebaseConfig(), {
+    emulatorHost: process.env.NEXT_PUBLIC_FIREBASE_EMULATOR_HOST || undefined,
+    emulatorPortOffset: parsePortOffset(process.env.NEXT_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET),
+  });
 }

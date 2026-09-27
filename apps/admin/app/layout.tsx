@@ -1,7 +1,8 @@
 import { APP_DISPLAY_NAMES } from '@ridemesh/config';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Sidebar } from '../components/Sidebar';
+import { AuthGate } from '../components/AuthGate';
+import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -11,9 +12,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+      <body className="h-screen overflow-hidden">
+        <Providers>
+          <AuthGate>{children}</AuthGate>
+        </Providers>
       </body>
     </html>
   );
