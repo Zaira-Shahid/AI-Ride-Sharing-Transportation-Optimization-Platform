@@ -83,7 +83,11 @@ export function DriversTable() {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.uid} className="border-b border-white/5 last:border-0">
+            <tr
+              key={row.uid}
+              id={`driver-${row.uid}`}
+              className="border-b border-white/5 last:border-0 target:bg-electric-cyan/10"
+            >
               <td className="px-4 py-3 align-top">
                 <p className="font-medium text-clean-white">{row.name}</p>
                 <p className="text-xs text-clean-white/50">{row.email}</p>
