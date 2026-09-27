@@ -13,6 +13,7 @@ export * from './trip';
 export * from './trip-estimate';
 export * from './trip-request';
 export * from './trip-times';
+export * from './tripMonitoring';
 export * from './user';
 export * from './userManagement';
 export * from './verification';
