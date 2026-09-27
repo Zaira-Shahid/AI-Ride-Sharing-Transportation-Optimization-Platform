@@ -108,6 +108,62 @@ export async function listDriversForReview(
   return rows.sort((a, b) => rank(a.driverVerificationStatus) - rank(b.driverVerificationStatus));
 }
 
+export interface VehicleReviewRow {
+  driverId: string;
+  driverName: string;
+  driverEmail: string;
+  type: VehicleType | null;
+  make: string;
+  model: string;
+  plateNumber: string;
+  seatCapacity: number | null;
+  verificationStatus: VehicleVerificationStatus;
+  verificationReason: string | null;
+}
+
+/**
+ * Module 11.6 (admin dashboard: vehicle management, standalone page). Every SAVED vehicle (a driver
+ * with none yet is simply absent - this is a fleet view, not a driver roster), PENDING first, each
+ * with its own driver's name/email so staff can find whose it is. Read-only by design: verify/reject
+ * stays on the Drivers page (module 11.2) only, so there is exactly one place that writes a
+ * verification decision and one audit trail for it - this page's own "Manage" link points back there.
+ */
+export async function listVehiclesForReview(
+  client: Pick<FirebaseClient, 'firestore'>,
+): Promise<VehicleReviewRow[]> {
+  const vehicleDocs = (await getDocs(collection(client.firestore, 'vehicles'))).docs;
+
+  const rows = await Promise.all(
+    vehicleDocs.map(async (vehicleDoc): Promise<VehicleReviewRow> => {
+      const driverId = vehicleDoc.id;
+      const vehicleData = vehicleDoc.data();
+      const userData = (await getDoc(doc(client.firestore, 'users', driverId))).data();
+
+      return {
+        driverId,
+        driverName: typeof userData?.name === 'string' ? userData.name : driverId,
+        driverEmail: typeof userData?.email === 'string' ? userData.email : '',
+        type: typeof vehicleData.type === 'string' ? (vehicleData.type as VehicleType) : null,
+        make: typeof vehicleData.make === 'string' ? vehicleData.make : '',
+        model: typeof vehicleData.model === 'string' ? vehicleData.model : '',
+        plateNumber: typeof vehicleData.plateNumber === 'string' ? vehicleData.plateNumber : '',
+        seatCapacity:
+          typeof vehicleData.seatCapacity === 'number' ? vehicleData.seatCapacity : null,
+        verificationStatus: isOneOf(VEHICLE_VERIFICATION_STATUSES, vehicleData.verificationStatus)
+          ? vehicleData.verificationStatus
+          : 'PENDING',
+        verificationReason:
+          typeof vehicleData.verificationReason === 'string'
+            ? vehicleData.verificationReason
+            : null,
+      };
+    }),
+  );
+
+  const rank = (status: VehicleVerificationStatus) => (status === 'PENDING' ? 0 : 1);
+  return rows.sort((a, b) => rank(a.verificationStatus) - rank(b.verificationStatus));
+}
+
 /**
  * Records a staff decision on a driver or their vehicle (functions/src/verification.ts's own
  * reviewAsStaff, via the reviewDriver/reviewVehicle callables) - only ADMIN and SUPER_ADMIN are
