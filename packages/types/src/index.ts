@@ -1,3 +1,4 @@
+export * from './auditLogs';
 export * from './auth';
 export * from './availability';
 export * from './disputes';
