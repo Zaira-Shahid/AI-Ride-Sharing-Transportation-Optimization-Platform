@@ -60,12 +60,12 @@ function requireStaff(caller: StaffCaller): void {
   }
 }
 
-function toMillis(value: unknown): number {
+export function toMillis(value: unknown): number {
   const timestamp = value as { toMillis?: () => number } | undefined;
   return typeof timestamp?.toMillis === 'function' ? timestamp.toMillis() : 0;
 }
 
-function toRow(tripId: string, data: FirebaseFirestore.DocumentData): TripMonitoringRow {
+export function toRow(tripId: string, data: FirebaseFirestore.DocumentData): TripMonitoringRow {
   return {
     tripId,
     status: typeof data.status === 'string' ? data.status : '',
