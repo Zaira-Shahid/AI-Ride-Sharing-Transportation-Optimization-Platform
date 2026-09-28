@@ -71,6 +71,7 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   authorizedAmountMinorUnits: null,
   // What was actually returned to the passenger (Module 9.7); null until a refund succeeds.
   refundedAmountMinorUnits: null,
+  disputeReviewed: false,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;

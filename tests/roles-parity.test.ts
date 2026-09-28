@@ -61,6 +61,7 @@ import {
   getTripDetailInputSchema as functionsTripDetailSchema,
   listTripHistoryInputSchema as functionsTripHistorySchema,
 } from '../functions/src/tripMonitoring';
+import { markDisputeReviewedInputSchema as functionsDisputeSchema } from '../functions/src/disputes';
 import {
   NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
   VEHICLE_TYPES as functionsVehicleTypes,
@@ -121,6 +122,7 @@ import {
   TRIP_HISTORY_PAGE_SIZE,
   getTripDetailInputSchema as sharedTripDetailSchema,
   listTripHistoryInputSchema as sharedTripHistorySchema,
+  markDisputeReviewedInputSchema as sharedDisputeSchema,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
   setVehicleCapacityInputSchema as sharedCapacitySchema,
@@ -372,6 +374,22 @@ describe('functions and shared types stay aligned', () => {
     for (const input of detailInputs) {
       expect(functionsTripDetailSchema.safeParse(input).success).toBe(
         sharedTripDetailSchema.safeParse(input).success,
+      );
+    }
+  });
+
+  it('validates a mark-dispute-reviewed request identically', () => {
+    const inputs: unknown[] = [
+      { tripId: 'abc123' },
+      { tripId: '' },
+      { tripId: '   ' },
+      { tripId: 'x'.repeat(200) },
+      { tripId: 'x'.repeat(201) },
+      {},
+    ];
+    for (const input of inputs) {
+      expect(functionsDisputeSchema.safeParse(input).success).toBe(
+        sharedDisputeSchema.safeParse(input).success,
       );
     }
   });

@@ -1,5 +1,6 @@
 export * from './auth';
 export * from './availability';
+export * from './disputes';
 export * from './driver';
 export * from './flexibility';
 export * from './geocoding';
