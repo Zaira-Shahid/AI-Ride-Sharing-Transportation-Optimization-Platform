@@ -63,6 +63,11 @@ import {
 } from '../functions/src/tripMonitoring';
 import { markDisputeReviewedInputSchema as functionsDisputeSchema } from '../functions/src/disputes';
 import {
+  AUDIT_FIELDS_ONLY_ACTIONS as functionsAuditFieldsOnly,
+  AUDIT_LOG_PAGE_SIZE as functionsAuditPageSize,
+  listAuditLogsInputSchema as functionsAuditSchema,
+} from '../functions/src/auditLogs';
+import {
   NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
   VEHICLE_TYPES as functionsVehicleTypes,
   isValidPlate as functionsIsValidPlate,
@@ -122,6 +127,9 @@ import {
   TRIP_HISTORY_PAGE_SIZE,
   getTripDetailInputSchema as sharedTripDetailSchema,
   listTripHistoryInputSchema as sharedTripHistorySchema,
+  AUDIT_FIELDS_ONLY_ACTIONS,
+  AUDIT_LOG_PAGE_SIZE,
+  listAuditLogsInputSchema as sharedAuditSchema,
   markDisputeReviewedInputSchema as sharedDisputeSchema,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
@@ -392,6 +400,35 @@ describe('functions and shared types stay aligned', () => {
         sharedDisputeSchema.safeParse(input).success,
       );
     }
+  });
+
+  it('validates a list-audit-logs request identically, and pages and hides the same way', () => {
+    const cursor = { seconds: 1_700_000_000, nanoseconds: 5, logId: 'abc' };
+    const inputs: unknown[] = [
+      {},
+      { cursor: null, action: null, actor: null },
+      { cursor },
+      { cursor: { ...cursor, nanoseconds: -1 } },
+      { cursor: { ...cursor, nanoseconds: 1_000_000_000 } },
+      { cursor: { ...cursor, logId: '' } },
+      { cursor: { ...cursor, seconds: 1.5 } },
+      { action: 'USER_STATUS_CHANGED' },
+      { action: 'user_status_changed' },
+      { action: 'A'.repeat(80) },
+      { action: 'A'.repeat(81) },
+      { action: '' },
+      { actor: 'someone@example.com' },
+      { actor: '   ' },
+      { actor: 'x'.repeat(200) },
+      { actor: 'x'.repeat(201) },
+    ];
+    for (const input of inputs) {
+      expect(functionsAuditSchema.safeParse(input).success).toBe(
+        sharedAuditSchema.safeParse(input).success,
+      );
+    }
+    expect(functionsAuditPageSize).toBe(AUDIT_LOG_PAGE_SIZE);
+    expect([...functionsAuditFieldsOnly]).toEqual([...AUDIT_FIELDS_ONLY_ACTIONS]);
   });
 
   it('uses the same availability targets and go-online requirements', () => {

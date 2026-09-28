@@ -586,6 +586,19 @@ using the Admin SDK, which bypass rules.
 Collections other than `users` stay closed until the module that owns each one defines its rules.
 `auditLogs` is never readable by clients. A verified email is required for every allowed read.
 
+### Reading the audit log (staff)
+
+- `auditLogs` still has no rule. Verified `ADMIN` and `SUPER_ADMIN` staff read it through the
+  `listAuditLogs` function (module 11.8), newest first, 25 per page, filtered by exact action and/or
+  actor (an email, uid, `system` or `script:...`). Other staff roles and everyone else are refused.
+- Loading the list writes no audit entry. Nothing is changed or deleted; entries are shown as stored.
+- Staff uids are shown with their name and email from `users`; `system` and `script:...` actors are
+  shown as stored.
+- `VEHICLE_CREATED` and `VEHICLE_UPDATED` entries hold the whole vehicle (plate number included). The
+  function returns only the names of the fields that changed for them, never the values, so the plate
+  does not leave the server. The stored entries are unchanged.
+- Entries name no exact place, and the page does not look one up.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with
