@@ -178,6 +178,13 @@ export interface TripRequest {
   authorizedAmountMinorUnits: number | null;
   /** What was actually returned to the passenger (Module 9.7); null until a refund succeeds. */
   refundedAmountMinorUnits: number | null;
+  /**
+   * Whether staff have marked a DISPUTED payment as looked at (Module 11.7) - an audit-only work-queue
+   * marker, not a payment state (the payment state machine, spec section 74, has nothing after
+   * DISPUTED); false until a staff member reviews it, and meaningless while paymentStatus isn't
+   * DISPUTED.
+   */
+  disputeReviewed: boolean;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -206,6 +213,7 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   paymentStatus: null,
   authorizedAmountMinorUnits: null,
   refundedAmountMinorUnits: null,
+  disputeReviewed: false,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

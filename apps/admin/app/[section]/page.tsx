@@ -6,18 +6,20 @@ import { SECTION_ITEMS } from '../../lib/navigation';
 export const dynamicParams = false;
 
 // Module 11.2 (driver/vehicle management), 11.3 (user management), 11.4 (trip monitoring), 11.5
-// (live map) and 11.6 (vehicle management, standalone page): 'drivers'/'passengers'/'trips'/
-// 'live-network'/'vehicles' each have their own real page now (app/drivers/page.tsx,
-// app/passengers/page.tsx, app/trips/page.tsx, app/live-network/page.tsx, app/vehicles/page.tsx) -
-// they must stay out of this catch-all's own static params, or Next.js's build sees two pages
-// resolving the same path and refuses to build. Still in SECTION_ITEMS (so the sidebar's own link is
-// unaffected) - only excluded from what this placeholder generates.
+// (live map), 11.6 (vehicle management, standalone page) and 11.7 (disputes):
+// 'drivers'/'passengers'/'trips'/'live-network'/'vehicles'/'disputes' each have their own real page
+// now (app/drivers/page.tsx, app/passengers/page.tsx, app/trips/page.tsx, app/live-network/page.tsx,
+// app/vehicles/page.tsx, app/disputes/page.tsx) - they must stay out of this catch-all's own static
+// params, or Next.js's build sees two pages resolving the same path and refuses to build. Still in
+// SECTION_ITEMS (so the sidebar's own link is unaffected) - only excluded from what this placeholder
+// generates.
 const SECTIONS_WITH_OWN_PAGE = new Set([
   'drivers',
   'passengers',
   'trips',
   'live-network',
   'vehicles',
+  'disputes',
 ]);
 
 export function generateStaticParams() {

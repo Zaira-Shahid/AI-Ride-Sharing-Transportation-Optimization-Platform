@@ -49,6 +49,7 @@ import {
   listActiveTripsForStaff,
   listTripHistoryForStaff,
 } from './tripMonitoring.js';
+import { listDisputedTripsForStaff, markDisputeReviewedForStaff } from './disputes.js';
 import { setUserStatusAsStaff } from './userManagement.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
 import {
@@ -194,6 +195,14 @@ export const listTripHistory = onCall((request) =>
 
 export const getTripDetail = onCall((request) =>
   getTripDetailForStaff({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const listDisputedTrips = onCall((request) =>
+  listDisputedTripsForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const markDisputeReviewed = onCall((request) =>
+  markDisputeReviewedForStaff({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
 export const setAvailability = onCall((request) =>
