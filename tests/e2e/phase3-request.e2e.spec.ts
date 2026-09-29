@@ -120,8 +120,13 @@ test.describe('phase 3 acceptance: a passenger creates a complete request', () =
 
     await confirm(page).click();
     await expect(requestedCard(page)).toBeVisible();
+    // The heading follows the trip's own status text (tripStatusText.ts): "Ride requested" while
+    // REQUESTED, "Finding your ride" once the search-starting trigger (Modules 5.2/5.3) has already
+    // moved it on to SEARCHING - a race this test does not control (trip.status itself is asserted
+    // either way below). requestedCard's own accessibility label, asserted above, does not depend on
+    // status and is what actually identifies the right card.
     await expect(
-      requestedCard(page).getByRole('heading', { name: 'Ride requested' }),
+      requestedCard(page).getByRole('heading', { name: /^(Ride requested|Finding your ride)$/ }),
     ).toBeVisible();
     const after = Date.now();
 
