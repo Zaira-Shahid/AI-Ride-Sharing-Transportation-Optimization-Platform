@@ -15,8 +15,12 @@ import { z } from 'zod';
 export const TRIP_HISTORY_PAGE_SIZE = 25;
 export const TRIP_MONITORING_HISTORY_STATUSES = ['COMPLETED', 'CANCELLED'] as const;
 
+// Carries the timestamp's full precision (seconds + nanoseconds), not just milliseconds - a page
+// boundary cut to milliseconds could skip a trip request created in the same millisecond as the last
+// row of a page. Module 11.8's audit-log cursor (auditLogs.ts) uses the same shape for the same reason.
 export const tripHistoryCursorSchema = z.object({
-  createdAtMs: z.number(),
+  seconds: z.number().int(),
+  nanoseconds: z.number().int().min(0).max(999_999_999),
   tripId: z.string().trim().min(1).max(200),
 });
 export type TripHistoryCursor = z.infer<typeof tripHistoryCursorSchema>;

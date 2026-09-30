@@ -14,7 +14,11 @@ const ACTIVE_TRIPS_LIMIT = 200;
 
 export const listTripHistoryInputSchema = z.object({
   cursor: z
-    .object({ createdAtMs: z.number(), tripId: z.string().trim().min(1).max(200) })
+    .object({
+      seconds: z.number().int(),
+      nanoseconds: z.number().int().min(0).max(999_999_999),
+      tripId: z.string().trim().min(1).max(200),
+    })
     .nullish(),
 });
 
@@ -37,7 +41,7 @@ export interface TripMonitoringRow {
 
 export interface ListTripHistoryResult {
   rows: TripMonitoringRow[];
-  nextCursor: { createdAtMs: number; tripId: string } | null;
+  nextCursor: { seconds: number; nanoseconds: number; tripId: string } | null;
 }
 
 export interface TripDetailForStaff extends TripMonitoringRow {
@@ -116,16 +120,19 @@ export async function listTripHistoryForStaff(
     .limit(TRIP_HISTORY_PAGE_SIZE);
 
   const cursor = parsed.data.cursor;
+  // The cursor carries the timestamp's full precision: cut to milliseconds, trips created within the
+  // same millisecond as the last one on a page could be skipped on the next page.
   if (cursor) {
-    query = query.startAfter(Timestamp.fromMillis(cursor.createdAtMs), cursor.tripId);
+    query = query.startAfter(new Timestamp(cursor.seconds, cursor.nanoseconds), cursor.tripId);
   }
 
   const snapshot = await query.get();
   const rows = snapshot.docs.map((doc) => toRow(doc.id, doc.data()));
   const last = snapshot.docs.at(-1);
+  const lastTimestamp = last?.get('createdAt') as Timestamp | undefined;
   const nextCursor =
-    rows.length === TRIP_HISTORY_PAGE_SIZE && last
-      ? { createdAtMs: toMillis(last.get('createdAt')), tripId: last.id }
+    rows.length === TRIP_HISTORY_PAGE_SIZE && last && lastTimestamp
+      ? { seconds: lastTimestamp.seconds, nanoseconds: lastTimestamp.nanoseconds, tripId: last.id }
       : null;
   return { rows, nextCursor };
 }
