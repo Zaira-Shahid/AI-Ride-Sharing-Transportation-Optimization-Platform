@@ -2,3 +2,8 @@ fastapi==0.141.1
 uvicorn[standard]==0.53.0
 ortools==9.15.6755
 pydantic==2.13.5
+# Phase 13 (AI/ML, module app/ml/): numpy/pandas already come in transitively via ortools above -
+# not pinned here directly for the same reason ortools's own other transitive deps (protobuf, absl-py)
+# are not.
+scikit-learn==1.9.1
+joblib==1.6.0

@@ -15,6 +15,7 @@ const sections = [
   ['disputes', 'Disputes'],
   ['safety', 'Safety'],
   ['analytics', 'Analytics'],
+  ['ai-predictions', 'AI Predictions'],
   ['system-settings', 'System Settings'],
   ['audit-logs', 'Audit Logs'],
 ] as const;

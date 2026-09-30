@@ -7,14 +7,15 @@ export const dynamicParams = false;
 
 // Module 11.2 (driver/vehicle management), 11.3 (user management), 11.4 (trip monitoring), 11.5
 // (live map), 11.6 (vehicle management, standalone page), 11.7 (disputes), 11.8 (audit logs), 11.9
-// (optimization monitoring), 11.10 (payments) and 12 (analytics): 'drivers'/'passengers'/'trips'/
-// 'live-network'/'vehicles'/'disputes'/'audit-logs'/'optimization'/'payments'/'analytics' each have
-// their own real page now (app/drivers/page.tsx, app/passengers/page.tsx, app/trips/page.tsx,
-// app/live-network/page.tsx, app/vehicles/page.tsx, app/disputes/page.tsx, app/audit-logs/page.tsx,
-// app/optimization/page.tsx, app/payments/page.tsx, app/analytics/page.tsx) - they must stay out of
-// this catch-all's own static params, or Next.js's build sees two pages resolving the same path and
-// refuses to build. Still in SECTION_ITEMS (so the sidebar's own link is unaffected) - only excluded
-// from what this placeholder generates.
+// (optimization monitoring), 11.10 (payments), 12 (analytics) and 13 (AI/ML predictions):
+// 'drivers'/'passengers'/'trips'/'live-network'/'vehicles'/'disputes'/'audit-logs'/'optimization'/
+// 'payments'/'analytics'/'ai-predictions' each have their own real page now (app/drivers/page.tsx,
+// app/passengers/page.tsx, app/trips/page.tsx, app/live-network/page.tsx, app/vehicles/page.tsx,
+// app/disputes/page.tsx, app/audit-logs/page.tsx, app/optimization/page.tsx, app/payments/page.tsx,
+// app/analytics/page.tsx, app/ai-predictions/page.tsx) - they must stay out of this catch-all's own
+// static params, or Next.js's build sees two pages resolving the same path and refuses to build.
+// Still in SECTION_ITEMS (so the sidebar's own link is unaffected) - only excluded from what this
+// placeholder generates.
 const SECTIONS_WITH_OWN_PAGE = new Set([
   'drivers',
   'passengers',
@@ -26,6 +27,7 @@ const SECTIONS_WITH_OWN_PAGE = new Set([
   'optimization',
   'payments',
   'analytics',
+  'ai-predictions',
 ]);
 
 export function generateStaticParams() {

@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from app.candidates import Candidate, generate_candidates
 from app.constraints import filter_feasible_candidates
 from app.explain import explain_requests
+from app.ml.routes import router as ml_router
 from app.model import solve_assignment
 from app.plan import generate_plan
 from app.plan_validation import validate_plans
@@ -38,6 +39,7 @@ from app.schemas import (
 )
 
 app = FastAPI(title="RideMesh Optimization Service")
+app.include_router(ml_router)
 
 
 @app.get("/health")

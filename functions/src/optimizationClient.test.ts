@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   optimizationServiceUrlFromEnvironment,
+  requestCancellationPrediction,
   requestCandidates,
+  requestEtaPrediction,
+  requestMlStatus,
   requestOptimize,
 } from './optimizationClient';
 
@@ -95,6 +98,89 @@ describe('requestOptimize', () => {
     expect(result.summary).toEqual(summary);
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://opt.example/optimize',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+const PREDICTION_INPUT = {
+  distance_km: 8,
+  hour_of_day: 8,
+  day_of_week: 2,
+  naive_duration_seconds: 1152,
+};
+
+describe('requestMlStatus', () => {
+  it('gets /ml/status and returns the parsed body', async () => {
+    const body = {
+      prototype: true as const,
+      trained_on: 'synthetic_data' as const,
+      trained_at: '2026-01-01T00:00:00Z',
+      trained_row_count: 10000,
+      data_source: 'SyntheticTripDataSource',
+      eta_validation_mean_absolute_error_seconds: 100.5,
+      cancellation_validation_auc: 0.629,
+      warning: 'prototype warning',
+    };
+    const fetchImpl = fakeFetch(200, body);
+
+    const result = await requestMlStatus({ baseUrl: 'https://opt.example', fetchImpl });
+
+    expect(result).toEqual(body);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://opt.example/ml/status',
+      expect.not.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('throws when the service answers with an error status', async () => {
+    const fetchImpl = fakeFetch(503, { detail: 'not trained yet' });
+
+    await expect(requestMlStatus({ baseUrl: 'https://opt.example', fetchImpl })).rejects.toThrow(
+      '503',
+    );
+  });
+});
+
+describe('requestEtaPrediction', () => {
+  it('posts to /ml/eta/predict and returns the parsed body', async () => {
+    const body = {
+      predicted_duration_seconds: 1789.2,
+      prototype: true as const,
+      trained_on: 'synthetic_data' as const,
+    };
+    const fetchImpl = fakeFetch(200, body);
+
+    const result = await requestEtaPrediction(
+      { baseUrl: 'https://opt.example', fetchImpl },
+      PREDICTION_INPUT,
+    );
+
+    expect(result).toEqual(body);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://opt.example/ml/eta/predict',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('requestCancellationPrediction', () => {
+  it('posts to /ml/cancellation/predict and returns the parsed body', async () => {
+    const body = {
+      cancellation_risk: 0.69,
+      prototype: true as const,
+      trained_on: 'synthetic_data' as const,
+    };
+    const fetchImpl = fakeFetch(200, body);
+
+    const result = await requestCancellationPrediction(
+      { baseUrl: 'https://opt.example', fetchImpl },
+      PREDICTION_INPUT,
+    );
+
+    expect(result).toEqual(body);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://opt.example/ml/cancellation/predict',
       expect.objectContaining({ method: 'POST' }),
     );
   });

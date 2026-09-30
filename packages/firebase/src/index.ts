@@ -12,6 +12,7 @@ export * from './geocoding';
 export * from './journey';
 export * from './journeyPlan';
 export * from './liveNetwork';
+export * from './ml-predictions';
 export * from './optimizationMonitoring';
 export * from './password-reset';
 export * from './payments';

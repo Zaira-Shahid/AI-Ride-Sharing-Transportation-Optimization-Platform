@@ -15,6 +15,7 @@ export default defineConfig(
       '**/.expo/**',
       '**/coverage/**',
       '**/next-env.d.ts',
+      'services/optimization/.venv/**',
     ],
   },
   js.configs.recommended,
