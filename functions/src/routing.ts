@@ -3,7 +3,7 @@ import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedRider, type Caller } from './callers.js';
-import { claimLookup, type LookupLimits } from './lookupLimits.js';
+import { claimLookup, type LookupCollections, type LookupLimits } from './lookupLimits.js';
 
 // Route calculation (Module 4.3): the distance, time and line of the road route through 2 to 10
 // stops. Functions deploy from this directory alone, so the numbers and helpers below mirror
@@ -259,6 +259,17 @@ export function routeCacheKey(profile: RouteProfile, stops: readonly RoutePoint[
 /** A route whose line is longer than this is answered but not cached (a document is at most 1 MiB). */
 export const MAX_CACHED_GEOMETRY_LENGTH = 700_000;
 
+/** Where the cache and the rate-limit counters live. Always these in production. */
+export interface RoutingCollections {
+  cache: string;
+  limits: LookupCollections;
+}
+
+export const DEFAULT_ROUTING_COLLECTIONS: RoutingCollections = {
+  cache: 'routeCache',
+  limits: { perCaller: 'routeLimits', global: 'routeGlobal' },
+};
+
 /**
  * Works out the road route through the stops, for a signed-in, verified driver or passenger. The
  * stops are rounded first (about 11 m); everything after that, the cache and the provider, sees only
@@ -275,6 +286,14 @@ export async function calculateRoute(
     provider: RoutingProvider;
     limits?: LookupLimits;
     now?: () => number;
+    /**
+     * Always DEFAULT_ROUTING_COLLECTIONS in production. The tests that call calculateRoute directly
+     * with a fake clock use their own names instead, so a real trigger (estimateTripRequest, which
+     * always calls this with the default) can never write the SAME global-spacing counter a test's
+     * fake-clock assertion depends on - the same reason estimateTripRequest's own `collection` param
+     * exists for tripRequests.
+     */
+    collections?: RoutingCollections;
   },
   caller: Caller,
   rawInput: unknown,
@@ -286,9 +305,10 @@ export async function calculateRoute(
   }
 
   const { firestore, provider } = deps;
+  const collections = deps.collections ?? DEFAULT_ROUTING_COLLECTIONS;
   const profile: RouteProfile = parsed.data.profile ?? 'driving';
   const stops = roundStopsForRouting(parsed.data.stops);
-  const cacheRef = firestore.collection('routeCache').doc(routeCacheKey(profile, stops));
+  const cacheRef = firestore.collection(collections.cache).doc(routeCacheKey(profile, stops));
 
   const cached = await cacheRef.get();
   if (cached.exists) {
@@ -300,13 +320,9 @@ export async function calculateRoute(
 
   const now = (deps.now ?? Date.now)();
   const limits = deps.limits ?? routingLimitsFromEnvironment();
-  const claimed = await claimLookup(
-    firestore,
-    { perCaller: 'routeLimits', global: 'routeGlobal' },
-    caller.uid,
-    now,
-    limits,
-  ).catch(() => false);
+  const claimed = await claimLookup(firestore, collections.limits, caller.uid, now, limits).catch(
+    () => false,
+  );
   if (!claimed) return { status: 'busy', route: null };
 
   let route: Route | null;
