@@ -170,6 +170,35 @@ describe('listTripHistory (functions + firestore + auth emulators)', () => {
     const firstIds = new Set(first.rows.map((row) => row.tripId));
     for (const row of second.rows) expect(firstIds.has(row.tripId)).toBe(false);
   });
+
+  it('pages newest first without skipping an entry, even within one millisecond', async () => {
+    const reviewer = await staff('ADMIN', 'monitor-history-same-ms-reviewer');
+    // 30 trips inside the SAME millisecond, a microsecond apart: a cursor cut to milliseconds would
+    // lose entries here (docs/security.md's own note on this).
+    const { firestore } = admin();
+    const millis = Date.now();
+    const ids: string[] = [];
+    for (let index = 0; index < 30; index += 1) {
+      const ref = firestore.collection('tripRequests').doc();
+      ids.push(ref.id);
+      await ref.set({
+        passengerId: 'seed-passenger-same-ms',
+        passengerName: 'Seed Passenger',
+        status: 'CANCELLED',
+        createdAt: new Timestamp(Math.floor(millis / 1000), 100_000_000 + index * 1000),
+      });
+    }
+    // Index increases with nanoseconds, so the last-created (highest nanoseconds) sorts first.
+    const created = [...ids].reverse();
+
+    const first = await listTripHistory(reviewer.client);
+    const second = await listTripHistory(reviewer.client, first.nextCursor);
+    const listed = [...first.rows, ...second.rows]
+      .map((row) => row.tripId)
+      .filter((tripId) => created.includes(tripId));
+
+    expect(listed).toEqual(created);
+  });
 });
 
 describe('getTripDetail (functions + firestore + auth emulators)', () => {
