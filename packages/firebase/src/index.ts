@@ -13,6 +13,7 @@ export * from './journeyPlan';
 export * from './liveNetwork';
 export * from './optimizationMonitoring';
 export * from './password-reset';
+export * from './payments';
 export * from './profile';
 export * from './register';
 export * from './routing';

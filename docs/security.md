@@ -625,6 +625,22 @@ Collections other than `users` stay closed until the module that owns each one d
   not apply; this is not reconciled per decision). `finalAssignments`/`journeysMatched` on the run
   itself are the real, applied counts.
 
+### Reading and refunding payments (staff)
+
+- Any verified staff role reads trips by payment status through `listPayments`/`getPaymentsSummary`
+  (module 11.10) - visibility only, the same list-row shape (no exact place) trip monitoring and
+  disputes already use, and the same audited `getTripDetail` for a trip's own amounts. There is no
+  separate `payments` collection: every payment field lives on the trip request itself.
+- Only `ADMIN`/`SUPER_ADMIN` may issue a refund (`refundPayment`) - a financial decision, the same
+  `REVIEWER_ROLES` split user management uses (other staff roles see the page, only reviewers act).
+  This wires `refundTripPayment` (module 9.7, fully built and tested but never called from anywhere
+  until now) to a real caller: the real staff uid as `actor` and their own typed reason folded into
+  the audit entry it already writes, in place of the placeholder `'system'` actor used everywhere else
+  that function is still called with none (nothing else calls it with an actor yet).
+- The summary is platform-wide totals only (captured, refunded, platform fee), computed with a
+  Firestore aggregation query, not a per-document read. No trend or time breakdown: that is Phase 12's
+  own job (its metrics list already names "payment success rate" as an Analytics concern).
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with
