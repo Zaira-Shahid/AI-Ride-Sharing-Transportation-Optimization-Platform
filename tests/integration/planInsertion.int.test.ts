@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { tryInsertIntoMatchingJourney } from '../../functions/src/planInsertion';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
@@ -188,6 +189,9 @@ async function searchingRequest(
     matchedJourneyId: null,
     matchedDriverId: null,
     assignedPlanId: null,
+    // Every real trip request always has one (packages/types/src/trip-request.ts); module 12's own
+    // matchDurationSeconds needs it to compute anything.
+    requestedAt: Timestamp.now(),
   });
   return ref.id;
 }
@@ -237,6 +241,10 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
     expect(trip?.matchedDriverId).toBe(fixture.driverId);
     // Module 9.3: insertion always makes a journey shared, for the new passenger too.
     expect(trip?.sharedRide).toBe(true);
+    // Module 12 (analytics): real time-to-match data, written the moment this insertion is written.
+    expect(trip?.matchedAt).toBeDefined();
+    expect(typeof trip?.matchDurationSeconds).toBe('number');
+    expect(trip?.matchDurationSeconds).toBeGreaterThanOrEqual(0);
     const newPlanId = trip?.assignedPlanId as string;
     expect(newPlanId).not.toBe(fixture.oldPlanId);
 

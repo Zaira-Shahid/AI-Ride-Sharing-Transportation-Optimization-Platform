@@ -418,6 +418,7 @@ export async function tryInsertIntoMatchingJourney(
   request: InsertableTrip,
 ): Promise<InsertionOutcome> {
   const { firestore } = deps;
+  const now = (deps.now ?? Date.now)();
   const plans = await readMatchingJourneyPlans(firestore);
   if (plans.length === 0) return 'unmatched';
 
@@ -508,6 +509,14 @@ export async function tryInsertIntoMatchingJourney(
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
+    // Module 12 (analytics): matchedAt/matchDurationSeconds are new here - real time-to-match data
+    // for "average matching time" - the same fields optimizationRun.ts's own phase 1 match now
+    // writes, for the same reason (nothing else here was ever timestamped for this purpose either).
+    const requestedAt = newTripSnap.get('requestedAt') as { toMillis: () => number } | undefined;
+    const matchDurationSeconds =
+      requestedAt && typeof requestedAt.toMillis === 'function'
+        ? Math.max(0, (now - requestedAt.toMillis()) / 1000)
+        : null;
     tx.update(newTripRef, {
       status: 'PICKUP_ASSIGNED',
       matchedJourneyId: plan.journeyId,
@@ -519,6 +528,8 @@ export async function tryInsertIntoMatchingJourney(
       vehicleModel,
       vehiclePlateNumber,
       sharedRide: true,
+      matchedAt: Timestamp.fromMillis(now),
+      matchDurationSeconds,
       updatedAt: FieldValue.serverTimestamp(),
     });
     tx.create(firestore.collection('auditLogs').doc(), {
