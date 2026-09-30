@@ -174,9 +174,13 @@ describe('listTripHistory (functions + firestore + auth emulators)', () => {
   it('pages newest first without skipping an entry, even within one millisecond', async () => {
     const reviewer = await staff('ADMIN', 'monitor-history-same-ms-reviewer');
     // 30 trips inside the SAME millisecond, a microsecond apart: a cursor cut to milliseconds would
-    // lose entries here (docs/security.md's own note on this).
+    // lose entries here (docs/security.md's own note on this). A fixed FUTURE second, not "now": the
+    // whole suite shares one long-lived Firestore, and another file's own real trip (a real
+    // FieldValue.serverTimestamp()) could otherwise land a moment newer than "now" was when this test
+    // read it, sorting ahead of some of these 30 and pushing them past the two pages this test reads.
+    // Nothing can ever be newer than a fixed point 10 years out.
     const { firestore } = admin();
-    const millis = Date.now();
+    const millis = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
     const ids: string[] = [];
     for (let index = 0; index < 30; index += 1) {
       const ref = firestore.collection('tripRequests').doc();
