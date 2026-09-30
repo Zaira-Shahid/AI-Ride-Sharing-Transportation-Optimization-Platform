@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { runBatchOptimization } from '../../functions/src/optimizationRun';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import type { RoutePoint, RoutingProvider } from '../../functions/src/routing';
@@ -165,6 +165,19 @@ const tripRequestInput = (origin: RoutePoint, destination: RoutePoint) => ({
 });
 
 describe('Phase 10 acceptance (functions + firestore emulators)', () => {
+  beforeEach(async () => {
+    const { firestore } = admin();
+    // This file's own runBatchOptimization call reads the WHOLE tripRequests/driverJourneys
+    // collections, not scoped to its own fixtures - a SEARCHING request or an AVAILABLE/MATCHING
+    // journey some OTHER file left behind (the whole suite shares one long-lived Firestore,
+    // fileParallelism: false) can get matched by THIS run, pushing accounts this file never created.
+    // Cleared here, not in every file - only the files that run the global batch (this one,
+    // optimizationRun/phase6/8-acceptance) can be affected by it.
+    for (const name of ['tripRequests', 'driverJourneys']) {
+      await firestore.recursiveDelete(firestore.collection(name));
+    }
+  });
+
   it('pushes the passenger and driver at every real milestone, from request to payment', async () => {
     const driver = await driverWithJourney();
     const rider = await passenger('p10a-p');
