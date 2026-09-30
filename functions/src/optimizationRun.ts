@@ -40,6 +40,11 @@ import {
   type OptimizationServiceConfig,
   type RouteMatrixLegBody,
 } from './optimizationClient.js';
+import {
+  type OptimizationRunDecision,
+  type OptimizationRunLog,
+  writeOptimizationRunLog,
+} from './optimizationMonitoring.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { tryInsertIntoMatchingJourney, type PlanLeg } from './planInsertion.js';
 import { sendPushToUser } from './pushNotifications.js';
@@ -274,6 +279,7 @@ async function matchIntoAvailableJourneys(deps: {
   now?: () => number;
 }): Promise<Omit<BatchOptimizationOutcome, 'insertedRequestCount'>> {
   const { firestore } = deps;
+  const cycleStartedAt = (deps.now ?? Date.now)();
   const routeDeps = {
     firestore,
     provider: deps.provider,
@@ -291,7 +297,30 @@ async function matchIntoAvailableJourneys(deps: {
     matchedRequestCount: 0,
     matchedJourneyCount: 0,
   };
+  // Module 11.9 (optimization monitoring): an empty cycle (nothing to evaluate at all) is not logged -
+  // there is nothing to show a staff account. Every other early return below DID evaluate real
+  // requests/journeys, so each logs a cycle with whatever partial counts it reached.
   if (requests.length === 0 || journeys.length === 0) return empty;
+
+  const logCycle = (
+    partial: Partial<
+      Omit<OptimizationRunLog, 'startedAt' | 'requestsEvaluated' | 'journeysEvaluated'>
+    >,
+  ) =>
+    writeOptimizationRunLog(firestore, {
+      startedAt: cycleStartedAt,
+      requestsEvaluated: requests.length,
+      journeysEvaluated: journeys.length,
+      candidatesGenerated: 0,
+      plansGenerated: 0,
+      plansRejected: 0,
+      unmatchedByReason: {},
+      finalAssignments: 0,
+      journeysMatched: 0,
+      executionTimeSeconds: 0,
+      decisions: [],
+      ...partial,
+    });
 
   const requestById = new Map(requests.map((r) => [r.id, r]));
   const journeyById = new Map(journeys.map((j) => [j.id, j]));
@@ -306,7 +335,10 @@ async function matchIntoAvailableJourneys(deps: {
       available_seats: j.availableSeats,
     })),
   });
-  if (candidatesResponse.candidates.length === 0) return empty;
+  if (candidatesResponse.candidates.length === 0) {
+    await logCycle({});
+    return empty;
+  }
 
   // Sequential, never in parallel: see checkCandidateRoute's own note on the shared rate limit.
   const costs: CandidateRouteCostBody[] = [];
@@ -341,7 +373,10 @@ async function matchIntoAvailableJourneys(deps: {
       passenger_max_detour_distance_km: request.passengerMaxDetourDistanceKm,
     });
   }
-  if (costs.length === 0) return empty;
+  if (costs.length === 0) {
+    await logCycle({ candidatesGenerated: candidatesResponse.candidates.length });
+    return empty;
+  }
 
   const journeyIdsWithCosts = [...new Set(costs.map((c) => c.journey_id))];
   const matrices: Record<string, { legs: RouteMatrixLegBody[] }> = {};
@@ -376,7 +411,10 @@ async function matchIntoAvailableJourneys(deps: {
   }
 
   const costsWithMatrix = costs.filter((c) => matrices[c.journey_id] !== undefined);
-  if (costsWithMatrix.length === 0) return empty;
+  if (costsWithMatrix.length === 0) {
+    await logCycle({ candidatesGenerated: candidatesResponse.candidates.length });
+    return empty;
+  }
 
   const availableSeats: Record<string, number> = {};
   for (const journeyId of Object.keys(matrices)) {
@@ -498,6 +536,48 @@ async function matchIntoAvailableJourneys(deps: {
       ]);
     }
   }
+
+  // Module 11.9 (optimization monitoring): the optimizer's own proposal (explanations/costs/plans),
+  // enriched with the real added distance/time for a matched pairing and the plan it landed in. Note
+  // that "matched" here is the OPTIMIZER's own status, not a cross-check against `applied` above - the
+  // rare case where a proposed plan's own transaction did not apply (another change landed first) is
+  // not reconciled per decision; finalAssignments/journeysMatched below are the real, applied counts.
+  const costByKey = new Map(costsWithMatrix.map((c) => [`${c.request_id}:${c.journey_id}`, c]));
+  const planByRequestId = new Map<string, JourneyPlanBody>();
+  for (const plan of optimizeResponse.plans) {
+    for (const requestId of plan.request_ids) planByRequestId.set(requestId, plan);
+  }
+  const decisions: OptimizationRunDecision[] = optimizeResponse.explanations.map((explanation) => {
+    const cost = explanation.journey_id
+      ? costByKey.get(`${explanation.request_id}:${explanation.journey_id}`)
+      : undefined;
+    const plan = planByRequestId.get(explanation.request_id);
+    return {
+      requestId: explanation.request_id,
+      status: explanation.status,
+      reason: explanation.reason,
+      journeyId: explanation.journey_id,
+      driverId: explanation.journey_id
+        ? (journeyById.get(explanation.journey_id)?.driverId ?? null)
+        : null,
+      additionalDistanceMeters: cost?.additional_distance_meters ?? null,
+      additionalDurationSeconds: cost?.additional_duration_seconds ?? null,
+      seatsUsed: plan ? plan.request_ids.length : null,
+      seatsAvailable: plan ? (availableSeats[plan.journey_id] ?? null) : null,
+      planTotalDistanceMeters: plan?.total_distance_meters ?? null,
+      planTotalDurationSeconds: plan?.total_duration_seconds ?? null,
+    };
+  });
+  await logCycle({
+    candidatesGenerated: candidatesResponse.candidates.length,
+    plansGenerated: optimizeResponse.plans.length,
+    plansRejected: optimizeResponse.validation_issues.length,
+    unmatchedByReason: optimizeResponse.summary.unmatched_by_reason,
+    finalAssignments: matchedRequestCount,
+    journeysMatched: matchedJourneyCount,
+    executionTimeSeconds: optimizeResponse.summary.run_duration_seconds,
+    decisions,
+  });
 
   return {
     requestCount: requests.length,

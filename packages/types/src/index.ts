@@ -8,6 +8,7 @@ export * from './geocoding';
 export * from './gps';
 export * from './journey';
 export * from './location';
+export * from './optimizationMonitoring';
 export * from './roles';
 export * from './routing';
 export * from './states';

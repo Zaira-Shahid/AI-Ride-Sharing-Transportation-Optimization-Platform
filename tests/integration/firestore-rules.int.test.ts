@@ -332,6 +332,7 @@ describe('users: a person editing their own contact details', () => {
 describe('other collections stay closed', () => {
   it.each([
     'auditLogs/log-1',
+    'optimizationRuns/run-1',
     'payments/pay-1',
     'geocodeCache/51.4494_-2.5813',
     'geocodeLimits/passenger-1',
