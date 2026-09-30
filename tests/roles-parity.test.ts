@@ -68,6 +68,11 @@ import {
   listAuditLogsInputSchema as functionsAuditSchema,
 } from '../functions/src/auditLogs';
 import {
+  PAYMENT_LIST_STATUSES as functionsPaymentStatuses,
+  listPaymentsInputSchema as functionsListPaymentsSchema,
+  refundPaymentInputSchema as functionsRefundSchema,
+} from '../functions/src/payments';
+import {
   NEW_VEHICLE_DEFAULTS as functionsVehicleDefaults,
   VEHICLE_TYPES as functionsVehicleTypes,
   isValidPlate as functionsIsValidPlate,
@@ -131,6 +136,9 @@ import {
   AUDIT_LOG_PAGE_SIZE,
   listAuditLogsInputSchema as sharedAuditSchema,
   markDisputeReviewedInputSchema as sharedDisputeSchema,
+  PAYMENT_LIST_STATUSES,
+  listPaymentsInputSchema as sharedListPaymentsSchema,
+  refundPaymentInputSchema as sharedRefundSchema,
   normalizePlate,
   saveVehicleInputSchema as sharedVehicleSchema,
   setVehicleCapacityInputSchema as sharedCapacitySchema,
@@ -432,6 +440,47 @@ describe('functions and shared types stay aligned', () => {
     }
     expect(functionsAuditPageSize).toBe(AUDIT_LOG_PAGE_SIZE);
     expect([...functionsAuditFieldsOnly]).toEqual([...AUDIT_FIELDS_ONLY_ACTIONS]);
+  });
+
+  it('validates list-payments and refund-payment requests identically', () => {
+    expect([...functionsPaymentStatuses]).toEqual([...PAYMENT_LIST_STATUSES]);
+
+    const cursor = { seconds: 1_700_000_000, nanoseconds: 5, tripId: 'abc' };
+    const listInputs: unknown[] = [
+      {},
+      { paymentStatus: null, cursor: null },
+      { paymentStatus: 'CAPTURED' },
+      { paymentStatus: 'DISPUTED' },
+      { paymentStatus: 'captured' },
+      { cursor },
+      { cursor: { ...cursor, nanoseconds: -1 } },
+      { cursor: { ...cursor, nanoseconds: 1_000_000_000 } },
+      { cursor: { ...cursor, tripId: '' } },
+      { cursor: { ...cursor, seconds: 1.5 } },
+    ];
+    for (const input of listInputs) {
+      expect(functionsListPaymentsSchema.safeParse(input).success).toBe(
+        sharedListPaymentsSchema.safeParse(input).success,
+      );
+    }
+
+    const refundInputs: unknown[] = [
+      { tripId: 'abc123', reason: 'Customer complaint' },
+      { tripId: 'abc123', reason: 'Customer complaint', amountMinorUnits: 500 },
+      { tripId: 'abc123', reason: 'Customer complaint', amountMinorUnits: -1 },
+      { tripId: 'abc123', reason: 'Customer complaint', amountMinorUnits: 0 },
+      { tripId: 'abc123', reason: '' },
+      { tripId: 'abc123', reason: '   ' },
+      { tripId: 'abc123', reason: 'x'.repeat(501) },
+      { tripId: '', reason: 'Customer complaint' },
+      { reason: 'Customer complaint' },
+      {},
+    ];
+    for (const input of refundInputs) {
+      expect(functionsRefundSchema.safeParse(input).success).toBe(
+        sharedRefundSchema.safeParse(input).success,
+      );
+    }
   });
 
   it('uses the same availability targets and go-online requirements', () => {
