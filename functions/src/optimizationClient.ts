@@ -164,3 +164,80 @@ export function requestOptimize(
 ): Promise<OptimizeResponseBody> {
   return postJson(config, '/optimize', body);
 }
+
+// Phase 13 (AI/ML, module app/ml/routes.py): the ETA and cancellation prototypes, both trained on
+// SYNTHETIC data only. Every response body below carries `prototype: true` and
+// `trained_on: "synthetic_data"` - the Python service's own hard requirement (app/ml/schemas.py) -
+// and mlPredictions.ts's own header comment names the same hard boundary these fields exist to
+// enforce: nothing that reads these responses may feed a real matching, payment or notification
+// decision.
+
+async function getJson<T>(config: OptimizationServiceConfig, path: string): Promise<T> {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const url = `${config.baseUrl.replace(/\/+$/, '')}${path}`;
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    config.timeoutMs ?? OPTIMIZATION_SERVICE_TIMEOUT_MS,
+  );
+  try {
+    const response = await fetchImpl(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`The optimization service answered ${response.status} for ${path}.`);
+    }
+    return (await response.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface MlStatusBody {
+  prototype: true;
+  trained_on: 'synthetic_data';
+  trained_at: string;
+  trained_row_count: number;
+  data_source: string;
+  eta_validation_mean_absolute_error_seconds: number;
+  cancellation_validation_auc: number;
+  warning: string;
+}
+
+export interface MlPredictionRequestBody {
+  distance_km: number;
+  hour_of_day: number;
+  day_of_week: number;
+  naive_duration_seconds: number;
+}
+
+export interface EtaPredictionBody {
+  predicted_duration_seconds: number;
+  prototype: true;
+  trained_on: 'synthetic_data';
+}
+
+export interface CancellationPredictionBody {
+  cancellation_risk: number;
+  prototype: true;
+  trained_on: 'synthetic_data';
+}
+
+/** GET /ml/status - model metadata, training data provenance, and validation metrics. */
+export function requestMlStatus(config: OptimizationServiceConfig): Promise<MlStatusBody> {
+  return getJson(config, '/ml/status');
+}
+
+/** POST /ml/eta/predict - the ETA prototype's own prediction for a single, manually entered trip. */
+export function requestEtaPrediction(
+  config: OptimizationServiceConfig,
+  body: MlPredictionRequestBody,
+): Promise<EtaPredictionBody> {
+  return postJson(config, '/ml/eta/predict', body);
+}
+
+/** POST /ml/cancellation/predict - the cancellation prototype's own risk score for a single trip. */
+export function requestCancellationPrediction(
+  config: OptimizationServiceConfig,
+  body: MlPredictionRequestBody,
+): Promise<CancellationPredictionBody> {
+  return postJson(config, '/ml/cancellation/predict', body);
+}

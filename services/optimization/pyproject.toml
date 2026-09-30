@@ -12,3 +12,10 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 files = ["app", "tests"]
+
+# Phase 13 (AI/ML, module app/ml/): scikit-learn ships no official type stubs package (unlike
+# pandas, whose stubs are installed via requirements-dev.txt's own pandas-stubs) - ignore its
+# missing types rather than leaving every one of its call sites unchecked project-wide.
+[[tool.mypy.overrides]]
+module = "sklearn.*"
+ignore_missing_imports = true

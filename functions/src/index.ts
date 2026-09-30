@@ -51,6 +51,11 @@ import {
 } from './tripMonitoring.js';
 import { listAuditLogsForStaff } from './auditLogs.js';
 import { getAnalyticsSummaryForStaff } from './analytics.js';
+import {
+  getMlStatusForStaff,
+  predictCancellationForStaff,
+  predictEtaForStaff,
+} from './mlPredictions.js';
 import { listOptimizationRunsForStaff } from './optimizationMonitoring.js';
 import {
   getPaymentsSummaryForStaff,
@@ -231,6 +236,40 @@ export const getPaymentsSummary = onCall((request) =>
 
 export const getAnalyticsSummary = onCall((request) =>
   getAnalyticsSummaryForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+// Phase 13 (AI/ML): both prototype models are trained on SYNTHETIC data only, and read only by the
+// admin dashboard's own "AI Predictions" page - see mlPredictions.ts's own header comment for the
+// hard, non-relaxable boundary. `optimizationService: null` when OPTIMIZATION_SERVICE_URL is unset
+// (Spark-plan/local environments without the Python service running) is handled the same way the
+// batch optimization runs below already handle it: a clean, typed failure, not a thrown network error.
+
+function optimizationServiceConfigFromEnvironment(): { baseUrl: string } | null {
+  const baseUrl = optimizationServiceUrlFromEnvironment();
+  return baseUrl ? { baseUrl } : null;
+}
+
+export const getMlStatus = onCall((request) =>
+  getMlStatusForStaff(
+    { optimizationService: optimizationServiceConfigFromEnvironment() },
+    callerOf(request),
+  ),
+);
+
+export const predictEta = onCall((request) =>
+  predictEtaForStaff(
+    { optimizationService: optimizationServiceConfigFromEnvironment() },
+    callerOf(request),
+    request.data,
+  ),
+);
+
+export const predictCancellationRisk = onCall((request) =>
+  predictCancellationForStaff(
+    { optimizationService: optimizationServiceConfigFromEnvironment() },
+    callerOf(request),
+    request.data,
+  ),
 );
 
 export const refundPayment = onCall((request) => {

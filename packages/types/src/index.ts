@@ -9,6 +9,7 @@ export * from './geocoding';
 export * from './gps';
 export * from './journey';
 export * from './location';
+export * from './ml-predictions';
 export * from './optimizationMonitoring';
 export * from './payments';
 export * from './roles';
