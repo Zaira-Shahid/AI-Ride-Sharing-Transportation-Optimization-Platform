@@ -1,8 +1,13 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { enforceCallRateLimit } from './callLimits.js';
 import { requireVerifiedPassenger, type PassengerCaller } from './callers.js';
 import type { StripeProvider } from './stripeProvider.js';
+
+// Phase 14 (Security audit, module "rate limiting"): a real passenger changing their saved card a
+// handful of times a minute is already generous; catches a buggy or hostile client hammering it.
+const SAVE_PAYMENT_METHOD_LIMIT = { windowMs: 60_000, maxCalls: 10 };
 
 // Module 9.2 (payment authorization): the one prerequisite the spec's own module list does not name
 // separately - a passenger needs a saved payment method before any authorization can happen. Backend
@@ -23,11 +28,18 @@ export type SavePaymentMethodResult = { status: 'saved' };
  * is kept - a "manage multiple cards" screen is a later module's own decision, not this one's).
  */
 export async function savePaymentMethod(
-  deps: { firestore: Firestore; stripe: StripeProvider },
+  deps: { firestore: Firestore; stripe: StripeProvider; now?: () => number },
   caller: PassengerCaller,
   rawInput: unknown,
 ): Promise<SavePaymentMethodResult> {
   requireVerifiedPassenger(caller);
+  await enforceCallRateLimit(
+    deps.firestore,
+    'savePaymentMethod',
+    caller.uid,
+    (deps.now ?? Date.now)(),
+    SAVE_PAYMENT_METHOD_LIMIT,
+  );
 
   const parsed = savePaymentMethodInputSchema.safeParse(rawInput);
   if (!parsed.success) {

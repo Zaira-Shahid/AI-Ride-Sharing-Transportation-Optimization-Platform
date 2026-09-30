@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
+import { enforceCallRateLimit } from '../../functions/src/callLimits';
 import {
   cancelTripRequest as serverCancelTripRequest,
   createTripRequest as serverCreateTripRequest,
@@ -266,6 +267,30 @@ describe('createTripRequest (functions + firestore emulators)', () => {
       },
     ]);
   });
+
+  it('refuses once its own rate limit is exhausted (Phase 14 rate limiting)', async () => {
+    const passenger = await person('PASSENGER', 'create-rate-limited');
+    for (let i = 0; i < 10; i += 1) {
+      await enforceCallRateLimit(
+        admin().firestore,
+        'createTripRequest',
+        passenger.uid,
+        Date.now(),
+        {
+          windowMs: 60_000,
+          maxCalls: 10,
+        },
+      );
+    }
+
+    await expect(
+      serverCreateTripRequest(
+        { firestore: admin().firestore, push: recordingPush() },
+        { uid: passenger.uid, role: 'PASSENGER', emailVerified: true },
+        request(),
+      ),
+    ).rejects.toMatchObject({ code: 'resource-exhausted' });
+  });
 });
 
 describe('cancelTripRequest (functions + firestore emulators)', () => {
@@ -419,5 +444,30 @@ describe('cancelTripRequest (functions + firestore emulators)', () => {
 
     expect(result).toEqual({ status: 'unchanged' });
     expect(push.sent).toEqual([]);
+  });
+
+  it('refuses once its own rate limit is exhausted (Phase 14 rate limiting)', async () => {
+    const passenger = await person('PASSENGER', 'cancel-rate-limited');
+    const tripId = await passenger.create();
+    for (let i = 0; i < 10; i += 1) {
+      await enforceCallRateLimit(
+        admin().firestore,
+        'cancelTripRequest',
+        passenger.uid,
+        Date.now(),
+        {
+          windowMs: 60_000,
+          maxCalls: 10,
+        },
+      );
+    }
+
+    await expect(
+      serverCancelTripRequest(
+        { firestore: admin().firestore, push: recordingPush() },
+        { uid: passenger.uid, role: 'PASSENGER', emailVerified: true },
+        { tripId },
+      ),
+    ).rejects.toMatchObject({ code: 'resource-exhausted' });
   });
 });

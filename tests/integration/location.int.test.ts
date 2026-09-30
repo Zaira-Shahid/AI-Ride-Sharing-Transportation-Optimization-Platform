@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { enforceCallRateLimit } from '../../functions/src/callLimits';
 import { updateDriverLocation as serverUpdateDriverLocation } from '../../functions/src/locations';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import {
@@ -261,6 +262,30 @@ describe('updateDriverLocation (functions + firestore emulators)', () => {
     expect(await updateDriverLocation(driver.client, MOVED)).toBe('throttled');
 
     expect((await journeyOf(driver.uid)).data?.currentLocation).toMatchObject(START);
+  });
+
+  it('refuses once its own INVOCATION rate limit is exhausted (Phase 14 rate limiting) - a separate, far higher ceiling than the write-level throttle above', async () => {
+    const driver = await onlineDriver('loc-rate-limited');
+    for (let i = 0; i < 120; i += 1) {
+      await enforceCallRateLimit(
+        admin().firestore,
+        'updateDriverLocation',
+        driver.uid,
+        Date.now(),
+        {
+          windowMs: 60_000,
+          maxCalls: 120,
+        },
+      );
+    }
+
+    await expect(
+      serverUpdateDriverLocation(
+        { firestore: admin().firestore, push: recordingPush() },
+        { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+        MOVED,
+      ),
+    ).rejects.toMatchObject({ code: 'resource-exhausted' });
   });
 
   it('accepts the next reading once 15 seconds have passed', async () => {
