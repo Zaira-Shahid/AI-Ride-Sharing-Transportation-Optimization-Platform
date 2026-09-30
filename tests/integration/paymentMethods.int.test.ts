@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { enforceCallRateLimit } from '../../functions/src/callLimits';
 import { savePaymentMethod } from '../../functions/src/paymentMethods';
 import type { StripeProvider } from '../../functions/src/stripeProvider';
 import { admin } from './support';
@@ -120,5 +121,23 @@ describe('savePaymentMethod (functions + firestore emulator, fake Stripe)', () =
         { paymentMethodId: 'pm_abc' },
       ),
     ).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
+  it('refuses once its own rate limit is exhausted (Phase 14 rate limiting)', async () => {
+    const uid = await activePassenger('pm-rate-limited');
+    for (let i = 0; i < 10; i += 1) {
+      await enforceCallRateLimit(admin().firestore, 'savePaymentMethod', uid, Date.now(), {
+        windowMs: 60_000,
+        maxCalls: 10,
+      });
+    }
+
+    await expect(
+      savePaymentMethod(
+        { firestore: admin().firestore, stripe: fakeStripe() },
+        passengerCaller(uid),
+        { paymentMethodId: 'pm_abc' },
+      ),
+    ).rejects.toMatchObject({ code: 'resource-exhausted' });
   });
 });

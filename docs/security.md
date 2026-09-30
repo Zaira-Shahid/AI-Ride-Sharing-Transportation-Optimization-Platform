@@ -665,6 +665,49 @@ Collections other than `users` stay closed until the module that owns each one d
   request - a known simplification with no cap, unbounded at scale (Firestore has no count-distinct
   aggregate); revisit if that collection grows very large.
 
+## Rate limiting (Phase 14 hardening)
+
+A Phase 14 security audit found rate limiting covered only `calculateRoute`/`reverseGeocode`
+(`functions/src/lookupLimits.ts`, protecting the OSRM/Nominatim call budget, not abuse) - every
+mutating callable had none. `functions/src/callLimits.ts`'s own `enforceCallRateLimit` closes that
+gap: a Firestore-backed sliding-window counter, keyed per `(scope, caller)`, that throws
+`resource-exhausted` once a caller exceeds their own ceiling within the window. A caller that cannot
+be counted (the transaction fails under load) is treated as over the limit - fail closed, the same
+stance `lookupLimits.ts`'s own `claimLookup` already takes.
+
+Wired into (all generous ceilings for a real user, invented and documented at each call site, not
+measured against real traffic - there is none yet):
+
+| Callable(s)                                                                           | Scope                                                           | Limit     |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------------------- | --------- |
+| `completeRegistration`                                                                | `completeRegistration`                                          | 5 / 5 min |
+| `createTripRequest`                                                                   | `createTripRequest`                                             | 10 / min  |
+| `cancelTripRequest`                                                                   | `cancelTripRequest`                                             | 10 / min  |
+| `setAvailability`                                                                     | `setAvailability`                                               | 20 / min  |
+| `headToPickup`, `confirmPickup`, `startTransit`, `approachDropoff`, `completeDropoff` | `tripExecution` (shared - all 5 funnel through one `advance()`) | 30 / min  |
+| `savePaymentMethod`                                                                   | `savePaymentMethod`                                             | 10 / min  |
+| `updateDriverLocation`                                                                | `updateDriverLocation`                                          | 120 / min |
+
+`updateDriverLocation` already had a separate, WRITE-level throttle
+(`LOCATION_THROTTLE.serverMinIntervalMs`, 15 s) that answers a too-fast update with a cheap
+`{status: 'throttled'}`, never an error - a real GPS client never comes close to the 120/min
+invocation ceiling above it; that one exists only to bound the cost of a client calling the function
+itself far faster than any real device would, refusing outright rather than the graceful shape.
+
+## App Check (Phase 14 hardening)
+
+The same audit found App Check configured nowhere - client or server. `enforceAppCheck`
+(`functions/src/appCheck.ts`'s own `enforceAppCheckFromEnvironment`, wired into every `onCall`
+function via `setGlobalOptions`) is now available, from `ENFORCE_APP_CHECK`, unset (or anything
+other than `'true'`) meaning off - the same convention as `OPTIMIZATION_SERVICE_URL`/
+`STRIPE_SECRET_KEY`. **This must stay off (the default) today**: verified directly against the
+Functions emulator that turning it on with no client anywhere sending an App Check token - true of
+every test in this repo, and of every real app today - answers every single callable with a flat 401. It can only be turned on once BOTH a real deployment exists AND every client app
+(admin/driver/passenger) initializes the App Check SDK with a real provider (reCAPTCHA/Play
+Integrity/App Attest, spec section 57) - neither exists yet (the project is still on the Spark plan,
+see below). Wiring the switch now, rather than only once both are ready, means turning it on later
+is a one-variable change, not new code.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with
@@ -678,7 +721,9 @@ Collections other than `users` stay closed until the module that owns each one d
 
 ## Known limitations (planned later)
 
-- No App Check or rate limiting on `completeRegistration` yet (Phase 14 hardening).
+- Rate limiting now covers every mutating callable (see "Rate limiting" above) and App Check is
+  wired but deliberately off by default (see "App Check" above) - turning App Check on waits on a
+  real deployment and every client app's own SDK initialization, neither of which exists yet.
 - Password minimum length is enforced by the apps, not by Firebase Auth itself (see above). This
   is a known gap to close when the project moves to the Blaze plan and Auth password policy can be
   enabled.
@@ -687,9 +732,13 @@ Collections other than `users` stay closed until the module that owns each one d
 - Session tokens are kept in AsyncStorage on phones, which is not encrypted storage.
 - Native session persistence is verified by the Android bundle containing the React Native storage
   implementation and by web tests; it has not been exercised on a physical device or simulator.
-- `status` (`ACTIVE`, `SUSPENDED`) is stored but not enforced by rules or functions until the admin
-  module.
-- Staff roles all have the same read-only access for now; per-role permissions are defined in the
-  admin module.
+- `status` (`ACTIVE`, `SUSPENDED`) enforcement shipped with the admin module (module 11.3,
+  `setUserStatus`) - it now gates most passenger/driver actions (`availability.ts`, `journeys.ts`,
+  `locations.ts`, `paymentMethods.ts`, `registration.ts`, `tripExecution.ts`, `tripRequests.ts`,
+  `vehicles.ts`).
+- Staff roles differ by action, not just by page: any verified staff role can view (trip monitoring,
+  optimization monitoring, payments, analytics, audit logs, the Phase 13 AI predictions page); only
+  `ADMIN`/`SUPER_ADMIN` (`REVIEWER_ROLES`) can take a reviewing/financial action (driver/vehicle
+  review, refunds).
 - Functions are tested on the local emulators only. They are not deployed because the project is on
   the Spark plan, which cannot deploy Cloud Functions.

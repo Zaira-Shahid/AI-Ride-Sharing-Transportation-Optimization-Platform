@@ -122,6 +122,17 @@ describe('completeRegistration (functions + auth + firestore emulators)', () => 
     });
   });
 
+  it('rejects a 6th call within a minute with resource-exhausted (Phase 14 rate limiting)', async () => {
+    const client = createClient();
+    await signUp(client, 'rate-limited');
+    for (let i = 0; i < 5; i += 1) {
+      await completeRegistration(client, { role: 'PASSENGER', name: 'Ada' });
+    }
+    await expect(
+      completeRegistration(client, { role: 'PASSENGER', name: 'Ada' }),
+    ).rejects.toMatchObject({ code: 'functions/resource-exhausted' });
+  });
+
   it('rejects invalid details', async () => {
     const client = createClient();
     await signUp(client, 'invalid');

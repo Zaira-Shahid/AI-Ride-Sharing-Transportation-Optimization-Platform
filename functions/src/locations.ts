@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { enforceCallRateLimit } from './callLimits.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { createNotification } from './notifications.js';
 import { sendPushToUser } from './pushNotifications.js';
@@ -16,6 +17,16 @@ export const LOCATION_THROTTLE = {
   maxAccuracyMeters: 100,
   serverMinIntervalMs: 15_000,
 } as const;
+
+// Phase 14 (Security audit, module "rate limiting"): a separate, INVOCATION-level ceiling from
+// serverMinIntervalMs above - that one already throttles the WRITE (a fast-arriving update is cheaply
+// answered {status:'throttled'}, never an error), so a real, even misbehaving, GPS client never comes
+// close to this. This one exists only to bound the cost of a hostile client calling the function
+// itself far faster than any real device ever would (well above 2/sec, double the fastest anyone
+// could legitimately poll) - refusing outright (resource-exhausted) rather than the graceful
+// {status:'throttled'} shape, since a caller that far outside normal use is not a case worth the
+// softer treatment.
+const UPDATE_LOCATION_INVOCATION_LIMIT = { windowMs: 60_000, maxCalls: 120 };
 
 export const updateDriverLocationInputSchema = z
   .object({
@@ -69,6 +80,13 @@ export async function updateDriverLocation(
   rawInput: unknown,
 ): Promise<UpdateDriverLocationResult> {
   requireVerifiedDriver(caller);
+  await enforceCallRateLimit(
+    deps.firestore,
+    'updateDriverLocation',
+    caller.uid,
+    (deps.now ?? Date.now)(),
+    UPDATE_LOCATION_INVOCATION_LIMIT,
+  );
 
   const parsed = updateDriverLocationInputSchema.safeParse(rawInput);
   if (!parsed.success) {

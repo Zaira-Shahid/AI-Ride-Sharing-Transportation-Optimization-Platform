@@ -1,6 +1,7 @@
 import { FieldValue, type Firestore, type Transaction } from 'firebase-admin/firestore';
 import { HttpsError, type FunctionsErrorCode } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { enforceCallRateLimit } from './callLimits.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { computeFinalFareMinorUnits, computePlatformFeeMinorUnits } from './fare.js';
 import { readFareConfig } from './fareConfig.js';
@@ -100,6 +101,12 @@ async function earlierStopsDone(
 export const TRIP_EXECUTION_REFUSALS = ['INVALID', 'NOT_FOUND', 'WRONG_STATUS'] as const;
 export type TripExecutionRefusal = (typeof TRIP_EXECUTION_REFUSALS)[number];
 
+// Phase 14 (Security audit, module "rate limiting"): shared by all 5 of this file's own exported
+// steps (they all funnel through advance() below), since a real driver moving several passengers
+// through several steps in a short window is normal for this app - generous enough for that, still
+// catching a buggy or hostile client hammering any one step.
+const TRIP_EXECUTION_LIMIT = { windowMs: 60_000, maxCalls: 30 };
+
 export const advanceTripInputSchema = z.object({ tripId: z.string().min(1).max(200) });
 export type AdvanceTripInput = z.infer<typeof advanceTripInputSchema>;
 export interface AdvanceTripResult {
@@ -115,7 +122,7 @@ function refuse(
 }
 
 async function advance(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
   from: string,
@@ -138,6 +145,13 @@ async function advance(
   } = {},
 ): Promise<AdvanceTripResult> {
   requireVerifiedDriver(caller);
+  await enforceCallRateLimit(
+    deps.firestore,
+    'tripExecution',
+    caller.uid,
+    (deps.now ?? Date.now)(),
+    TRIP_EXECUTION_LIMIT,
+  );
 
   const parsed = advanceTripInputSchema.safeParse(rawInput);
   if (!parsed.success) {
@@ -307,7 +321,7 @@ async function advance(
  * spot in section 40's own notification-types list.
  */
 export function headToPickup(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -334,7 +348,7 @@ export function headToPickup(
  * Also moves the journey MATCHING -> ACTIVE if this is its first confirmed pickup (Module 7.4).
  */
 export function confirmPickup(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -356,7 +370,7 @@ export function confirmPickup(
  * Module 10.8 (trip started push): pushes the passenger.
  */
 export function startTransit(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -376,7 +390,7 @@ export function startTransit(
 
 /** The driver starts toward the passenger's destination. Manual (user decision, Module 7.5). */
 export function approachDropoff(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
@@ -406,12 +420,12 @@ export function approachDropoff(
  * own "payment captured" push (which may not even fire, e.g. no payment was ever authorized).
  */
 export async function completeDropoff(
-  deps: { firestore: Firestore; stripe?: StripeProvider; push: PushProvider },
+  deps: { firestore: Firestore; stripe?: StripeProvider; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<AdvanceTripResult> {
   const result = await advance(
-    { firestore: deps.firestore, push: deps.push },
+    { firestore: deps.firestore, push: deps.push, now: deps.now },
     caller,
     rawInput,
     'DROPOFF_APPROACHING',

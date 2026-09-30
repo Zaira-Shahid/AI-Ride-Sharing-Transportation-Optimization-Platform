@@ -2,6 +2,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { setAvailability as serverSetAvailability } from '../../functions/src/availability';
+import { enforceCallRateLimit } from '../../functions/src/callLimits';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
 import {
   describeAuthError,
@@ -159,6 +160,24 @@ describe('setAvailability: going online and offline (functions + firestore emula
       totalTrips: 0,
       maxDetourMinutes: null,
     });
+  });
+
+  it('refuses once its own rate limit is exhausted (Phase 14 rate limiting)', async () => {
+    const driver = await eligibleDriver('avl-rate-limited');
+    for (let i = 0; i < 20; i += 1) {
+      await enforceCallRateLimit(admin().firestore, 'setAvailability', driver.uid, Date.now(), {
+        windowMs: 60_000,
+        maxCalls: 20,
+      });
+    }
+
+    await expect(
+      serverSetAvailability(
+        { firestore: admin().firestore, push: recordingPush() },
+        { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+        { status: 'ONLINE' },
+      ),
+    ).rejects.toMatchObject({ code: 'resource-exhausted' });
   });
 
   it.each([

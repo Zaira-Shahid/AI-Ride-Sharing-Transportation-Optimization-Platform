@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
+import { enforceCallRateLimit } from '../../functions/src/callLimits';
 import {
   completeDropoff as driverCompleteDropoff,
   headToPickup as driverHeadToPickup,
@@ -182,6 +183,25 @@ describe('headToPickup (functions + firestore emulators)', () => {
     const tripId = await tripAt('PICKUP_ASSIGNED', driver.uid);
 
     expect(await refusal(passenger.call('headToPickup', { tripId }))).toBe('permission-denied');
+  });
+
+  it('refuses once its own rate limit is exhausted (Phase 14 rate limiting) - shared by every trip-execution step', async () => {
+    const driver = await person('DRIVER', 'head-rate-limited');
+    const tripId = await tripAt('PICKUP_ASSIGNED', driver.uid);
+    for (let i = 0; i < 30; i += 1) {
+      await enforceCallRateLimit(admin().firestore, 'tripExecution', driver.uid, Date.now(), {
+        windowMs: 60_000,
+        maxCalls: 30,
+      });
+    }
+
+    await expect(
+      driverHeadToPickup(
+        { firestore: admin().firestore, push: noopPush },
+        { uid: driver.uid, role: 'DRIVER', emailVerified: true },
+        { tripId },
+      ),
+    ).rejects.toMatchObject({ code: 'resource-exhausted' });
   });
 });
 

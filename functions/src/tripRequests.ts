@@ -1,10 +1,17 @@
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError, type FunctionsErrorCode } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { enforceCallRateLimit } from './callLimits.js';
 import { requireVerifiedPassenger, type PassengerCaller } from './callers.js';
 import { destinationSchema } from './journeys.js';
 import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
+
+// Phase 14 (Security audit, module "rate limiting"): generous ceilings for a real passenger - a few
+// requests/cancellations a minute is already far more than anyone booking a real ride would ever need,
+// while still catching a buggy or hostile client hammering either endpoint.
+const CREATE_TRIP_REQUEST_LIMIT = { windowMs: 60_000, maxCalls: 10 };
+const CANCEL_TRIP_REQUEST_LIMIT = { windowMs: 60_000, maxCalls: 10 };
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types (trip-request.ts,
 // trip.ts, trip-times.ts, flexibility.ts). tests/roles-parity.test.ts fails if they diverge.
@@ -262,6 +269,13 @@ export async function createTripRequest(
   rawInput: unknown,
 ): Promise<CreateTripRequestResult> {
   requireVerifiedPassenger(caller);
+  await enforceCallRateLimit(
+    deps.firestore,
+    'createTripRequest',
+    caller.uid,
+    (deps.now ?? Date.now)(),
+    CREATE_TRIP_REQUEST_LIMIT,
+  );
 
   const parsed = createTripRequestInputSchema.safeParse(rawInput);
   if (!parsed.success) {
@@ -378,11 +392,18 @@ export async function createTripRequest(
  * pointer to it. Somebody else's request is reported as not found.
  */
 export async function cancelTripRequest(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: PassengerCaller,
   rawInput: unknown,
 ): Promise<CancelTripRequestResult> {
   requireVerifiedPassenger(caller);
+  await enforceCallRateLimit(
+    deps.firestore,
+    'cancelTripRequest',
+    caller.uid,
+    (deps.now ?? Date.now)(),
+    CANCEL_TRIP_REQUEST_LIMIT,
+  );
 
   const parsed = cancelTripRequestInputSchema.safeParse(rawInput);
   if (!parsed.success) {

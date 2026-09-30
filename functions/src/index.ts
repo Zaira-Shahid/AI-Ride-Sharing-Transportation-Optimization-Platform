@@ -5,6 +5,7 @@ import { logger, setGlobalOptions } from 'firebase-functions/v2';
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { enforceAppCheckFromEnvironment } from './appCheck.js';
 import { estimateTripRequest } from './estimates.js';
 import { buildHealthResponse } from './health.js';
 import { matchTripRequest } from './matching.js';
@@ -71,7 +72,13 @@ import {
 } from './vehicles.js';
 
 initializeApp();
-setGlobalOptions({ region: 'europe-west1' });
+// Phase 14 (Security audit, module "App Check"): a default for every onCall function below (the
+// runtime falls back to this whenever a specific one doesn't set its own - confirmed by reading
+// firebase-functions' own onCall implementation, not assumed from its types, which omit the field
+// from the onRequest-facing HttpsOptions it re-exposes only for CallableOptions). onRequest functions
+// (healthCheck, stripeWebhook) never read this option at all, so it cannot affect either of them.
+// See appCheck.ts's own header comment for why this must default to off.
+setGlobalOptions({ region: 'europe-west1', enforceAppCheck: enforceAppCheckFromEnvironment() });
 
 export const healthCheck = onRequest((_request, response) => {
   response.status(200).json(buildHealthResponse());

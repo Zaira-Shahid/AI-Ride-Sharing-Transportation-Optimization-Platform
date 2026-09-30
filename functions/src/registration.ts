@@ -2,6 +2,7 @@ import type { Auth } from 'firebase-admin/auth';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { enforceCallRateLimit } from './callLimits.js';
 import { createDriverProfile } from './drivers.js';
 import { SELF_SERVICE_ROLES, type SelfServiceRole } from './roles.js';
 
@@ -14,7 +15,12 @@ export const completeRegistrationInputSchema = z.object({
 export interface RoleDeps {
   auth: Auth;
   firestore: Firestore;
+  now?: () => number;
 }
+
+// A one-time action for a real account; generous enough to repair a half-completed earlier attempt
+// (registerUser's own idempotent-retry path) several times without a real user ever noticing.
+const REGISTRATION_LIMIT = { windowMs: 5 * 60_000, maxCalls: 5 };
 
 /**
  * Assigns the caller their self-selected role and creates their profile.
@@ -28,6 +34,14 @@ export async function registerUser(
   uid: string,
   rawInput: unknown,
 ): Promise<{ role: SelfServiceRole }> {
+  await enforceCallRateLimit(
+    deps.firestore,
+    'completeRegistration',
+    uid,
+    (deps.now ?? Date.now)(),
+    REGISTRATION_LIMIT,
+  );
+
   const parsed = completeRegistrationInputSchema.safeParse(rawInput);
   if (!parsed.success) {
     throw new HttpsError('invalid-argument', 'The registration details are not valid.');
