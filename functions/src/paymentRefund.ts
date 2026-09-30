@@ -29,6 +29,10 @@ export async function refundTripPayment(
   deps: { firestore: Firestore; stripe: StripeProvider },
   tripId: string,
   amountMinorUnits?: number,
+  /** Module 11.10 (admin dashboard: payments): the real staff uid once a caller exists; 'system' otherwise (unchanged default - nothing else calls this yet). */
+  actor = 'system',
+  /** The staff member's own stated reason, folded into the audit entry alongside the automatic one. */
+  staffReason?: string,
 ): Promise<PaymentRefundOutcome> {
   const { firestore } = deps;
   const tripRef = firestore.collection('tripRequests').doc(tripId);
@@ -65,12 +69,14 @@ export async function refundTripPayment(
     if (outcome.status === 'failed') {
       tx.create(firestore.collection('auditLogs').doc(), {
         timestamp: FieldValue.serverTimestamp(),
-        actor: 'system',
+        actor,
         action: 'TRIP_PAYMENT_REFUND_FAILED',
         entity: `tripRequests/${tripId}`,
         previousState: { paymentStatus: 'CAPTURED' },
         newState: { paymentStatus: 'CAPTURED' },
-        reason: 'The captured payment could not be refunded',
+        reason: staffReason
+          ? `The captured payment could not be refunded: ${staffReason}`
+          : 'The captured payment could not be refunded',
       });
       return;
     }
@@ -83,12 +89,16 @@ export async function refundTripPayment(
     });
     tx.create(firestore.collection('auditLogs').doc(), {
       timestamp: FieldValue.serverTimestamp(),
-      actor: 'system',
+      actor,
       action: 'TRIP_PAYMENT_REFUNDED',
       entity: `tripRequests/${tripId}`,
       previousState: { paymentStatus: 'CAPTURED' },
       newState: { paymentStatus: fullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED' },
-      reason: fullRefund ? 'Full refund issued' : 'Partial refund issued',
+      reason: staffReason
+        ? `${fullRefund ? 'Full refund issued' : 'Partial refund issued'}: ${staffReason}`
+        : fullRefund
+          ? 'Full refund issued'
+          : 'Partial refund issued',
     });
   });
 

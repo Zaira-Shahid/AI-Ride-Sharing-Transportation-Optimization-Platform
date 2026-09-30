@@ -599,6 +599,48 @@ Collections other than `users` stay closed until the module that owns each one d
   does not leave the server. The stored entries are unchanged.
 - Entries name no exact place, and the page does not look one up.
 
+### Reading optimization runs (staff)
+
+- `optimizationRuns` has no rule either. Any verified staff role reads it through the
+  `listOptimizationRuns` function (module 11.9) - inspection only, no financial or verification
+  decision, the same stance as trip monitoring.
+- One document per batch-optimization cycle (Module 8.1's phase 1 only, the one that calls the real
+  optimizer; phase 2's simpler insertion heuristic never calls it, so it has no cycle to log). A cycle
+  that evaluated 0 open requests or 0 available journeys is not written at all - there is nothing to
+  show. Every other cycle is, even one that found no viable candidate or plan.
+- **Retention is query-time only.** The function returns the last 500 runs, or ones started within the
+  last 30 days, whichever is fewer (`OPTIMIZATION_RUNS_RETENTION_LIMIT`/`_DAYS`,
+  `functions/src/optimizationMonitoring.ts`) - nothing is ever deleted. This runs every 2 minutes, so
+  the collection grows without bound until a scheduled function removes old runs, which needs the
+  Blaze plan (the project is on Spark) - the same known gap as the geocoding/routing caches and trip
+  request coordinates above. When Blaze is available, add a scheduled function that deletes runs
+  older than 30 days (or beyond the 500th newest), the same pattern as those other retention items.
+- Two of the spec's own example fields (section 24) are never shown, because neither is a real number
+  this system computes: a per-decision "compatibility %" (no such score exists anywhere in the
+  matching or optimization code), and "passenger walking distance" (a preference ceiling set at
+  trip-request time, module 5.2, never recomputed live during a match). Seats used is shown per plan
+  (the request count against the journey's own seat capacity), not per decision.
+- A decision's own status is the optimizer's proposal, not a live cross-check against what was
+  actually written to Firestore (a rare race - another change landing first - can make a proposed plan
+  not apply; this is not reconciled per decision). `finalAssignments`/`journeysMatched` on the run
+  itself are the real, applied counts.
+
+### Reading and refunding payments (staff)
+
+- Any verified staff role reads trips by payment status through `listPayments`/`getPaymentsSummary`
+  (module 11.10) - visibility only, the same list-row shape (no exact place) trip monitoring and
+  disputes already use, and the same audited `getTripDetail` for a trip's own amounts. There is no
+  separate `payments` collection: every payment field lives on the trip request itself.
+- Only `ADMIN`/`SUPER_ADMIN` may issue a refund (`refundPayment`) - a financial decision, the same
+  `REVIEWER_ROLES` split user management uses (other staff roles see the page, only reviewers act).
+  This wires `refundTripPayment` (module 9.7, fully built and tested but never called from anywhere
+  until now) to a real caller: the real staff uid as `actor` and their own typed reason folded into
+  the audit entry it already writes, in place of the placeholder `'system'` actor used everywhere else
+  that function is still called with none (nothing else calls it with an actor yet).
+- The summary is platform-wide totals only (captured, refunded, platform fee), computed with a
+  Firestore aggregation query, not a per-document read. No trend or time breakdown: that is Phase 12's
+  own job (its metrics list already names "payment success rate" as an Analytics concern).
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

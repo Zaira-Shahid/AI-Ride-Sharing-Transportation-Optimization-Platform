@@ -50,6 +50,12 @@ import {
   listTripHistoryForStaff,
 } from './tripMonitoring.js';
 import { listAuditLogsForStaff } from './auditLogs.js';
+import { listOptimizationRunsForStaff } from './optimizationMonitoring.js';
+import {
+  getPaymentsSummaryForStaff,
+  listPaymentsForStaff,
+  refundPaymentAsStaff,
+} from './payments.js';
 import { listDisputedTripsForStaff, markDisputeReviewedForStaff } from './disputes.js';
 import { setUserStatusAsStaff } from './userManagement.js';
 import { requestReview as requestDriverReview, reviewAsStaff } from './verification.js';
@@ -209,6 +215,30 @@ export const markDisputeReviewed = onCall((request) =>
 export const listAuditLogs = onCall((request) =>
   listAuditLogsForStaff({ firestore: getFirestore() }, callerOf(request), request.data),
 );
+
+export const listOptimizationRuns = onCall((request) =>
+  listOptimizationRunsForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const listPayments = onCall((request) =>
+  listPaymentsForStaff({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+export const getPaymentsSummary = onCall((request) =>
+  getPaymentsSummaryForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const refundPayment = onCall((request) => {
+  const stripeConfig = stripeConfigFromEnvironment();
+  if (!stripeConfig) {
+    throw new HttpsError('failed-precondition', 'Payments are not available yet.');
+  }
+  return refundPaymentAsStaff(
+    { firestore: getFirestore(), stripe: createStripeProvider(stripeConfig) },
+    callerOf(request),
+    request.data,
+  );
+});
 
 export const setAvailability = onCall((request) =>
   setDriverAvailability(
