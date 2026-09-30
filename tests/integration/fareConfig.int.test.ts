@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
   DEFAULT_FARE_CONFIG,
   FARE_CONFIG_PATH,
@@ -7,6 +7,14 @@ import {
 import { admin } from './support';
 
 describe('readFareConfig (functions + firestore emulator)', () => {
+  // The whole suite shares one long-lived Firestore (fileParallelism: false), and this file's own
+  // tests deliberately leave config/fare missing or malformed to exercise readFareConfig's own
+  // fallbacks - real fare/payout tests elsewhere read the same document through the same function, so
+  // whatever was left here would otherwise leak into whichever file happens to run after this one.
+  afterAll(async () => {
+    await admin().firestore.doc(FARE_CONFIG_PATH).delete();
+  });
+
   it('returns every default when config/fare does not exist', async () => {
     await admin().firestore.doc(FARE_CONFIG_PATH).delete();
 
