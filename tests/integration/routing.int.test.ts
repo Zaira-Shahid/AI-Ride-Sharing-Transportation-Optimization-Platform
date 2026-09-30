@@ -11,6 +11,7 @@ import {
   type Route,
   type RoutePoint,
   type RouteProfile,
+  type RoutingCollections,
   type RoutingProvider,
 } from '../../functions/src/routing';
 import type { LookupLimits } from '../../functions/src/lookupLimits';
@@ -30,6 +31,18 @@ const rider = (uid = 'rider-1', role: string = 'PASSENGER', emailVerified = true
   emailVerified,
 });
 const NO_LIMITS: LookupLimits = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+
+// This file calls calculateRoute directly with a fake clock, but real triggers (estimateTripRequest,
+// which any other file's own trip requests can fire, since the whole suite shares one long-lived
+// Firestore) call it too, always with the real clock and the default collections - writing the SAME
+// routeGlobal/lookups.lastAt document these tests otherwise depend on. A real-time lastAt then makes a
+// fake-clock lookup here look "recent" (or the opposite), so its own busy/found result stops meaning
+// anything. Its own names, never touched by a real trigger, fix that - the same reason
+// estimateTripRequest's own `collection` param exists for tripRequests.
+const TEST_ROUTING_COLLECTIONS: RoutingCollections = {
+  cache: 'routeCacheUnderTest',
+  limits: { perCaller: 'routeLimitsUnderTest', global: 'routeGlobalUnderTest' },
+};
 
 /** A different, distant pair of stops for every test, so the cache from one never answers another. */
 let counter = 0;
@@ -63,15 +76,25 @@ function stubProvider(answer: Route | null | Error = ROUTE) {
 const cacheDoc = async (stops: RoutePoint[], profile: RouteProfile = 'driving') =>
   (
     await admin()
-      .firestore.doc(`routeCache/${routeCacheKey(profile, stops)}`)
+      .firestore.doc(`${TEST_ROUTING_COLLECTIONS.cache}/${routeCacheKey(profile, stops)}`)
       .get()
   ).data();
 const limitsDoc = async (uid: string) =>
-  (await admin().firestore.doc(`routeLimits/${uid}`).get()).data();
+  (await admin().firestore.doc(`${TEST_ROUTING_COLLECTIONS.limits.perCaller}/${uid}`).get()).data();
 
 async function clearRoutingState() {
   const { firestore } = admin();
-  for (const name of ['routeCache', 'routeLimits', 'routeGlobal']) {
+  const names = [
+    TEST_ROUTING_COLLECTIONS.cache,
+    TEST_ROUTING_COLLECTIONS.limits.perCaller,
+    TEST_ROUTING_COLLECTIONS.limits.global,
+    // The callable-based describe block below goes through the real onCall wrapper, which always uses
+    // the production collections - cleared too so it starts from the same clean state every test.
+    'routeCache',
+    'routeLimits',
+    'routeGlobal',
+  ];
+  for (const name of names) {
     await firestore.recursiveDelete(firestore.collection(name));
   }
 }
@@ -98,7 +121,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
     ];
 
     const result = await calculateRoute(
-      { firestore: admin().firestore, provider, limits: NO_LIMITS },
+      {
+        firestore: admin().firestore,
+        provider,
+        collections: TEST_ROUTING_COLLECTIONS,
+        limits: NO_LIMITS,
+      },
       rider(),
       { stops: exact },
     );
@@ -131,7 +159,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
   it('answers from the cache, for anyone, without asking the provider or using up a limit', async () => {
     const { provider, calls } = stubProvider();
     const stops = newStops();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
     await calculateRoute(deps, rider('first'), { stops });
 
     const again = await calculateRoute(deps, rider('second', 'DRIVER'), { stops });
@@ -143,7 +176,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
 
   it('treats stops that round to the same places as one route, and another order as another', async () => {
     const { provider, calls } = stubProvider();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
     const [a, b] = newStops();
     if (!a || !b) throw new Error('stops');
 
@@ -163,9 +201,18 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
     const { provider, calls } = stubProvider();
     const stops = newStops(10);
 
-    await calculateRoute({ firestore: admin().firestore, provider, limits: NO_LIMITS }, rider(), {
-      stops,
-    });
+    await calculateRoute(
+      {
+        firestore: admin().firestore,
+        provider,
+        collections: TEST_ROUTING_COLLECTIONS,
+        limits: NO_LIMITS,
+      },
+      rider(),
+      {
+        stops,
+      },
+    );
 
     expect(calls[0]?.stops).toHaveLength(10);
   });
@@ -173,7 +220,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
   it('takes an explicit driving profile, or none, as the same route', async () => {
     const { provider, calls } = stubProvider();
     const stops = newStops();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
 
     await calculateRoute(deps, rider(), { stops, profile: 'driving' });
     await calculateRoute(deps, rider(), { stops, profile: null });
@@ -186,10 +238,19 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
     const { provider, calls } = stubProvider();
     const stops = newStops();
 
-    await calculateRoute({ firestore: admin().firestore, provider, limits: NO_LIMITS }, rider(), {
-      stops,
-      profile: 'walking',
-    });
+    await calculateRoute(
+      {
+        firestore: admin().firestore,
+        provider,
+        collections: TEST_ROUTING_COLLECTIONS,
+        limits: NO_LIMITS,
+      },
+      rider(),
+      {
+        stops,
+        profile: 'walking',
+      },
+    );
 
     expect(calls.map((call) => call.profile)).toEqual(['walking']);
     expect((await cacheDoc(calls[0]?.stops ?? [], 'walking'))?.profile).toBe('walking');
@@ -198,7 +259,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
   it('keeps a walking route and a driving route between the same stops apart', async () => {
     const { provider, calls } = stubProvider();
     const stops = newStops();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
 
     await calculateRoute(deps, rider(), { stops });
     // The road route is not the answer to a walking question: it is asked again, and cached on its own.
@@ -217,7 +283,13 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
   it('counts walking and driving lookups against the same limits', async () => {
     const { provider } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 0, perCallerPerMinute: 2 };
-    const deps = { firestore: admin().firestore, provider, limits, now: () => 3_000_000 };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+      now: () => 3_000_000,
+    };
 
     expect((await calculateRoute(deps, rider('mix'), { stops: newStops() })).status).toBe('found');
     expect(
@@ -233,7 +305,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
   it('caches "no route here" too, so those stops are not asked about again', async () => {
     const { provider, calls } = stubProvider(null);
     const stops = newStops();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
 
     expect(await calculateRoute(deps, rider(), { stops })).toEqual({ status: 'none', route: null });
     expect(await calculateRoute(deps, rider(), { stops })).toEqual({ status: 'none', route: null });
@@ -269,7 +346,12 @@ describe('calculateRoute: what the provider sees, and what is stored', () => {
     const huge: Route = { ...ROUTE, geometry: 'x'.repeat(MAX_CACHED_GEOMETRY_LENGTH + 1) };
     const { provider, calls } = stubProvider(huge);
     const stops = newStops();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
 
     expect((await calculateRoute(deps, rider(), { stops })).status).toBe('found');
 
@@ -285,7 +367,13 @@ describe('calculateRoute: the limits', () => {
     const { provider, calls } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 0, perCallerPerMinute: 3 };
     const clock = { now: 1_000_000 };
-    const deps = { firestore: admin().firestore, provider, limits, now: () => clock.now };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+      now: () => clock.now,
+    };
 
     for (let i = 0; i < 3; i += 1) {
       expect((await calculateRoute(deps, rider('busy'), { stops: newStops() })).status).toBe(
@@ -308,7 +396,12 @@ describe('calculateRoute: the limits', () => {
   it('does not count routes answered from the cache against the caller', async () => {
     const { provider } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 0, perCallerPerMinute: 2 };
-    const deps = { firestore: admin().firestore, provider, limits };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+    };
     const stops = newStops();
     await calculateRoute(deps, rider('cached'), { stops });
 
@@ -322,7 +415,13 @@ describe('calculateRoute: the limits', () => {
     const { provider, calls } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 1_100, perCallerPerMinute: 100 };
     const clock = { now: 5_000_000 };
-    const deps = { firestore: admin().firestore, provider, limits, now: () => clock.now };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+      now: () => clock.now,
+    };
 
     expect((await calculateRoute(deps, rider('a'), { stops: newStops() })).status).toBe('found');
     clock.now += 500;
@@ -340,7 +439,13 @@ describe('calculateRoute: the limits', () => {
   it('does not share its counters with reverse geocoding', async () => {
     const { provider } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 60_000, perCallerPerMinute: 100 };
-    const deps = { firestore: admin().firestore, provider, limits, now: () => 9_000_000 };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+      now: () => 9_000_000,
+    };
     await admin().firestore.doc('geocodeGlobal/lookups').set({ lastAt: 9_000_000 });
 
     // An address lookup a moment ago does not make a route wait, and the other way round.
@@ -353,7 +458,13 @@ describe('calculateRoute: the limits', () => {
   it('caches nothing and asks nobody when it is busy', async () => {
     const { provider, calls } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 60_000, perCallerPerMinute: 100 };
-    const deps = { firestore: admin().firestore, provider, limits, now: () => 9_000_000 };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+      now: () => 9_000_000,
+    };
     await calculateRoute(deps, rider('a'), { stops: newStops() });
     const stops = newStops();
 
@@ -366,7 +477,13 @@ describe('calculateRoute: the limits', () => {
   it('stays correct when many arrive at once: the provider is asked once per slot', async () => {
     const { provider, calls } = stubProvider();
     const limits: LookupLimits = { globalSpacingMs: 60_000, perCallerPerMinute: 100 };
-    const deps = { firestore: admin().firestore, provider, limits, now: () => 7_000_000 };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits,
+      now: () => 7_000_000,
+    };
 
     const results = await Promise.all(
       Array.from({ length: 8 }, (_unused, i) =>
@@ -383,7 +500,12 @@ describe('calculateRoute: the limits', () => {
 describe('calculateRoute: who may ask, and what', () => {
   it('is for verified drivers and passengers only', async () => {
     const { provider, calls } = stubProvider();
-    const deps = { firestore: admin().firestore, provider, limits: NO_LIMITS };
+    const deps = {
+      firestore: admin().firestore,
+      provider,
+      collections: TEST_ROUTING_COLLECTIONS,
+      limits: NO_LIMITS,
+    };
     const stops = newStops();
 
     for (const caller of [
@@ -416,7 +538,16 @@ describe('calculateRoute: who may ask, and what', () => {
     const { provider, calls } = stubProvider();
 
     await expect(
-      calculateRoute({ firestore: admin().firestore, provider, limits: NO_LIMITS }, rider(), input),
+      calculateRoute(
+        {
+          firestore: admin().firestore,
+          provider,
+          collections: TEST_ROUTING_COLLECTIONS,
+          limits: NO_LIMITS,
+        },
+        rider(),
+        input,
+      ),
     ).rejects.toMatchObject({ code: 'invalid-argument' });
 
     expect(calls).toHaveLength(0);
