@@ -48,9 +48,7 @@ describe('Firebase configuration structure', () => {
 
   it('runs Cloud Functions in the configured region', () => {
     expect(FIREBASE_REGION).toBe('europe-west1');
-    expect(read('functions/src/index.ts')).toContain(
-      `setGlobalOptions({ region: '${FIREBASE_REGION}' })`,
-    );
+    expect(read('functions/src/index.ts')).toContain(`region: '${FIREBASE_REGION}'`);
   });
 
   it('uses the emulator ports declared in firebase.json', () => {

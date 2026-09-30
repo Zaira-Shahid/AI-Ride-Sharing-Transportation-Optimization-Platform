@@ -6,9 +6,14 @@ import {
 } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
+import { enforceCallRateLimit } from './callLimits.js';
 import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import { notifyWithPush, sendQueuedPushes, type PendingPush } from './notifications.js';
 import type { PushProvider } from './pushProvider.js';
+
+// Phase 14 (Security audit, module "rate limiting"): a real driver toggling online/offline a handful
+// of times a minute is already generous; catches a buggy or hostile client hammering the toggle.
+const SET_AVAILABILITY_LIMIT = { windowMs: 60_000, maxCalls: 20 };
 
 // Functions deploy from this directory alone, so these mirror @ridemesh/types.
 // tests/roles-parity.test.ts fails if they diverge.
@@ -103,11 +108,18 @@ export type SetAvailabilityResult = { status: 'updated' | 'unchanged' };
  * taken offline by the system is (see offlineFields).
  */
 export async function setAvailability(
-  deps: { firestore: Firestore; push: PushProvider },
+  deps: { firestore: Firestore; push: PushProvider; now?: () => number },
   caller: DriverCaller,
   rawInput: unknown,
 ): Promise<SetAvailabilityResult> {
   requireVerifiedDriver(caller);
+  await enforceCallRateLimit(
+    deps.firestore,
+    'setAvailability',
+    caller.uid,
+    (deps.now ?? Date.now)(),
+    SET_AVAILABILITY_LIMIT,
+  );
 
   const parsed = setAvailabilityInputSchema.safeParse(rawInput);
   if (!parsed.success) {
