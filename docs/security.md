@@ -708,6 +708,34 @@ Integrity/App Attest, spec section 57) - neither exists yet (the project is stil
 see below). Wiring the switch now, rather than only once both are ready, means turning it on later
 is a one-variable change, not new code.
 
+## Failure recovery (Phase 14 hardening)
+
+A follow-up audit found three one-shot Cloud Function triggers that fire only on a status
+TRANSITION, with nothing else watching the state a failed attempt leaves behind:
+`matchTripRequestOnCreate` (REQUESTED → SEARCHING), `routeModificationOnDelay` (a MATCHING journey
+newly flagged delayed - the flag is rewritten on every location update while a driver stays behind
+pace, not only on change, so `before` is never null a second time), `voidStaleAuthorizationOnRelease`
+(a trip released back to SEARCHING/CANCELLED while still AUTHORIZED). Unlike a SEARCHING trip request
+(already re-swept every 2 minutes by `batchOptimizationRun`) or the Stripe webhook (Stripe itself
+retries a non-2xx response for days), none of these three had an equivalent backstop.
+
+`functions/src/failureRecovery.ts` adds one scheduled sweep per trigger, each reusing the exact same
+idempotent function its own real-time trigger already calls
+(`matchTripRequest`/`reoptimizeDelayedJourney`/`voidStaleAuthorization` all safely no-op on state that
+no longer needs them), so a sweep can never do anything the real-time path would not also have done -
+it only gives a failed attempt another chance:
+
+| Sweep                            | Cadence     | Threshold                                      |
+| -------------------------------- | ----------- | ---------------------------------------------- |
+| `retryStuckRequestedTripsSweep`  | every 2 min | REQUESTED trips older than 5 min               |
+| `retryDelayedJourneysSweep`      | every 2 min | every MATCHING journey still flagged delayed   |
+| `retryStaleAuthorizedHoldsSweep` | every 5 min | AUTHORIZED holds released more than 10 min ago |
+
+The stale-hold sweep is not closing a "never resolved" gap the way the other two are -
+`voidStaleAuthorization`'s own doc comment already named Stripe's own hold expiry (about a week) as
+the existing fallback for a failed void. It exists to free a passenger's card hold within minutes
+instead of leaving it to that week-long expiry, a genuine improvement rather than a new safety net.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

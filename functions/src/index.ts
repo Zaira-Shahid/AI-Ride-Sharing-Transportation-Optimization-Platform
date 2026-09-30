@@ -7,6 +7,11 @@ import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { enforceAppCheckFromEnvironment } from './appCheck.js';
 import { estimateTripRequest } from './estimates.js';
+import {
+  retryDelayedJourneys,
+  retryStaleAuthorizedHolds,
+  retryStuckRequestedTrips,
+} from './failureRecovery.js';
 import { buildHealthResponse } from './health.js';
 import { matchTripRequest } from './matching.js';
 import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
@@ -458,8 +463,9 @@ export const estimateTripRequestOnCreate = onDocumentCreated(
  * Actual matching no longer happens here - Module 5.5's instant per-request assignment was replaced
  * by the periodic batch optimization run (batchOptimizationRun below) once that was wired up, so a
  * SEARCHING request now waits for the next scheduled run instead of being assigned immediately. Never
- * throws: a request that stays SEARCHING is normal (the trigger can be retried), and nothing about
- * the request's places is logged.
+ * throws (a caught failure is only logged) - if THIS attempt fails, the request stays REQUESTED, not
+ * SEARCHING, with no other trigger watching that status; retryStuckRequestedTripsSweep (Phase 14
+ * failure recovery, below) is what actually retries it. Nothing about the request's places is logged.
  */
 export const matchTripRequestOnCreate = onDocumentCreated(
   { document: 'tripRequests/{tripId}', timeoutSeconds: 120 },
@@ -538,8 +544,11 @@ export const optimizationRunOnSearching = onDocumentUpdated(
  * fresh stop order from the driver's current position. Fires only on the transition into being
  * delayed (before had no flag, after does) - a driver who stays delayed on later location updates is
  * not re-optimized again and again for no reason; if reoptimizeDelayedJourney succeeds it clears the
- * flag itself, so a later relapse fires this trigger afresh. Does nothing when
- * OPTIMIZATION_SERVICE_URL is not configured, same as the batch runs above; never throws.
+ * flag itself, so a later relapse fires this trigger afresh. If THIS one attempt fails, though,
+ * nothing else here fires again while the driver stays delayed (before is never null a second time);
+ * retryDelayedJourneysSweep (Phase 14 failure recovery, below) is the actual backstop for that case.
+ * Does nothing when OPTIMIZATION_SERVICE_URL is not configured, same as the batch runs above; never
+ * throws.
  */
 export const routeModificationOnDelay = onDocumentUpdated(
   { document: 'driverJourneys/{journeyId}', timeoutSeconds: 120 },
@@ -614,3 +623,49 @@ export const voidStaleAuthorizationOnRelease = onDocumentUpdated(
     }
   },
 );
+
+// Phase 14 (Failure recovery): three sweeps, each a backstop for exactly one of the one-shot triggers
+// above that has no other retry path - see failureRecovery.ts's own header comment for the full
+// reasoning behind each. All three reuse the same idempotent function their own real-time trigger
+// already calls, so a sweep can never do anything that trigger would not also have done; it only
+// gives a failed attempt another chance. Never throw: a sweep that finds nothing to do is normal, and
+// nothing about any trip/journey's own places is logged.
+
+export const retryStuckRequestedTripsSweep = onSchedule('every 2 minutes', async () => {
+  try {
+    const outcome = await retryStuckRequestedTrips({ firestore: getFirestore() });
+    if (outcome.checked > 0) logger.info('Stuck REQUESTED trip sweep finished.', outcome);
+  } catch {
+    logger.warn('The stuck REQUESTED trip sweep failed.');
+  }
+});
+
+export const retryDelayedJourneysSweep = onSchedule('every 2 minutes', async () => {
+  const baseUrl = optimizationServiceUrlFromEnvironment();
+  if (!baseUrl) return;
+  try {
+    const outcome = await retryDelayedJourneys({
+      firestore: getFirestore(),
+      provider: osrmFromEnvironment(),
+      optimizationService: { baseUrl },
+      push: createPushProvider(pushConfigFromEnvironment()),
+    });
+    if (outcome.checked > 0) logger.info('Delayed journey sweep finished.', outcome);
+  } catch {
+    logger.warn('The delayed journey sweep failed.');
+  }
+});
+
+export const retryStaleAuthorizedHoldsSweep = onSchedule('every 5 minutes', async () => {
+  const stripeConfig = stripeConfigFromEnvironment();
+  if (!stripeConfig) return;
+  try {
+    const outcome = await retryStaleAuthorizedHolds({
+      firestore: getFirestore(),
+      stripe: createStripeProvider(stripeConfig),
+    });
+    if (outcome.checked > 0) logger.info('Stale authorized hold sweep finished.', outcome);
+  } catch {
+    logger.warn('The stale authorized hold sweep failed.');
+  }
+});
