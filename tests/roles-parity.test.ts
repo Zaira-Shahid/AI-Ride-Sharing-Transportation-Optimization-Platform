@@ -357,14 +357,17 @@ describe('functions and shared types stay aligned', () => {
 
   it('validates trip monitoring requests identically', () => {
     expect(functionsHistoryPageSize).toBe(TRIP_HISTORY_PAGE_SIZE);
+    const historyCursor = { seconds: 1_700_000_000, nanoseconds: 5, tripId: 'abc' };
     const historyInputs: unknown[] = [
       {},
       { cursor: null },
-      { cursor: { createdAtMs: 1, tripId: 'abc' } },
-      { cursor: { createdAtMs: 'x', tripId: 'abc' } },
-      { cursor: { createdAtMs: 1, tripId: '' } },
-      { cursor: { createdAtMs: 1, tripId: 'x'.repeat(201) } },
-      { cursor: { createdAtMs: 1 } },
+      { cursor: historyCursor },
+      { cursor: { ...historyCursor, seconds: 'x' } },
+      { cursor: { ...historyCursor, nanoseconds: -1 } },
+      { cursor: { ...historyCursor, nanoseconds: 1_000_000_000 } },
+      { cursor: { ...historyCursor, tripId: '' } },
+      { cursor: { ...historyCursor, tripId: 'x'.repeat(201) } },
+      { cursor: { seconds: 1, nanoseconds: 0 } },
     ];
     for (const input of historyInputs) {
       expect(functionsTripHistorySchema.safeParse(input).success).toBe(
