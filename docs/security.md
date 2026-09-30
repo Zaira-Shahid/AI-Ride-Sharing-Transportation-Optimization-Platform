@@ -641,6 +641,30 @@ Collections other than `users` stay closed until the module that owns each one d
   Firestore aggregation query, not a per-document read. No trend or time breakdown: that is Phase 12's
   own job (its metrics list already names "payment success rate" as an Analytics concern).
 
+### Reading analytics (staff)
+
+- Any verified staff role reads the platform-wide totals through `getAnalyticsSummary` (module 12,
+  Phase 12's own 12-metric list) - visibility only, computed on demand from existing collections, no
+  new one. Exactly Phase 12's named metrics, no more, no fewer: the spec's own separate "network
+  efficiency" (section 23) and the fuller section 78/33 metric sets are a later, separate decision.
+- "Average passenger walking distance" is never shown - no live walking-distance number is computed
+  anywhere in this codebase, the same stance module 11.9 already takes for "compatibility %" and
+  walking distance, rather than presenting a passenger's own preference ceiling as a measured outcome.
+- "Average occupancy", "Vehicle trips avoided" and "Estimated emissions avoided" use formulas this
+  project chose itself, not an industry-standard one - documented in full in
+  `functions/src/analytics.ts`'s own header comment and shown on the page itself. Emissions is
+  labeled prominently as an estimate with an unverified methodology (spec section 33's own
+  requirement): vehicle trips avoided × this system's own average trip distance × an assumed 120 g
+  CO₂/km per car.
+- "Average matching time" and "Average detour" both depend on data that started being recorded only
+  with this module (`tripRequests.matchedAt`/`matchDurationSeconds`, written by
+  `optimizationRun.ts`'s phase 1 and `planInsertion.ts`'s phase 2; and module 11.9's own
+  `optimizationRuns` log) - neither is retroactive, and detour is further limited to whatever cycles
+  11.9's own retention window still holds.
+- Distinct passenger/vehicle counts (`peopleTransported`/`vehiclesUsed`) read every `COMPLETED` trip
+  request - a known simplification with no cap, unbounded at scale (Firestore has no count-distinct
+  aggregate); revisit if that collection grows very large.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

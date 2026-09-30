@@ -72,6 +72,12 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   // What was actually returned to the passenger (Module 9.7); null until a refund succeeds.
   refundedAmountMinorUnits: null,
   disputeReviewed: false,
+  // When this request was matched (Module 12, analytics), and how long that took from
+  // requestedAt, in seconds - written once, by whichever of optimizationRun.ts/planInsertion.ts
+  // actually matches it; null until then, and not retroactive for anything matched before this
+  // field existed.
+  matchedAt: null,
+  matchDurationSeconds: null,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;

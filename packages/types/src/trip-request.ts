@@ -185,6 +185,14 @@ export interface TripRequest {
    * DISPUTED.
    */
   disputeReviewed: boolean;
+  /**
+   * When this request was matched (Module 12, analytics: "average matching time") - written once, by
+   * whichever of optimizationRun.ts's phase 1 or planInsertion.ts's phase 2 actually matches it; null
+   * until then, and for anything matched before this field existed (not retroactive).
+   */
+  matchedAt: FirestoreTimestamp | null;
+  /** requestedAt to matchedAt, in seconds, computed once at match time so analytics can average it directly. */
+  matchDurationSeconds: number | null;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -214,6 +222,8 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   authorizedAmountMinorUnits: null,
   refundedAmountMinorUnits: null,
   disputeReviewed: false,
+  matchedAt: null,
+  matchDurationSeconds: null,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

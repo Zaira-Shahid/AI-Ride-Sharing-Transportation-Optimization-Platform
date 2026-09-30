@@ -50,6 +50,7 @@ import {
   listTripHistoryForStaff,
 } from './tripMonitoring.js';
 import { listAuditLogsForStaff } from './auditLogs.js';
+import { getAnalyticsSummaryForStaff } from './analytics.js';
 import { listOptimizationRunsForStaff } from './optimizationMonitoring.js';
 import {
   getPaymentsSummaryForStaff,
@@ -226,6 +227,10 @@ export const listPayments = onCall((request) =>
 
 export const getPaymentsSummary = onCall((request) =>
   getPaymentsSummaryForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const getAnalyticsSummary = onCall((request) =>
+  getAnalyticsSummaryForStaff({ firestore: getFirestore() }, callerOf(request)),
 );
 
 export const refundPayment = onCall((request) => {

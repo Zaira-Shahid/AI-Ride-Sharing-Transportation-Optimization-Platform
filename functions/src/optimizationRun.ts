@@ -488,7 +488,19 @@ async function matchIntoAvailableJourneys(deps: {
         matchedTripRequestIds: plan.request_ids,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      for (const tripRef of tripRefs) {
+      for (let i = 0; i < tripRefs.length; i += 1) {
+        const tripRef = tripRefs[i]!;
+        // Module 12 (analytics): matchedAt/matchDurationSeconds are new here - real time-to-match
+        // data for "average matching time", which nothing tracked before (no other write here is
+        // audited either, so there was no timestamp anywhere else to reuse). `now` (not
+        // serverTimestamp) so the duration can be computed in the same write; requestedAt already
+        // exists on every trip request (module 3's own creation field).
+        const requestedAt = tripSnaps[i]?.get('requestedAt') as
+          { toMillis: () => number } | undefined;
+        const matchDurationSeconds =
+          requestedAt && typeof requestedAt.toMillis === 'function'
+            ? Math.max(0, (now - requestedAt.toMillis()) / 1000)
+            : null;
         tx.update(tripRef, {
           status: 'PICKUP_ASSIGNED',
           matchedJourneyId: plan.journey_id,
@@ -502,6 +514,8 @@ async function matchIntoAvailableJourneys(deps: {
           // Module 9.3: this journey has more than one passenger from the moment this plan is
           // written if OR-Tools itself pooled several requests together in one batch run.
           sharedRide: plan.request_ids.length > 1,
+          matchedAt: Timestamp.fromMillis(now),
+          matchDurationSeconds,
           updatedAt: FieldValue.serverTimestamp(),
         });
       }

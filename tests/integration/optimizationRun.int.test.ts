@@ -275,6 +275,10 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
     expect(typeof trip?.vehiclePlateNumber).toBe('string');
     // Module 9.3: a solo passenger's own plan is not a shared ride.
     expect(trip?.sharedRide).toBe(false);
+    // Module 12 (analytics): real time-to-match data, written the moment this match is written.
+    expect(trip?.matchedAt).toBeDefined();
+    expect(typeof trip?.matchDurationSeconds).toBe('number');
+    expect(trip?.matchDurationSeconds).toBeGreaterThanOrEqual(0);
 
     const journey = (await admin().firestore.doc(`driverJourneys/${journeyId}`).get()).data();
     expect(journey?.status).toBe('MATCHING');
