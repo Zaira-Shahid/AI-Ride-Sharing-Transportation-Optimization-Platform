@@ -70,6 +70,15 @@ beforeEach(async () => {
   for (const name of ['routeCache', 'routeLimits', 'routeGlobal']) {
     await firestore.recursiveDelete(firestore.collection(name));
   }
+  // runBatchOptimization reads the WHOLE tripRequests/driverJourneys collections (Module 8.1's own
+  // "one batch, every open request" design, not scoped to this file's own fixtures) - a SEARCHING
+  // request or an AVAILABLE/MATCHING journey some OTHER file left behind (the whole suite shares one
+  // long-lived Firestore, fileParallelism: false) can get matched by THIS file's own run, pushing and
+  // asserting against accounts this file never created. Cleared here, not in every file, since only
+  // the files that run the global batch (this one, phase6/8/10-acceptance) can be affected by it.
+  for (const name of ['tripRequests', 'driverJourneys']) {
+    await firestore.recursiveDelete(firestore.collection(name));
+  }
 });
 
 let counter = 0;
