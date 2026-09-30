@@ -97,6 +97,14 @@ beforeEach(async () => {
   for (const name of ['routeCache', 'routeLimits', 'routeGlobal']) {
     await firestore.recursiveDelete(firestore.collection(name));
   }
+  // runBatchOptimization reads the WHOLE tripRequests/driverJourneys collections, not scoped to this
+  // file's own fixtures - a SEARCHING request or an AVAILABLE/MATCHING journey some OTHER file left
+  // behind (the whole suite shares one long-lived Firestore, fileParallelism: false) can be picked up
+  // by THIS file's own run. Cleared here, not in every file - only the files that run the global batch
+  // (this one, optimizationRun/phase6/10-acceptance) can be affected by it.
+  for (const name of ['tripRequests', 'driverJourneys']) {
+    await firestore.recursiveDelete(firestore.collection(name));
+  }
   fake.requests.length = 0;
   fake.reply(null);
 });
