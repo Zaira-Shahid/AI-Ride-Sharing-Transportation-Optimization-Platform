@@ -1,4 +1,5 @@
 export * from './adminReview';
+export * from './analytics';
 export * from './app';
 export * from './auditLogs';
 export * from './auth-errors';
