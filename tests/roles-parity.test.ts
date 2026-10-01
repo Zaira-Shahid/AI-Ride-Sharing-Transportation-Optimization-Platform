@@ -501,6 +501,13 @@ describe('functions and shared types stay aligned', () => {
     }
   });
 
+  // 82,944 combinations (2*4*4*3*2*2*6*6*6), each calling both implementations - genuinely ~1.7-3s
+  // of pure CPU work on this machine, comfortably under vitest's 5s default alone, but with zero I/O
+  // to yield on, so it scales directly with real CPU contention rather than timing out on something
+  // flaky. Reproduced the exact failure this test's own history flagged by running three concurrent
+  // `vitest run` processes alongside it: every contended copy hit the 5s default. An explicit, longer
+  // timeout fixes that without shrinking the combinatorial space, which is the whole point of this
+  // test (catching any divergence between the shared and functions-side implementations).
   it('decides who may go online identically, over every combination', () => {
     const statuses = ['PENDING', 'VERIFIED', 'REJECTED', null] as const;
     for (const accountActive of [true, false]) {
@@ -540,7 +547,7 @@ describe('functions and shared types stay aligned', () => {
         }
       }
     }
-  });
+  }, 15_000);
 
   it('starts a new journey the same way, and validates destinations identically', () => {
     expect(functionsJourneyDefaults).toEqual(NEW_JOURNEY_DEFAULTS);
