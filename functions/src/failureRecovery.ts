@@ -44,12 +44,16 @@ export interface RequestedSweepOutcome {
  * the age threshold keeps a sweep from ever racing a normal, still-in-progress first attempt.
  */
 export async function retryStuckRequestedTrips(
-  deps: { firestore: Firestore },
+  deps: {
+    firestore: Firestore;
+    /** Always tripRequests in production; tests use another collection so the real matchTripRequestOnCreate trigger (which races any create in the real collection, regardless of a backdated createdAt) does not race the fixture - the same reason matchTripRequest itself takes this param. */
+    collection?: string;
+  },
   now: number = Date.now(),
 ): Promise<RequestedSweepOutcome> {
   const cutoff = Timestamp.fromMillis(now - STUCK_REQUESTED_THRESHOLD_MS);
   const snapshot = await deps.firestore
-    .collection('tripRequests')
+    .collection(deps.collection ?? 'tripRequests')
     .where('status', '==', 'REQUESTED')
     .where('createdAt', '<=', cutoff)
     .get();
