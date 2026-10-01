@@ -736,6 +736,35 @@ The stale-hold sweep is not closing a "never resolved" gap the way the other two
 the existing fallback for a failed void. It exists to free a passenger's card hold within minutes
 instead of leaving it to that week-long expiry, a genuine improvement rather than a new safety net.
 
+## Monitoring / observability (Phase 14 hardening)
+
+A third audit checked the actual logging code against spec section 54's own list: most of the named
+metrics (unmatched requests, average occupancy, average detour, payment failures, per-run
+optimization latency) are already covered by Phase 12 Analytics or an existing admin page - see that
+section's own definitions above. Two real gaps were found and fixed, both pure logging changes, no
+new metrics or UI:
+
+- **The correlation IDs section 54 asks for didn't correlate.** `optimizationRunId` - the
+  `optimizationRuns/{id}` document every batch run already wrote - was generated but never logged
+  anywhere, so a Cloud Logging entry for a run could not be traced back to its own full Firestore
+  record. `writeOptimizationRunLog` (`optimizationMonitoring.ts`) now returns that document's own ID;
+  `runBatchOptimization`'s own `BatchOptimizationOutcome` carries it as `optimizationRunId`, and
+  `index.ts`'s own `logger.info('Batch optimization run finished.', outcome)` (and the immediate-run
+  equivalent) logs it automatically as part of `outcome`. `tripId`/`journeyId` were already logged at
+  most catch sites in `index.ts`; the one missing one (`optimizationRunOnSearching`'s own failure
+  log) now carries `tripId` too.
+- **Swallowed exceptions lost the actual error.** Of the roughly ten `logger.warn`/catch sites across
+  every "never throws" trigger in `index.ts`, only the Stripe webhook handler logged the real `error`
+  object - every other one (batch optimization, all three Phase 14 sweeps, route modification, the
+  stale-hold void, trip estimate/search) logged a bare generic message with no exception detail. A
+  real production failure at any of these sites would show only THAT it happened, never WHY. Every
+  one of those catch blocks now captures and logs `error` alongside its own message.
+
+Deliberately out of scope for this pass (would mean expanding Phase 12 Analytics' own "exactly 12
+metrics, no more" boundary, a separate decision): an aggregate optimization-latency trend across
+runs, a single "matching success rate" %, and an aggregate count of API/Cloud-Function/route-
+calculation errors.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

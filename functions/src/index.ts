@@ -449,9 +449,10 @@ export const estimateTripRequestOnCreate = onDocumentCreated(
         { firestore: getFirestore(), provider: osrmFromEnvironment() },
         event.params.tripId,
       );
-    } catch {
+    } catch (error) {
       logger.warn('The estimate for a trip request could not be made.', {
         tripId: event.params.tripId,
+        error,
       });
     }
   },
@@ -472,9 +473,10 @@ export const matchTripRequestOnCreate = onDocumentCreated(
   async (event) => {
     try {
       await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
-    } catch {
+    } catch (error) {
       logger.warn('The search for a trip request could not be started.', {
         tripId: event.params.tripId,
+        error,
       });
     }
   },
@@ -502,8 +504,8 @@ export const batchOptimizationRun = onSchedule('every 2 minutes', async () => {
       push: createPushProvider(pushConfigFromEnvironment()),
     });
     logger.info('Batch optimization run finished.', outcome);
-  } catch {
-    logger.warn('The batch optimization run failed.');
+  } catch (error) {
+    logger.warn('The batch optimization run failed.', { error });
   }
 });
 
@@ -532,8 +534,11 @@ export const optimizationRunOnSearching = onDocumentUpdated(
         push: createPushProvider(pushConfigFromEnvironment()),
       });
       if (outcome) logger.info('Immediate batch optimization run finished.', outcome);
-    } catch {
-      logger.warn('The immediate batch optimization run failed.');
+    } catch (error) {
+      logger.warn('The immediate batch optimization run failed.', {
+        tripId: event.params.tripId,
+        error,
+      });
     }
   },
 );
@@ -573,9 +578,10 @@ export const routeModificationOnDelay = onDocumentUpdated(
         journeyId: event.params.journeyId,
         outcome,
       });
-    } catch {
+    } catch (error) {
       logger.warn('Route re-optimization after a traffic delay failed.', {
         journeyId: event.params.journeyId,
+        error,
       });
     }
   },
@@ -616,9 +622,10 @@ export const voidStaleAuthorizationOnRelease = onDocumentUpdated(
         tripId: event.params.tripId,
         outcome,
       });
-    } catch {
+    } catch (error) {
       logger.warn('Failed to void a stale payment authorization.', {
         tripId: event.params.tripId,
+        error,
       });
     }
   },
@@ -635,8 +642,8 @@ export const retryStuckRequestedTripsSweep = onSchedule('every 2 minutes', async
   try {
     const outcome = await retryStuckRequestedTrips({ firestore: getFirestore() });
     if (outcome.checked > 0) logger.info('Stuck REQUESTED trip sweep finished.', outcome);
-  } catch {
-    logger.warn('The stuck REQUESTED trip sweep failed.');
+  } catch (error) {
+    logger.warn('The stuck REQUESTED trip sweep failed.', { error });
   }
 });
 
@@ -651,8 +658,8 @@ export const retryDelayedJourneysSweep = onSchedule('every 2 minutes', async () 
       push: createPushProvider(pushConfigFromEnvironment()),
     });
     if (outcome.checked > 0) logger.info('Delayed journey sweep finished.', outcome);
-  } catch {
-    logger.warn('The delayed journey sweep failed.');
+  } catch (error) {
+    logger.warn('The delayed journey sweep failed.', { error });
   }
 });
 
@@ -665,7 +672,7 @@ export const retryStaleAuthorizedHoldsSweep = onSchedule('every 5 minutes', asyn
       stripe: createStripeProvider(stripeConfig),
     });
     if (outcome.checked > 0) logger.info('Stale authorized hold sweep finished.', outcome);
-  } catch {
-    logger.warn('The stale authorized hold sweep failed.');
+  } catch (error) {
+    logger.warn('The stale authorized hold sweep failed.', { error });
   }
 });

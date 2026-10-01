@@ -262,6 +262,13 @@ export interface BatchOptimizationOutcome {
   matchedJourneyCount: number;
   /** Still-searching requests fitted into an already-MATCHING journey instead (modules 8.3/8.4). */
   insertedRequestCount: number;
+  /**
+   * Phase 14 observability (spec section 54's own `optimizationRunId` correlation ID): the
+   * optimizationRuns/{id} document this cycle wrote, logged alongside the Cloud Logging entry for
+   * this run (index.ts) so the two can be found from one another. Null when nothing was logged (an
+   * empty cycle - see matchIntoAvailableJourneys's own note) or the log write itself failed.
+   */
+  optimizationRunId: string | null;
 }
 
 /**
@@ -296,6 +303,7 @@ async function matchIntoAvailableJourneys(deps: {
     journeyCount: journeys.length,
     matchedRequestCount: 0,
     matchedJourneyCount: 0,
+    optimizationRunId: null,
   };
   // Module 11.9 (optimization monitoring): an empty cycle (nothing to evaluate at all) is not logged -
   // there is nothing to show a staff account. Every other early return below DID evaluate real
@@ -336,8 +344,8 @@ async function matchIntoAvailableJourneys(deps: {
     })),
   });
   if (candidatesResponse.candidates.length === 0) {
-    await logCycle({});
-    return empty;
+    const optimizationRunId = await logCycle({});
+    return { ...empty, optimizationRunId };
   }
 
   // Sequential, never in parallel: see checkCandidateRoute's own note on the shared rate limit.
@@ -374,8 +382,10 @@ async function matchIntoAvailableJourneys(deps: {
     });
   }
   if (costs.length === 0) {
-    await logCycle({ candidatesGenerated: candidatesResponse.candidates.length });
-    return empty;
+    const optimizationRunId = await logCycle({
+      candidatesGenerated: candidatesResponse.candidates.length,
+    });
+    return { ...empty, optimizationRunId };
   }
 
   const journeyIdsWithCosts = [...new Set(costs.map((c) => c.journey_id))];
@@ -412,8 +422,10 @@ async function matchIntoAvailableJourneys(deps: {
 
   const costsWithMatrix = costs.filter((c) => matrices[c.journey_id] !== undefined);
   if (costsWithMatrix.length === 0) {
-    await logCycle({ candidatesGenerated: candidatesResponse.candidates.length });
-    return empty;
+    const optimizationRunId = await logCycle({
+      candidatesGenerated: candidatesResponse.candidates.length,
+    });
+    return { ...empty, optimizationRunId };
   }
 
   const availableSeats: Record<string, number> = {};
@@ -582,7 +594,7 @@ async function matchIntoAvailableJourneys(deps: {
       planTotalDurationSeconds: plan?.total_duration_seconds ?? null,
     };
   });
-  await logCycle({
+  const optimizationRunId = await logCycle({
     candidatesGenerated: candidatesResponse.candidates.length,
     plansGenerated: optimizeResponse.plans.length,
     plansRejected: optimizeResponse.validation_issues.length,
@@ -598,6 +610,7 @@ async function matchIntoAvailableJourneys(deps: {
     journeyCount: journeys.length,
     matchedRequestCount,
     matchedJourneyCount,
+    optimizationRunId,
   };
 }
 
