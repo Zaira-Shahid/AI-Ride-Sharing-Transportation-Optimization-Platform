@@ -208,7 +208,7 @@ describe('runBatchOptimization writes an optimization-run log', () => {
       },
     };
 
-    await runBatchOptimization({
+    const outcome = await runBatchOptimization({
       firestore: admin().firestore,
       provider: positionalProvider(),
       limits: NO_LIMITS,
@@ -221,6 +221,10 @@ describe('runBatchOptimization writes an optimization-run log', () => {
 
     const docs = await runsCollection();
     expect(docs).toHaveLength(1);
+    // Phase 14 observability (spec section 54's own optimizationRunId correlation ID): the value the
+    // caller would log alongside its own Cloud Logging entry is this exact document's own ID - the
+    // whole point is that the two can be found from one another.
+    expect(outcome.optimizationRunId).toBe(docs[0]!.id);
     const run = docs[0]!.data();
     expect(run).toMatchObject({
       requestsEvaluated: 1,
