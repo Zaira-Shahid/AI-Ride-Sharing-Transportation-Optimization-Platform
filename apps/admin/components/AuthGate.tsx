@@ -5,6 +5,7 @@ import { isStaffRole } from '@ridemesh/types';
 import { useEffect, type ReactNode } from 'react';
 import { LoginForm } from './LoginForm';
 import { Sidebar } from './Sidebar';
+import { MobileSidebarProvider } from './SidebarContext';
 
 /**
  * Module 11.1 (admin dashboard foundation): route protection for the whole console. Every page in
@@ -39,9 +40,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto">{children}</main>
-    </div>
+    <MobileSidebarProvider>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
+    </MobileSidebarProvider>
   );
 }
