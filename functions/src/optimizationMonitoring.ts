@@ -73,15 +73,23 @@ function requireStaff(caller: StaffCaller): void {
   }
 }
 
-/** Writes one cycle's log. Never audited (a system record of what the optimizer did, not a staff decision) and never throws into the caller's own batch run - a logging failure should not undo a real match. */
+/**
+ * Writes one cycle's log. Never audited (a system record of what the optimizer did, not a staff
+ * decision) and never throws into the caller's own batch run - a logging failure should not undo a
+ * real match. Returns the written document's own ID (Phase 14 observability: spec section 54's own
+ * `optimizationRunId` correlation ID - the caller logs it alongside its own Cloud Logging entry so a
+ * log line and its full Firestore record can actually be found from one another), or null if the
+ * write itself failed.
+ */
 export async function writeOptimizationRunLog(
   firestore: Firestore,
   log: OptimizationRunLog,
-): Promise<void> {
-  await firestore
+): Promise<string | null> {
+  const ref = await firestore
     .collection(OPTIMIZATION_RUNS_COLLECTION)
     .add({ ...log, startedAt: Timestamp.fromMillis(log.startedAt) })
-    .catch(() => undefined);
+    .catch(() => null);
+  return ref?.id ?? null;
 }
 
 /**
