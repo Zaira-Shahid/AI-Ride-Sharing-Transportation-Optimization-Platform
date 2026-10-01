@@ -33,9 +33,18 @@ function fakeStripe(overrides: Partial<StripeProvider> = {}): StripeProvider {
 const NOWHERE_PROVIDER: RoutingProvider = { route: () => Promise.resolve(null) };
 
 describe('retryStuckRequestedTrips', () => {
+  // A dedicated collection, never 'tripRequests': creating a real tripRequests doc anywhere in this
+  // suite fires the real matchTripRequestOnCreate trigger (the whole suite shares one long-lived
+  // Functions+Firestore emulator), which races to move ANY newly-created REQUESTED doc to SEARCHING
+  // immediately - regardless of a backdated createdAt meant to make a fixture merely LOOK old to this
+  // sweep's own query. retryStuckRequestedTrips accepts the same collection override
+  // matchTripRequest itself already does, for exactly this reason.
+  const TEST_COLLECTION = 'tripRequestsUnderTestFailureRecovery';
+  const deps = { firestore: admin().firestore, collection: TEST_COLLECTION };
+
   async function requestedTrip(prefix: string, ageMs: number): Promise<string> {
     counter += 1;
-    const ref = admin().firestore.collection('tripRequests').doc();
+    const ref = admin().firestore.collection(TEST_COLLECTION).doc();
     const createdAt = Timestamp.fromMillis(Date.now() - ageMs);
     await ref.set({
       passengerId: `${prefix}-passenger-${counter}`,
@@ -52,44 +61,44 @@ describe('retryStuckRequestedTrips', () => {
   it('starts a REQUESTED trip older than the threshold, moving it to SEARCHING', async () => {
     const tripId = await requestedTrip('stuck', 10 * 60_000);
 
-    const outcome = await retryStuckRequestedTrips({ firestore: admin().firestore });
+    const outcome = await retryStuckRequestedTrips(deps);
 
     expect(outcome.checked).toBeGreaterThanOrEqual(1);
     expect(outcome.started).toBeGreaterThanOrEqual(1);
-    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    const trip = (await admin().firestore.doc(`${TEST_COLLECTION}/${tripId}`).get()).data();
     expect(trip?.status).toBe('SEARCHING');
   });
 
   it('leaves a REQUESTED trip younger than the threshold alone', async () => {
     const tripId = await requestedTrip('fresh', 1_000);
 
-    await retryStuckRequestedTrips({ firestore: admin().firestore });
+    await retryStuckRequestedTrips(deps);
 
-    const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
+    const trip = (await admin().firestore.doc(`${TEST_COLLECTION}/${tripId}`).get()).data();
     expect(trip?.status).toBe('REQUESTED');
   });
 
   it('leaves an already-SEARCHING trip alone', async () => {
     counter += 1;
-    const ref = admin().firestore.collection('tripRequests').doc();
+    const ref = admin().firestore.collection(TEST_COLLECTION).doc();
     await ref.set({
       passengerId: `searching-passenger-${counter}`,
       status: 'SEARCHING',
       createdAt: Timestamp.fromMillis(Date.now() - 10 * 60_000),
     });
     // Computed BEFORE the sweep runs, with the same 5-minute cutoff retryStuckRequestedTrips itself
-    // uses: the whole suite shares one long-lived Firestore (fileParallelism: false), so other files'
-    // own old REQUESTED trips may exist too - what matters here is only that this SEARCHING fixture
-    // is never among whatever the sweep does act on.
+    // uses: this file's own earlier tests may have left old REQUESTED fixtures in this same isolated
+    // collection too - what matters here is only that this SEARCHING fixture is never among whatever
+    // the sweep does act on.
     const expectedChecked = (
       await admin()
-        .firestore.collection('tripRequests')
+        .firestore.collection(TEST_COLLECTION)
         .where('status', '==', 'REQUESTED')
         .where('createdAt', '<=', Timestamp.fromMillis(Date.now() - 5 * 60_000))
         .get()
     ).size;
 
-    const outcome = await retryStuckRequestedTrips({ firestore: admin().firestore });
+    const outcome = await retryStuckRequestedTrips(deps);
 
     expect((await ref.get()).get('status')).toBe('SEARCHING');
     expect(outcome.checked).toBe(expectedChecked);
