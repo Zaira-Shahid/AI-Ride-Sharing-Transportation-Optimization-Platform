@@ -359,7 +359,7 @@ coordinates and addresses of a private person, when they want to travel and how 
   that ended before `endedAt` existed has no end time and is never cleared (`updatedAt` changes on every
   write, so it cannot age a request honestly) - no real passengers existed at that point. The driver
   journey side (a journey's `origin`, plans and stops) is a separate retention decision and is **not**
-  covered here. An erasure/export flow for the passenger's own data is also still to build. The
+  covered here. The passenger's own export and deletion are in "Your own data" below. The
   privacy notice must state the 30 days before real passengers use the app.
 
 ## Driver location (Module 4.1)
@@ -696,6 +696,43 @@ network efficiency" (section 23 names all of these; none had a methodology). All
   than one passenger. Computed entirely client-side from `ActiveVehicle`'s own new `passengerCount`
   field (the length of `driverJourneys.matchedTripRequestIds`, already staff-readable) - a genuinely
   live number, not Phase 12 Analytics' own cumulative/historical average occupancy.
+
+## Your own data: export and account deletion (passengers, Phase 14)
+
+Spec section 56 asks for deletion workflows. `exportMyData` and `deleteMyAccount`
+(`functions/src/dataRights.ts`) are callables for a verified passenger acting on their own account only;
+there is no staff path and no way to name another account. **Passengers only** in this pass: a driver's
+deletion also touches payouts, the earnings ledger and the vehicle, and is a separate decision. No app
+screen calls them yet (the passenger app has no account settings screen); `packages/firebase/src/
+dataRights.ts` has the client wrappers.
+
+- **Export.** An explicit allow-list, never a raw document dump: the profile (name, email, phone,
+  status, whether a card is saved), each trip request (status, times, the places while they still exist,
+  distance, fare, refund, payment status), receipts and notifications. It leaves out another person's
+  data (the driver's name, plate and position) and internal bookkeeping (platform fee, tokens, Stripe
+  ids). At most 500 of each kind, with `truncated` when that cut something off. It writes one
+  `ACCOUNT_DATA_EXPORTED` audit entry holding none of the data. Limited to 5 a hour.
+- **Deletion needs `confirm: "DELETE"`** and is limited to 3 attempts an hour (every attempt counts,
+  valid or not). It is **refused**, changing nothing, while a ride is open or in progress, a payment hold
+  is outstanding (`AUTHORIZED`), or a dispute is unreviewed; and when a Stripe customer exists but Stripe
+  cannot be reached or refuses.
+- **Order, so a failure leaves something safe to retry:** delete the Stripe customer (the saved card
+  reference), then anonymize every trip request and receipt, then delete the notifications and the
+  profile, write `ACCOUNT_DELETED`, and last delete the sign-in account. Each step tolerates having
+  already happened, so calling it again finishes a half-done deletion.
+- **Anonymized, not deleted (decided with the user).** A trip request keeps its status, fare, payment
+  fields and ids, because fares, refunds and disputes are financial records that have to be kept. What
+  goes: `passengerId` becomes `null`, the name becomes "Deleted passenger", the exact places and the
+  matched driver's last position are cleared and the request is marked `placesCleared`. A receipt keeps
+  its amounts with `passengerId` set to `null`. The passenger can no longer read these (the read rule
+  needs `passengerId` to match), and staff see "Deleted passenger".
+- **Deliberately not removed.** Audit entries keep the account's uid as the actor (an audit trail that
+  can be edited is not one; with the profile gone the uid alone identifies nobody), and the per-account
+  rate limit counters hold only a uid and a count. **Driver journey plans** that contain a matched
+  passenger's pickup point are the separate journey retention decision and are **not** cleared here.
+  Analytics' "distinct passengers" figure loses a deleted passenger, since the id is gone.
+- **Before real passengers use it:** the privacy notice must describe this, and the wording of what is
+  kept (financial records, audit trail) should be reviewed for the launch jurisdiction (spec section 56).
 
 ## Rate limiting (Phase 14 hardening)
 

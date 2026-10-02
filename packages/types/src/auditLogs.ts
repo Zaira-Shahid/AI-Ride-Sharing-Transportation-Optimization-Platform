@@ -24,6 +24,8 @@ export const AUDIT_FIELDS_ONLY_ACTIONS = ['VEHICLE_CREATED', 'VEHICLE_UPDATED'] 
  * exact action. tests/audit-actions.test.ts fails when a module writes one that is missing here.
  */
 export const AUDIT_LOG_ACTIONS = [
+  'ACCOUNT_DATA_EXPORTED',
+  'ACCOUNT_DELETED',
   'DISPUTE_REVIEWED',
   'DRIVER_PROFILE_CREATED',
   'DRIVER_REVIEW_REQUESTED',
