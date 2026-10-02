@@ -11,7 +11,7 @@ import { notifyWithPush, sendQueuedPushes, type PendingPush } from './notificati
 import { legsForPlanPath } from './optimizationRun.js';
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import type { PushProvider } from './pushProvider.js';
-import type { RoutePoint, RoutingProvider } from './routing.js';
+import type { RoutePoint, RoutingCollections, RoutingProvider } from './routing.js';
 
 // Module 8.7 (route modification): once a driver is flagged behind their plan's own pace (Module
 // 8.6, trafficDelay.ts), this is what actually reacts - re-asking the Python optimization service
@@ -153,6 +153,13 @@ export async function reoptimizeDelayedJourney(
     push: PushProvider;
     limits?: LookupLimits;
     now?: () => number;
+    /**
+     * Where the route cache and the rate-limit counters live. Always the defaults in production; a test
+     * that calls this directly gives its own names so the real delay trigger, which runs the very same
+     * lookups for the same driver and passengers at the same moment and always uses the defaults, cannot
+     * contend with it for the same counters (phase8-acceptance had a lookup come back busy that way).
+     */
+    routingCollections?: RoutingCollections;
     /** Told why the outcome is 'skipped', when it is (see RouteModificationSkipReason). */
     onSkip?: (reason: RouteModificationSkipReason, detail: Record<string, unknown>) => void;
   },
@@ -280,6 +287,7 @@ export async function reoptimizeDelayedJourney(
     firestore,
     provider: deps.provider,
     ...(deps.limits ? { limits: deps.limits } : {}),
+    ...(deps.routingCollections ? { collections: deps.routingCollections } : {}),
   };
 
   // The route cost each still-waiting request now adds from the driver's CURRENT position onward
@@ -287,6 +295,7 @@ export async function reoptimizeDelayedJourney(
   // checkCandidateRoute's own note on the shared route rate limit.
   const costs: CandidateRouteCostBody[] = [];
   const checkStatuses: string[] = [];
+  const unavailableReasons: string[] = [];
   for (const request of waiting) {
     const result = await checkCandidateRoute(routeDeps, {
       driverId,
@@ -301,6 +310,7 @@ export async function reoptimizeDelayedJourney(
       passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
     });
     checkStatuses.push(result.status);
+    if (result.status === 'unavailable') unavailableReasons.push(result.reason);
     if (result.status !== 'checked') continue;
     costs.push({
       request_id: request.id,
@@ -314,7 +324,9 @@ export async function reoptimizeDelayedJourney(
       passenger_max_detour_distance_km: request.passengerMaxDetourDistanceKm,
     });
   }
-  if (costs.length < 2) return skip('fewer-than-two-route-costs', { checkStatuses });
+  if (costs.length < 2) {
+    return skip('fewer-than-two-route-costs', { checkStatuses, unavailableReasons });
+  }
 
   const reachableIds = new Set(costs.map((c) => c.request_id));
   const matrixResult = await buildJourneyStopMatrix(routeDeps, {
@@ -326,7 +338,10 @@ export async function reoptimizeDelayedJourney(
       .map((r) => ({ requestId: r.id, pickup: r.origin, destination: r.destination })),
   });
   if (matrixResult.status !== 'computed') {
-    return skip('stop-matrix-not-computed', { matrixStatus: matrixResult.status });
+    return skip('stop-matrix-not-computed', {
+      matrixStatus: matrixResult.status,
+      reason: matrixResult.reason,
+    });
   }
 
   const matrixLegs: RouteMatrixLegBody[] = matrixResult.legs.map((leg) => ({
