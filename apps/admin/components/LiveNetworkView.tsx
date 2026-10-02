@@ -134,7 +134,7 @@ export function LiveNetworkView() {
           note="Share of currently matched journeys carrying more than one passenger - our own definition"
         />
       </div>
-      <LiveMap vehicles={vehicles ?? []} tripPositions={tripPositions ?? []} />
+      <LiveMap vehicles={vehicles} tripPositions={tripPositions} />
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-clean-white/60">
         <span className="flex items-center gap-1.5">
           <LegendDot color="#22d3ee" /> Vehicle

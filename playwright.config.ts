@@ -20,6 +20,21 @@ const clientEnv = {
   EXPO_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET: String(TEST_PORT_OFFSET),
 };
 
+// The admin console (Next.js) reads the same fake project, under Next's own variable prefix.
+const adminEnv = {
+  NEXT_PUBLIC_FIREBASE_API_KEY: clientEnv.EXPO_PUBLIC_FIREBASE_API_KEY,
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: clientEnv.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: projectId,
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: clientEnv.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: clientEnv.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  NEXT_PUBLIC_FIREBASE_APP_ID: clientEnv.EXPO_PUBLIC_FIREBASE_APP_ID,
+  NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: '',
+  // A build folder of its own, so a developer's own `next dev` (one allowed per folder) never blocks it.
+  NEXT_DIST_DIR: '.next-e2e',
+  NEXT_PUBLIC_FIREBASE_EMULATOR_HOST: clientEnv.EXPO_PUBLIC_FIREBASE_EMULATOR_HOST,
+  NEXT_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET: clientEnv.EXPO_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET,
+};
+
 // A fake Maps key. The tests answer Google's Places requests themselves, so nothing reaches Google.
 const placesEnv = { ...clientEnv, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'e2e-places-key' };
 
@@ -59,6 +74,16 @@ export default defineConfig({
       timeout: 180_000,
       reuseExistingServer: false,
       env: placesEnv,
+    },
+    {
+      // The admin console. Its own dev script fixes port 3000, so Next is started directly, and these
+      // variables win over any .env.local a developer has (which points at the real project).
+      command: `npx next dev --port ${TEST_PORTS.admin}`,
+      cwd: 'apps/admin',
+      url: `http://localhost:${TEST_PORTS.admin}`,
+      timeout: 180_000,
+      reuseExistingServer: false,
+      env: adminEnv,
     },
   ],
 });

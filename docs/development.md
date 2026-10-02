@@ -183,17 +183,18 @@ project, deny-all Firestore rules, no committed env values, and no coding-agent 
 source.
 
 **The automated tests use ports of their own, so they can run beside your dev servers and
-emulators.** Everything the tests start (the two Expo web servers and the Firebase emulators) listens
+emulators.** Everything the tests start (the two Expo web servers, the admin console and the Firebase emulators) listens
 on the usual port plus 10000:
 
-| What               | Your own (`npm run emulators`, `expo start`) | The tests |
-| ------------------ | -------------------------------------------- | --------- |
-| Passenger web app  | 8081                                         | 18081     |
-| Driver web app     | 8081 (or the next free one)                  | 18082     |
-| Auth emulator      | 9099                                         | 19099     |
-| Firestore emulator | 8080                                         | 18080     |
-| Functions emulator | 5001                                         | 15001     |
-| Emulator UI        | 4000                                         | (none)    |
+| What               | Your own (`npm run emulators`, `expo start`)     | The tests |
+| ------------------ | ------------------------------------------------ | --------- |
+| Passenger web app  | 8081                                             | 18081     |
+| Driver web app     | 8081 (or the next free one)                      | 18082     |
+| Admin console      | 3000 (`npm run dev --workspace @ridemesh/admin`) | 13000     |
+| Auth emulator      | 9099                                             | 19099     |
+| Firestore emulator | 8080                                             | 18080     |
+| Functions emulator | 5001                                             | 15001     |
+| Emulator UI        | 4000                                             | (none)    |
 
 The emulators for the tests are configured in `firebase.test.json` (a copy of `firebase.json` with
 these ports, no UI, and the functions' build folder ignored so that someone else rebuilding the
@@ -203,14 +204,19 @@ Playwright sets; you never set it yourself. The numbers live in `packages/config
 (`TEST_PORT_OFFSET`) and `tests/test-ports.ts`, and `tests/ports.test.ts` fails if the two
 emulator files ever share a port.
 
-**The end-to-end tests always start their own Expo servers** and never reuse one that is already
+**The end-to-end tests always start their own web servers (the two Expo apps and the admin console)** and never reuse one that is already
 running. If a port is taken (by another test run, say), Playwright stops with "http://localhost:18081
 is already used" instead of running against whatever is there. Two test runs at once still clash, as
 they should; a dev server or emulators of yours no longer do.
 
 End-to-end tests in `tests/e2e` use Playwright with Chromium (`npx playwright install chromium`
-once). `npm run test:e2e` starts the emulators and both Expo web builds with fake demo-project
-configuration, so it needs no real credentials, and drives the real registration screens.
+once). `npm run test:e2e` starts the emulators, both Expo web builds and the admin console (Next.js)
+with fake demo-project configuration, so it needs no real credentials, and drives the real screens.
+Next allows one dev server per build folder, so the admin console under test builds into
+`apps/admin/.next-e2e` (set through `NEXT_DIST_DIR`, git-ignored) and never clashes with your own
+`next dev`. The admin specs share the emulators with every other spec, so one that checks what the
+whole network looks like (`live-map.e2e.spec.ts`) first clears the other open trips and active
+journeys and seeds its own.
 
 ### Map tiles (OpenStreetMap)
 

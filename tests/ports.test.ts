@@ -62,6 +62,7 @@ describe('the ports the tests use', () => {
       firestore: EMULATOR_PORTS.firestore + TEST_PORT_OFFSET,
       passenger: 18_081,
       driver: 18_082,
+      admin: 13_000,
     });
   });
 
@@ -71,6 +72,8 @@ describe('the ports the tests use', () => {
       // Expo's default, the emulator hub, logging, event and task emulators, and the UI's own ports.
       8081,
       8082,
+      // The admin console's own dev port.
+      3000,
       4000,
       4400,
       4500,
