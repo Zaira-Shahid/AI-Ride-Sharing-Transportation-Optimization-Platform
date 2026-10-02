@@ -1,6 +1,12 @@
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { LookupLimits } from './lookupLimits.js';
-import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
+import {
+  calculateRoute,
+  type CalculateRouteResult,
+  type RoutePoint,
+  type RoutingCollections,
+  type RoutingProvider,
+} from './routing.js';
 import { distanceMeters } from './tripRequests.js';
 
 // Candidate discovery (Module 5.2) and starting the search (Module 5.3). Candidate discovery is a
@@ -283,8 +289,22 @@ export function candidateRouteStops(
   return [driverOrigin, passengerPickup, passengerDestination, driverDestination];
 }
 
+/**
+ * Why a route could not be had, from calculateRoute's own answer: 'busy' (a limit, or the counter could
+ * not be taken: calculateRoute turns a failed transaction into busy), 'none' (no road route), or
+ * 'unavailable' (the routing server failed). They used to be folded into one `unavailable`, which made
+ * an intermittent failure impossible to tell from a real absence of a route.
+ */
+export type RouteUnavailableReason = Exclude<CalculateRouteResult['status'], 'found'>;
+
+function unavailableReason(result: CalculateRouteResult): RouteUnavailableReason {
+  // 'found' without a route should not happen; treat it as the server's failure.
+  return result.status === 'found' ? 'unavailable' : result.status;
+}
+
 export type RouteCompatibilityOutcome =
-  ({ status: 'checked' } & RouteCompatibilityResult) | { status: 'unavailable' };
+  | ({ status: 'checked' } & RouteCompatibilityResult)
+  | { status: 'unavailable'; reason: RouteUnavailableReason };
 
 /**
  * Works out whether one candidate journey can take one trip request without going over anyone's
@@ -300,6 +320,8 @@ export async function checkCandidateRoute(
     provider: RoutingProvider;
     limits?: LookupLimits;
     now?: () => number;
+    /** Where the route cache and the rate-limit counters live; always the defaults in production (see calculateRoute). */
+    collections?: RoutingCollections;
   },
   input: {
     driverId: string;
@@ -316,6 +338,7 @@ export async function checkCandidateRoute(
     provider,
     ...(deps.limits ? { limits: deps.limits } : {}),
     ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.collections ? { collections: deps.collections } : {}),
   };
   const driverCaller = { uid: input.driverId, role: 'DRIVER', emailVerified: true };
   const passengerCaller = { uid: input.passengerId, role: 'PASSENGER', emailVerified: true };
@@ -325,7 +348,9 @@ export async function checkCandidateRoute(
   const baseResult = await calculateRoute(routeDeps, driverCaller, {
     stops: [input.driverOrigin, input.driverDestination],
   });
-  if (baseResult.status !== 'found' || !baseResult.route) return { status: 'unavailable' };
+  if (baseResult.status !== 'found' || !baseResult.route) {
+    return { status: 'unavailable', reason: unavailableReason(baseResult) };
+  }
 
   const withPassengerResult = await calculateRoute(routeDeps, passengerCaller, {
     stops: candidateRouteStops(
@@ -336,7 +361,7 @@ export async function checkCandidateRoute(
     ),
   });
   if (withPassengerResult.status !== 'found' || !withPassengerResult.route) {
-    return { status: 'unavailable' };
+    return { status: 'unavailable', reason: unavailableReason(withPassengerResult) };
   }
 
   return {
@@ -552,7 +577,8 @@ export interface RouteMatrixLeg {
 }
 
 export type JourneyStopMatrixOutcome =
-  { status: 'computed'; legs: RouteMatrixLeg[] } | { status: 'unavailable' };
+  | { status: 'computed'; legs: RouteMatrixLeg[] }
+  | { status: 'unavailable'; reason: RouteUnavailableReason };
 
 // Exported for optimizationRun.ts (module 8.6): the same ids let it look a winning plan's own stop
 // order back up in the matrix already computed for it, to recover per-leg durations the Python
@@ -576,6 +602,8 @@ export async function buildJourneyStopMatrix(
     provider: RoutingProvider;
     limits?: LookupLimits;
     now?: () => number;
+    /** Where the route cache and the rate-limit counters live; always the defaults in production (see calculateRoute). */
+    collections?: RoutingCollections;
   },
   input: {
     driverId: string;
@@ -590,6 +618,7 @@ export async function buildJourneyStopMatrix(
     provider,
     ...(deps.limits ? { limits: deps.limits } : {}),
     ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.collections ? { collections: deps.collections } : {}),
   };
   const driverCaller = { uid: input.driverId, role: 'DRIVER', emailVerified: true };
 
@@ -610,7 +639,9 @@ export async function buildJourneyStopMatrix(
       const result = await calculateRoute(routeDeps, driverCaller, {
         stops: [from.point, to.point],
       });
-      if (result.status !== 'found' || !result.route) return { status: 'unavailable' };
+      if (result.status !== 'found' || !result.route) {
+        return { status: 'unavailable', reason: unavailableReason(result) };
+      }
       legs.push({
         fromStop: from.id,
         toStop: to.id,

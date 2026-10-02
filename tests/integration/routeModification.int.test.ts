@@ -4,7 +4,8 @@ import {
   reoptimizeDelayedJourney,
   type RouteModificationSkipReason,
 } from '../../functions/src/routeModification';
-import type { RoutePoint, RoutingProvider } from '../../functions/src/routing';
+import type { LookupLimits } from '../../functions/src/lookupLimits';
+import type { RoutePoint, RoutingCollections, RoutingProvider } from '../../functions/src/routing';
 import { admin } from './support';
 
 const noopPush: PushProvider = { sendPush: () => Promise.resolve({ status: 'sent' }) };
@@ -180,6 +181,15 @@ async function delayedJourneyWithTwoWaitingPassengers(
   };
 }
 
+/** Route cache and counters of a test's own, so the real delay trigger cannot contend with it (see reoptimizeDelayedJourney's routingCollections). */
+const ownRouting = (name: string): RoutingCollections => ({
+  cache: `routeCacheUnderTestReopt_${name}`,
+  limits: {
+    perCaller: `routeLimitsUnderTestReopt_${name}`,
+    global: `routeGlobalUnderTestReopt_${name}`,
+  },
+});
+
 interface Skip {
   reason: RouteModificationSkipReason;
   detail: Record<string, unknown>;
@@ -189,19 +199,30 @@ function reoptimize(
   fixture: Fixture,
   optimizeResponse: unknown,
   push: PushProvider = noopPush,
-  options: { skips?: Skip[]; provider?: RoutingProvider } = {},
+  options: {
+    skips?: Skip[];
+    provider?: RoutingProvider;
+    limits?: LookupLimits;
+    routingCollections?: RoutingCollections;
+  } = {},
 ) {
-  const { skips, provider = positionalProvider() } = options;
+  const {
+    skips,
+    provider = positionalProvider(),
+    limits = NO_LIMITS,
+    routingCollections,
+  } = options;
   return reoptimizeDelayedJourney(
     {
       firestore: admin().firestore,
       provider,
-      limits: NO_LIMITS,
+      limits,
       optimizationService: {
         baseUrl: 'https://opt.example',
         fetchImpl: fakeOptimizeFetch(optimizeResponse),
       },
       push,
+      ...(routingCollections ? { routingCollections } : {}),
       ...(skips ? { onSkip: (reason, detail) => skips.push({ reason, detail }) } : {}),
     },
     fixture.journeyId,
@@ -502,6 +523,53 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
     const statuses = skips[0]?.detail.checkStatuses as string[];
     expect(statuses).toHaveLength(2);
     expect(statuses.every((status) => status !== 'checked')).toBe(true);
+    // No road route at all ('none'), which is not the same as the server failing or a lookup held back.
+    expect(skips[0]?.detail.unavailableReasons).toEqual(['none', 'none']);
+  });
+
+  it('says a lookup was held back (busy), not that there was no route', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-busy');
+    const skips: Skip[] = [];
+    await reoptimize(fixture, planResponse(fixture, [fixture.tripAId, fixture.tripBId]), noopPush, {
+      skips,
+      limits: { globalSpacingMs: 3_600_000, perCallerPerMinute: 1_000 },
+      routingCollections: ownRouting('busy'),
+    });
+    expect(skips).toHaveLength(1);
+    expect(skips[0]?.reason).toBe('fewer-than-two-route-costs');
+    expect(skips[0]?.detail.unavailableReasons).toEqual(['busy', 'busy']);
+  });
+
+  it('says the routing server failed (unavailable), not that there was no route', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-down');
+    const skips: Skip[] = [];
+    await reoptimize(fixture, planResponse(fixture, [fixture.tripAId, fixture.tripBId]), noopPush, {
+      skips,
+      provider: { route: () => Promise.reject(new Error('down')) },
+      routingCollections: ownRouting('down'),
+    });
+    expect(skips[0]?.reason).toBe('fewer-than-two-route-costs');
+    expect(skips[0]?.detail.unavailableReasons).toEqual(['unavailable', 'unavailable']);
+  });
+
+  it('uses the routing collections it is given, so the real delay trigger cannot contend with it', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-own-counters');
+    const collections = ownRouting('plumbing');
+    const skips: Skip[] = [];
+
+    const outcome = await reoptimize(
+      fixture,
+      planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
+      noopPush,
+      { skips, routingCollections: collections },
+    );
+
+    expect(outcome).toBe('reoptimized');
+    expect(skips).toEqual([]);
+    const counter = await admin().firestore.doc(`${collections.limits.global}/lookups`).get();
+    expect(counter.exists).toBe(true);
+    const cached = await admin().firestore.collection(collections.cache).limit(1).get();
+    expect(cached.size).toBe(1);
   });
 
   it('does not report a skip when it re-orders', async () => {

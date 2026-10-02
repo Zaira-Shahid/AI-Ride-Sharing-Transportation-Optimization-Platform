@@ -33,6 +33,15 @@ import { admin, createClient, signUp, verifyEmail } from './support';
 // notifying whoever it affects (8.9).
 
 const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+// The re-ordering call below does its route lookups against these, not the real ones the delay trigger
+// uses. The trigger runs the same ~30 lookups for the same driver and passengers at the same moment,
+// and both take their place through Firestore transactions on the same counter documents; that
+// contention is the working explanation for this test's intermittent failure on develop's CI (one
+// lookup came back `unavailable`; calculateRoute turns a counter that could not be taken into busy).
+const OWN_ROUTING = {
+  cache: 'routeCacheUnderTestPhase8',
+  limits: { perCaller: 'routeLimitsUnderTestPhase8', global: 'routeGlobalUnderTestPhase8' },
+};
 
 // Module 10.3 (trip matched push): this file is about the acceptance flow itself, not push delivery
 // (which has its own tests) - a no-op stand-in is enough everywhere runBatchOptimization is called.
@@ -295,6 +304,7 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
         provider,
         optimizationService: { baseUrl: optimizationService.baseUrl },
         limits: NO_LIMITS,
+        routingCollections: OWN_ROUTING,
         push: noopPush,
         onSkip: (reason, detail) => skips.push({ reason, detail }),
       },
