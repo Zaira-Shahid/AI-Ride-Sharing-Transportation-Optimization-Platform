@@ -6,6 +6,7 @@ import { requireVerifiedDriver, type DriverCaller } from './callers.js';
 import {
   EXPORT_RECORD_CAP,
   RIDE_IN_FLIGHT,
+  defaultDeletionLog,
   deleteInChunks,
   deleteMyAccountInputSchema,
   iso,
@@ -13,6 +14,7 @@ import {
   placeOf,
   str,
   updateInChunks,
+  type DeletionLog,
 } from './dataRights.js';
 
 // Phase 14 (Privacy compliance, spec section 56): a driver downloads their own data and deletes their
@@ -188,6 +190,8 @@ export async function deleteDriverAccount(
     firestore: Firestore;
     auth: Pick<Auth, 'deleteUser'>;
     now?: () => number;
+    /** Where the deletion is recorded outside Firestore; Cloud Logging unless a test passes its own. */
+    log?: DeletionLog;
   },
   caller: DriverCaller,
   rawInput: unknown,
@@ -314,6 +318,11 @@ export async function deleteDriverAccount(
       newState: null,
       reason: 'Driver deleted their own account',
     });
+  (deps.log ?? defaultDeletionLog)('ACCOUNT_DELETED', {
+    event: 'ACCOUNT_DELETED',
+    uid: caller.uid,
+    role: 'DRIVER',
+  });
 
   // 5. The sign-in account itself. A missing one is already done.
   try {

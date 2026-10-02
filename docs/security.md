@@ -787,8 +787,14 @@ data. An export is an explicit allow-list, never a raw document dump, at most 50
   driver does not have to delete their account to have a finished journey's start and end points
   removed. A journey that never ended (a kept `DRAFT`) is the one gap: it holds its places until the
   driver declares a new destination or deletes the account.
-- **Before real people use it:** the privacy notice must describe this, and the wording of what is kept
-  (financial records, audit trail) should be reviewed for the launch jurisdiction (spec section 56).
+- **Backups keep a deleted account for up to 14 days, and a restore brings it back** (`docs/backup.md`,
+  "Backups and the right to delete"). Both deletion functions therefore also write one structured
+  `ACCOUNT_DELETED` entry to Cloud Logging, which a restore does not undo, holding the uid and the role
+  and nothing else. It is the record to re-apply deletions from after a restore. **No tool re-applies
+  them yet**, and none of the backup settings are turned on (the project is on the Spark plan).
+- **Before real people use it:** the privacy notice must describe this (including the 14 days of backups),
+  and the wording of what is kept (financial records, audit trail) should be reviewed for the launch
+  jurisdiction (spec section 56).
 
 ## Rate limiting (Phase 14 hardening)
 

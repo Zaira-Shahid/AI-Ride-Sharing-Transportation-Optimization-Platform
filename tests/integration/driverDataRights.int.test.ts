@@ -520,6 +520,53 @@ describe('deleteDriverAccount', () => {
     expect(kept.size).toBe(1);
   });
 
+  // The record that survives a restore from a backup (docs/backup.md): the audit log is in the very
+  // database that would be restored, so the deletion is also written to Cloud Logging.
+  it('records the deletion outside Firestore: the uid and the role, nothing else', async () => {
+    const d = await driver();
+    const logged: { event: string; fields: Record<string, unknown> }[] = [];
+
+    await deleteDriverAccount(
+      {
+        firestore: admin().firestore,
+        auth: admin().auth,
+        log: (event, fields) => logged.push({ event, fields }),
+      },
+      d.caller,
+      { confirm: 'DELETE' },
+    );
+
+    expect(logged).toEqual([
+      {
+        event: 'ACCOUNT_DELETED',
+        fields: { event: 'ACCOUNT_DELETED', uid: d.uid, role: 'DRIVER' },
+      },
+    ]);
+    const text = JSON.stringify(logged);
+    expect(text).not.toContain(d.email);
+    expect(text).not.toContain('Driver Person');
+    expect(text).not.toContain(d.plate);
+  });
+
+  it('records nothing when the deletion is refused', async () => {
+    const d = await driver({ online: true });
+    const logged: unknown[] = [];
+
+    await expect(
+      deleteDriverAccount(
+        {
+          firestore: admin().firestore,
+          auth: admin().auth,
+          log: (event, fields) => logged.push({ event, fields }),
+        },
+        d.caller,
+        { confirm: 'DELETE' },
+      ),
+    ).rejects.toMatchObject({ code: 'failed-precondition' });
+
+    expect(logged).toEqual([]);
+  });
+
   it('audits the deletion with the uid only, never a name, email or plate', async () => {
     const d = await driver();
     await deleteAs(d);
