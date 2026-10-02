@@ -51,12 +51,12 @@ export const deleteMyAccountInputSchema = z.object({ confirm: z.literal('DELETE'
 
 export type DeleteMyAccountResult = { status: 'deleted' };
 
-const iso = (value: unknown): string | null =>
+export const iso = (value: unknown): string | null =>
   value instanceof Timestamp ? value.toDate().toISOString() : null;
-const num = (value: unknown): number | null => (typeof value === 'number' ? value : null);
-const str = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+export const num = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+export const str = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
-function placeOf(value: unknown) {
+export function placeOf(value: unknown) {
   if (!value || typeof value !== 'object') return null;
   const place = value as Record<string, unknown>;
   return {
@@ -157,7 +157,7 @@ export async function exportMyData(
 }
 
 // A ride in any of these states is still happening or about to: not the moment to delete the account.
-const RIDE_IN_FLIGHT = new Set([
+export const RIDE_IN_FLIGHT = new Set([
   'REQUESTED',
   'SEARCHING',
   'MATCHED',
@@ -291,7 +291,7 @@ export async function deleteMyAccount(
   return { status: 'deleted' };
 }
 
-async function updateInChunks(
+export async function updateInChunks(
   firestore: Firestore,
   refs: DocumentReference[],
   fields: Record<string, unknown>,
@@ -303,7 +303,10 @@ async function updateInChunks(
   }
 }
 
-async function deleteInChunks(firestore: Firestore, refs: DocumentReference[]): Promise<void> {
+export async function deleteInChunks(
+  firestore: Firestore,
+  refs: DocumentReference[],
+): Promise<void> {
   for (let i = 0; i < refs.length; i += WRITE_CHUNK) {
     const batch = firestore.batch();
     for (const ref of refs.slice(i, i + WRITE_CHUNK)) batch.delete(ref);

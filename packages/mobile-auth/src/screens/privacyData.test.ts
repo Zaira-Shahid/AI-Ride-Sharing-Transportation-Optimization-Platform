@@ -3,8 +3,10 @@ import {
   DELETE_FAILED,
   describeDataRightsError,
   exportFileName,
+  deleteDialogMessage,
   exportJson,
   isDeleteConfirmed,
+  privacyNotes,
 } from './privacyData';
 
 const refusal = (code: string, message: string) => Object.assign(new Error(message), { code });
@@ -79,4 +81,33 @@ describe('export file', () => {
     expect(text).toContain('\n  "profile"');
     expect(JSON.parse(text)).toEqual(data);
   });
+});
+
+describe('what each app tells the person', () => {
+  const text = (role: 'passenger' | 'driver') => privacyNotes(role).join(' ');
+
+  it("tells a passenger about the 30 days and the saved card, and never about a driver's plate", () => {
+    expect(text('passenger')).toMatch(/30 days/);
+    expect(text('passenger')).toMatch(/saved card/);
+    expect(text('passenger')).not.toMatch(/number plate|vehicle/i);
+    expect(deleteDialogMessage('passenger')).toMatch(/saved card/);
+  });
+
+  it('tells a driver about the plate, the journeys and the earnings, and never about a saved card', () => {
+    expect(text('driver')).toMatch(/number plate/);
+    expect(text('driver')).toMatch(/journeys/);
+    expect(text('driver')).toMatch(/earnings records are kept/);
+    expect(text('driver')).toMatch(/online or a ride is in progress/);
+    expect(text('driver')).not.toMatch(/saved card|30 days/);
+    expect(deleteDialogMessage('driver')).toMatch(/vehicle/);
+    expect(deleteDialogMessage('driver')).not.toMatch(/saved card/);
+  });
+
+  it.each(['passenger', 'driver'] as const)(
+    'says for %s that it cannot be undone and that the log keeps an ID only',
+    (role) => {
+      expect(deleteDialogMessage(role)).toMatch(/cannot be undone/);
+      expect(text(role)).toMatch(/account ID, never your name or email/);
+    },
+  );
 });
