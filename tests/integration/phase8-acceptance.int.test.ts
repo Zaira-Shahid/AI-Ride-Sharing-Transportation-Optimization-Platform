@@ -286,6 +286,9 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
     // worth knowing about for a future journey carrying several passengers, not something to work
     // around here. NO_LIMITS lets this call's own 30 pairs succeed regardless of what the trigger's
     // own attempt already spent from the shared per-caller counter.
+    // Told why, if it skips: this assertion has failed intermittently on develop's CI with a bare
+    // "expected 'skipped' to be 'reoptimized'", and which of the seven skips it was could not be told.
+    const skips: { reason: string; detail: Record<string, unknown> }[] = [];
     const reoptOutcome = await reoptimizeDelayedJourney(
       {
         firestore: admin().firestore,
@@ -293,10 +296,13 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
         optimizationService: { baseUrl: optimizationService.baseUrl },
         limits: NO_LIMITS,
         push: noopPush,
+        onSkip: (reason, detail) => skips.push({ reason, detail }),
       },
       driver.journeyId,
     );
-    expect(reoptOutcome).toBe('reoptimized');
+    expect(reoptOutcome, `re-ordering was skipped because: ${JSON.stringify(skips)}`).toBe(
+      'reoptimized',
+    );
 
     const journeyReordered = (
       await admin().firestore.doc(`driverJourneys/${driver.journeyId}`).get()

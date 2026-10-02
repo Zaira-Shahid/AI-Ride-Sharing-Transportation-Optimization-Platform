@@ -398,6 +398,51 @@ describe('deleteMyAccount', () => {
     expect(kept.size).toBe(1);
   });
 
+  // The record that survives a restore from a backup (docs/backup.md): the audit log is in the very
+  // database that would be restored, so the deletion is also written to Cloud Logging.
+  it('records the deletion outside Firestore: the uid and the role, nothing else', async () => {
+    const p = await passenger();
+    const logged: { event: string; fields: Record<string, unknown> }[] = [];
+
+    await deleteMyAccount(
+      {
+        firestore: admin().firestore,
+        auth: admin().auth,
+        log: (event, fields) => logged.push({ event, fields }),
+      },
+      p.caller,
+      { confirm: 'DELETE' },
+    );
+
+    expect(logged).toEqual([
+      {
+        event: 'ACCOUNT_DELETED',
+        fields: { event: 'ACCOUNT_DELETED', uid: p.uid, role: 'PASSENGER' },
+      },
+    ]);
+    expect(JSON.stringify(logged)).not.toContain(p.email);
+    expect(JSON.stringify(logged)).not.toContain('Rights Person');
+  });
+
+  it('records nothing when the deletion is refused', async () => {
+    const p = await passenger();
+    const logged: unknown[] = [];
+
+    await expect(
+      deleteMyAccount(
+        {
+          firestore: admin().firestore,
+          auth: admin().auth,
+          log: (event, fields) => logged.push({ event, fields }),
+        },
+        p.caller,
+        null,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+
+    expect(logged).toEqual([]);
+  });
+
   it('audits the deletion with the uid only, never a name or email', async () => {
     const p = await passenger();
     await deleteWith(p, undefined);
