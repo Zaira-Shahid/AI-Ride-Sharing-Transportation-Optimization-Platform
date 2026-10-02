@@ -24,6 +24,7 @@ import {
   TextField,
   useAuthTheme,
 } from '../components';
+import { PrivacySection } from './PrivacySection';
 import { DetailRow, ReviewStatus } from './ReviewStatus';
 import { VehicleSection } from './VehicleSection';
 
@@ -218,6 +219,8 @@ export function ProfileScreen({ app, theme }: AuthScreenProps) {
           <SecondaryButton label="Try again" onPress={profile.retry} />
         </>
       ) : null}
+
+      {app === 'passenger' && profile.status !== 'loading' ? <PrivacySection /> : null}
 
       {signOutFailed ? (
         <Notice tone="error">We could not sign you out. Please try again.</Notice>
