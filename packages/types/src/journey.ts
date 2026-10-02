@@ -130,6 +130,17 @@ export interface DriverJourney {
    * Functions only, not mirrored here) holds the actual stop order.
    */
   matchedTripRequestIds: string[];
+  /**
+   * When this journey became COMPLETED (Phase 14 privacy retention); null while it is open, and for
+   * anything that ended before this field existed (not retroactive - such a journey is never picked up
+   * by the retention sweep).
+   */
+  endedAt: FirestoreTimestamp | null;
+  /**
+   * True once the retention sweep has cleared this journey's origin, destination and last position, 30
+   * days after endedAt. The rest of the record stays: it is still the driver's own journey.
+   */
+  placesCleared: boolean;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -147,4 +158,6 @@ export const NEW_JOURNEY_DEFAULTS = {
   currentRoute: null,
   matchedTripRequestId: null,
   matchedTripRequestIds: [],
+  endedAt: null,
+  placesCleared: false,
 } as const;

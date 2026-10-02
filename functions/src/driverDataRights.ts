@@ -273,7 +273,14 @@ export async function deleteDriverAccount(
   await updateInChunks(
     firestore,
     journeys.docs.map((doc) => doc.ref),
-    { driverId: null, vehicleId: null, origin: null, destination: null, currentLocation: null },
+    {
+      driverId: null,
+      vehicleId: null,
+      origin: null,
+      destination: null,
+      currentLocation: null,
+      placesCleared: true,
+    },
   );
   await updateInChunks(
     firestore,

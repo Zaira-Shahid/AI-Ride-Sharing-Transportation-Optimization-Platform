@@ -488,6 +488,7 @@ describe('deleteDriverAccount', () => {
       origin: null,
       destination: null,
       currentLocation: null,
+      placesCleared: true,
       status: 'COMPLETED',
       matchedTripRequestIds: ['a', 'b'],
     });

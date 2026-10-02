@@ -535,6 +535,8 @@ describe('completeDropoff (functions + firestore emulators)', () => {
     await driver.call('completeDropoff', { tripId: first });
 
     expect((await journeyRef.get()).data()?.status).toBe('COMPLETED');
+    // Phase 14 retention: the end time the 30-day clock starts from.
+    expect((await journeyRef.get()).data()?.endedAt).toBeInstanceOf(Timestamp);
     const driverDoc = (await admin().firestore.doc(`drivers/${driver.uid}`).get()).data();
     expect(driverDoc?.currentJourneyId).toBeNull();
   });
@@ -556,6 +558,7 @@ describe('completeDropoff (functions + firestore emulators)', () => {
     await driver.call('completeDropoff', { tripId: first });
 
     expect((await journeyRef.get()).data()?.status).toBe('ACTIVE');
+    expect((await journeyRef.get()).data()?.endedAt).toBeUndefined();
     const driverDoc = (await admin().firestore.doc(`drivers/${driver.uid}`).get()).data();
     expect(driverDoc?.currentJourneyId).toBe(journeyRef.id);
   });

@@ -368,6 +368,9 @@ describe('journeys and destinations', () => {
       currentRoute: null,
       matchedTripRequestId: null,
       matchedTripRequestIds: [],
+      // Phase 14 privacy retention: not ended, so no places to clear later.
+      endedAt: null,
+      placesCleared: false,
     });
   });
 
