@@ -679,9 +679,14 @@ Collections other than `users` stay closed until the module that owns each one d
   `optimizationRun.ts`'s phase 1 and `planInsertion.ts`'s phase 2; and module 11.9's own
   `optimizationRuns` log) - neither is retroactive, and detour is further limited to whatever cycles
   11.9's own retention window still holds.
-- Distinct passenger/vehicle counts (`peopleTransported`/`vehiclesUsed`) read every `COMPLETED` trip
-  request - a known simplification with no cap, unbounded at scale (Firestore has no count-distinct
-  aggregate); revisit if that collection grows very large.
+- Distinct passenger/vehicle counts (`peopleTransported`/`vehiclesUsed`) read the **newest 5,000**
+  `COMPLETED` trip requests (`ANALYTICS_DISTINCT_TRIP_CAP`, Phase 14 performance), both from one read
+  (Firestore has no count-distinct aggregate). Up to 5,000 completed trips they are exact. Beyond that
+  they are lower bounds and the summary says so (`distinctCountsCapped`, shown as a note on the
+  Analytics page), and the two figures made from them - **vehicle trips avoided and the emissions
+  estimate - are withheld (`null`, shown as a dash)** rather than shown wrong, because
+  `max(0, people - journeys)` against the all-time journey count would quietly read 0. The real cure at
+  that scale is a running counter, not a bigger cap. `docs/performance.md` has the rest of the audit.
 
 ### Reading the live network (staff)
 

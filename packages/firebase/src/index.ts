@@ -15,6 +15,7 @@ export * from './journeyPlan';
 export * from './liveNetwork';
 export * from './ml-predictions';
 export * from './optimizationMonitoring';
+export * from './paging';
 export * from './password-reset';
 export * from './payments';
 export * from './profile';

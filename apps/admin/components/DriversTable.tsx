@@ -1,15 +1,22 @@
 'use client';
 
-import { describeAuthError, listDriversForReview, submitStaffReview } from '@ridemesh/firebase';
+import {
+  describeAuthError,
+  listDriversForReview,
+  submitStaffReview,
+  type StatusCursor,
+} from '@ridemesh/firebase';
 import { useAuth } from '@ridemesh/firebase/react';
 import type { ReviewDecision, ReviewTarget } from '@ridemesh/types';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { EmptyState } from './EmptyState';
+import { LoadMoreButton } from './LoadMoreButton';
 import { ReviewActions } from './ReviewActions';
+import { usePagedList } from './usePagedList';
 
 const REVIEWER_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 
-type Row = Awaited<ReturnType<typeof listDriversForReview>>[number];
+type Row = Awaited<ReturnType<typeof listDriversForReview>>['rows'][number];
 
 /**
  * Module 11.2 (admin dashboard: driver/vehicle management): one combined row per driver, their own
@@ -19,22 +26,17 @@ type Row = Awaited<ReturnType<typeof listDriversForReview>>[number];
  */
 export function DriversTable() {
   const { client, role } = useAuth();
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [submittingKey, setSubmittingKey] = useState<string | null>(null);
   const canReview = typeof role === 'string' && REVIEWER_ROLES.has(role);
 
-  const load = useCallback(async () => {
-    try {
-      setRows(await listDriversForReview(client));
-    } catch (caught) {
-      setError(describeAuthError(caught).message);
-    }
-  }, [client]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const loadPage = useCallback(
+    (cursor: StatusCursor | null) => listDriversForReview(client, { cursor }),
+    [client],
+  );
+  const { rows, error, setError, hasMore, loadingMore, loadMore, reload } = usePagedList<
+    Row,
+    StatusCursor
+  >(loadPage);
 
   const review = async (
     uid: string,
@@ -47,7 +49,7 @@ export function DriversTable() {
     setError(null);
     try {
       await submitStaffReview(client, target, uid, decision, reason);
-      await load();
+      await reload();
     } catch (caught) {
       setError(describeAuthError(caught).message);
     } finally {
@@ -71,67 +73,72 @@ export function DriversTable() {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-white/10">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-white/10 text-xs uppercase tracking-wide text-clean-white/50">
-          <tr>
-            <th className="px-4 py-3 font-medium">Driver</th>
-            <th className="px-4 py-3 font-medium">Driver status</th>
-            <th className="px-4 py-3 font-medium">Vehicle</th>
-            <th className="px-4 py-3 font-medium">Vehicle status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.uid}
-              id={`driver-${row.uid}`}
-              className="border-b border-white/5 last:border-0 target:bg-electric-cyan/10"
-            >
-              <td className="px-4 py-3 align-top">
-                <p className="font-medium text-clean-white">{row.name}</p>
-                <p className="text-xs text-clean-white/50">{row.email}</p>
-              </td>
-              <td className="px-4 py-3 align-top">
-                <ReviewActions
-                  status={row.driverVerificationStatus}
-                  reason={row.driverVerificationReason}
-                  canReview={canReview}
-                  submitting={submittingKey === `${row.uid}-DRIVER`}
-                  onReview={(decision, reason) => void review(row.uid, 'DRIVER', decision, reason)}
-                />
-              </td>
-              <td className="px-4 py-3 align-top">
-                {row.vehicle ? (
-                  <>
-                    <p className="text-clean-white">
-                      {row.vehicle.make} {row.vehicle.model}
-                    </p>
-                    <p className="text-xs text-clean-white/50">
-                      {row.vehicle.type} · {row.vehicle.plateNumber}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-xs text-clean-white/40">No vehicle saved</p>
-                )}
-              </td>
-              <td className="px-4 py-3 align-top">
-                {row.vehicle ? (
+    <div className="space-y-3">
+      <div className="overflow-x-auto rounded-xl border border-white/10">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-white/10 text-xs uppercase tracking-wide text-clean-white/50">
+            <tr>
+              <th className="px-4 py-3 font-medium">Driver</th>
+              <th className="px-4 py-3 font-medium">Driver status</th>
+              <th className="px-4 py-3 font-medium">Vehicle</th>
+              <th className="px-4 py-3 font-medium">Vehicle status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.uid}
+                id={`driver-${row.uid}`}
+                className="border-b border-white/5 last:border-0 target:bg-electric-cyan/10"
+              >
+                <td className="px-4 py-3 align-top">
+                  <p className="font-medium text-clean-white">{row.name}</p>
+                  <p className="text-xs text-clean-white/50">{row.email}</p>
+                </td>
+                <td className="px-4 py-3 align-top">
                   <ReviewActions
-                    status={row.vehicle.verificationStatus}
-                    reason={row.vehicle.verificationReason}
+                    status={row.driverVerificationStatus}
+                    reason={row.driverVerificationReason}
                     canReview={canReview}
-                    submitting={submittingKey === `${row.uid}-VEHICLE`}
+                    submitting={submittingKey === `${row.uid}-DRIVER`}
                     onReview={(decision, reason) =>
-                      void review(row.uid, 'VEHICLE', decision, reason)
+                      void review(row.uid, 'DRIVER', decision, reason)
                     }
                   />
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                </td>
+                <td className="px-4 py-3 align-top">
+                  {row.vehicle ? (
+                    <>
+                      <p className="text-clean-white">
+                        {row.vehicle.make} {row.vehicle.model}
+                      </p>
+                      <p className="text-xs text-clean-white/50">
+                        {row.vehicle.type} · {row.vehicle.plateNumber}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-clean-white/40">No vehicle saved</p>
+                  )}
+                </td>
+                <td className="px-4 py-3 align-top">
+                  {row.vehicle ? (
+                    <ReviewActions
+                      status={row.vehicle.verificationStatus}
+                      reason={row.vehicle.verificationReason}
+                      canReview={canReview}
+                      submitting={submittingKey === `${row.uid}-VEHICLE`}
+                      onReview={(decision, reason) =>
+                        void review(row.uid, 'VEHICLE', decision, reason)
+                      }
+                    />
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <LoadMoreButton visible={hasMore} loading={loadingMore} onClick={() => void loadMore()} />
     </div>
   );
 }

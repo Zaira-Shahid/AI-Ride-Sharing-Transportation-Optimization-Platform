@@ -1,6 +1,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { getAnalyticsSummaryForStaff } from '../../functions/src/analytics';
 import { getAnalyticsSummary } from '../../packages/firebase/src';
 import { admin, createClient, signUp, verifyEmail } from './support';
 
@@ -204,5 +205,98 @@ describe('getAnalyticsSummary (functions + firestore + auth emulators)', () => {
     // 2 people transported - 1 journey = 1 trip avoided; 10 km average; 120 g/km -> 1.2 kg.
     expect(summary.vehicleTripsAvoided).toBe(1);
     expect(summary.estimatedEmissionsAvoidedKg).toBeCloseTo(1.2, 1);
+  });
+});
+
+// Phase 14 (performance): the distinct counts read the newest N completed trips, not all of them. The
+// cap is passed in so a test needs 3 trips, not 5,000; the collections are cleared before each test.
+describe('the cap on the distinct counts', () => {
+  const caller = { uid: 'cap-reader', role: 'ADMIN', emailVerified: true };
+  const summaryWithCap = (cap: number) =>
+    getAnalyticsSummaryForStaff({ firestore: admin().firestore, distinctTripCap: cap }, caller);
+
+  /** `count` completed trips, oldest first, each by its own passenger and its own driver. */
+  async function completedTrips(count: number) {
+    const base = Date.now() - 60_000;
+    for (let i = 0; i < count; i += 1) {
+      await trip({
+        passengerId: `cap-passenger-${i}`,
+        matchedDriverId: `cap-driver-${i}`,
+        status: 'COMPLETED',
+        createdAt: Timestamp.fromMillis(base + i * 1_000),
+        estimatedDistance: 10_000,
+      });
+    }
+  }
+
+  it('is exact, with nothing withheld, up to the cap', async () => {
+    await completedTrips(3);
+    await journey('COMPLETED');
+
+    const summary = await summaryWithCap(3);
+
+    expect(summary).toMatchObject({
+      tripsCompleted: 3,
+      peopleTransported: 3,
+      vehiclesUsed: 3,
+      distinctCountsCapped: false,
+      distinctTripCap: 3,
+      vehicleTripsAvoided: 2,
+    });
+    expect(summary.estimatedEmissionsAvoidedKg).not.toBeNull();
+  });
+
+  it('counts only the newest trips beyond the cap, and says so', async () => {
+    await completedTrips(5);
+    await journey('COMPLETED');
+
+    const summary = await summaryWithCap(3);
+
+    expect(summary.distinctCountsCapped).toBe(true);
+    // The three newest trips: three passengers, three drivers.
+    expect(summary.peopleTransported).toBe(3);
+    expect(summary.vehiclesUsed).toBe(3);
+    // Every completed trip is still counted by the aggregate, which is not capped.
+    expect(summary.tripsCompleted).toBe(5);
+  });
+
+  it('withholds trips avoided and the emissions estimate instead of showing them wrong', async () => {
+    // 5 passengers took 5 trips, all in ONE journey: avoided = 5 - 1 = 4 if the counts were whole. Capped
+    // at 3 the people count is 3, and 3 - 1 = 2 would be wrong, so neither number is given.
+    await completedTrips(5);
+    await journey('COMPLETED');
+
+    const summary = await summaryWithCap(3);
+
+    expect(summary.vehicleTripsAvoided).toBeNull();
+    expect(summary.estimatedEmissionsAvoidedKg).toBeNull();
+    // What does not depend on the distinct counts is unaffected.
+    expect(summary.averageOccupancy).toBe(5);
+  });
+
+  it('reads the newest trips: the oldest are the ones left out', async () => {
+    // Five trips, passenger i at time i. With a cap of 2 only passengers 3 and 4 may count, so a
+    // trip repeated by passenger 0 in the OLD part cannot raise the count.
+    await completedTrips(5);
+    await trip({
+      passengerId: 'cap-passenger-0',
+      matchedDriverId: 'cap-driver-0',
+      status: 'COMPLETED',
+      createdAt: Timestamp.fromMillis(Date.now() - 120_000),
+    });
+
+    const summary = await summaryWithCap(2);
+
+    expect(summary.distinctCountsCapped).toBe(true);
+    expect(summary.peopleTransported).toBe(2);
+    expect(summary.vehiclesUsed).toBe(2);
+  });
+
+  it('defaults to 5,000 and does not cap a small database', async () => {
+    await completedTrips(2);
+    const caller2 = { uid: 'cap-default', role: 'SUPPORT', emailVerified: true };
+    const summary = await getAnalyticsSummaryForStaff({ firestore: admin().firestore }, caller2);
+    expect(summary.distinctTripCap).toBe(5000);
+    expect(summary.distinctCountsCapped).toBe(false);
   });
 });

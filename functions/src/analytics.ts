@@ -61,14 +61,18 @@ export interface AnalyticsSummary {
   peopleTransported: number;
   vehiclesUsed: number;
   averageOccupancy: number | null;
-  vehicleTripsAvoided: number;
+  /** Null once the distinct counts are capped: people transported is then only a lower bound, so a difference made from it would be wrong, not just rough. */
+  vehicleTripsAvoided: number | null;
   averageDetourMeters: number | null;
   averageDetourSeconds: number | null;
   averageMatchingTimeSeconds: number | null;
   unmatchedRequests: number;
   cancellationRate: number | null;
   paymentSuccessRate: number | null;
-  /** Null when there is nothing to estimate from (no completed trips, or none ever avoided). Always labeled as an estimate on the page - see this file's own header comment. */
+  /** True when there are more completed trips than `distinctTripCap`, so `peopleTransported` and `vehiclesUsed` count only the most recent ones (at least that many). */
+  distinctCountsCapped: boolean;
+  distinctTripCap: number;
+  /** Null when there is nothing to estimate from (no completed trips, or none ever avoided, or the distinct counts are capped). Always labeled as an estimate on the page - see this file's own header comment. */
   estimatedEmissionsAvoidedKg: number | null;
 }
 
@@ -78,27 +82,56 @@ function requireStaff(caller: StaffCaller): void {
   }
 }
 
-/** Distinct values of `field` across every COMPLETED trip request - Firestore has no count-distinct aggregate, so this reads every matching document. Known simplification: unbounded at scale (see docs/security.md). */
-async function distinctCompletedValues(firestore: Firestore, field: string): Promise<Set<string>> {
+/**
+ * Phase 14 (performance, spec section 71 "avoid unbounded queries"): how many of the most recent
+ * COMPLETED trips the distinct counts read. Firestore has no count-distinct aggregate, so "people
+ * transported" and "vehicles used" had to read every completed trip on every call. They now read the
+ * newest this many. Up to that many completed trips the numbers are exact and nothing changes; beyond
+ * it they are lower bounds, the summary says so (`distinctCountsCapped`), and the two figures that are
+ * a difference made from them (trips avoided, and the emissions estimate built on it) are withheld
+ * rather than shown wrong - `max(0, people - journeys)` against an all-time journey count would
+ * quietly read 0. The real cure at that scale is a running counter, not a bigger cap.
+ */
+export const ANALYTICS_DISTINCT_TRIP_CAP = 5_000;
+
+/**
+ * The distinct passengers and the distinct drivers across the newest `cap` COMPLETED trip requests, in
+ * ONE read (both fields from the same documents). Asks for one more than `cap`, which is how it is
+ * known there were more.
+ */
+async function distinctCompletedParticipants(
+  firestore: Firestore,
+  cap: number,
+): Promise<{ passengers: Set<string>; drivers: Set<string>; capped: boolean }> {
   const snapshot = await firestore
     .collection('tripRequests')
     .where('status', '==', 'COMPLETED')
-    .select(field)
+    .orderBy('createdAt', 'desc')
+    .limit(cap + 1)
+    .select('passengerId', 'matchedDriverId')
     .get();
-  const values = new Set<string>();
-  for (const doc of snapshot.docs) {
-    const value = doc.get(field);
-    if (typeof value === 'string' && value) values.add(value);
+  const passengers = new Set<string>();
+  const drivers = new Set<string>();
+  for (const doc of snapshot.docs.slice(0, cap)) {
+    const passengerId = doc.get('passengerId');
+    const driverId = doc.get('matchedDriverId');
+    if (typeof passengerId === 'string' && passengerId) passengers.add(passengerId);
+    if (typeof driverId === 'string' && driverId) drivers.add(driverId);
   }
-  return values;
+  return { passengers, drivers, capped: snapshot.size > cap };
 }
 
 export async function getAnalyticsSummaryForStaff(
-  deps: { firestore: Firestore },
+  deps: {
+    firestore: Firestore;
+    /** Only a test changes this (see ANALYTICS_DISTINCT_TRIP_CAP). */
+    distinctTripCap?: number;
+  },
   caller: StaffCaller,
 ): Promise<AnalyticsSummary> {
   requireStaff(caller);
   const { firestore } = deps;
+  const distinctTripCap = deps.distinctTripCap ?? ANALYTICS_DISTINCT_TRIP_CAP;
   const trips = firestore.collection('tripRequests');
   const completed = trips.where('status', '==', 'COMPLETED');
 
@@ -112,8 +145,7 @@ export async function getAnalyticsSummaryForStaff(
     resolvedAgg,
     paymentSuccessAgg,
     paymentAttemptedAgg,
-    distinctPassengers,
-    distinctDrivers,
+    distinct,
     recentRuns,
   ] = await Promise.all([
     completed.count().get(),
@@ -134,8 +166,7 @@ export async function getAnalyticsSummaryForStaff(
       .where('paymentStatus', 'in', [...COMPLETED_PAYMENT_STATUSES, 'FAILED'])
       .count()
       .get(),
-    distinctCompletedValues(firestore, 'passengerId'),
-    distinctCompletedValues(firestore, 'matchedDriverId'),
+    distinctCompletedParticipants(firestore, distinctTripCap),
     firestore
       .collection(OPTIMIZATION_RUNS_COLLECTION)
       .orderBy('startedAt', 'desc')
@@ -145,10 +176,13 @@ export async function getAnalyticsSummaryForStaff(
 
   const tripsCompleted = tripsCompletedAgg.data().count;
   const completedJourneys = completedJourneysAgg.data().count;
-  const peopleTransported = distinctPassengers.size;
-  const vehiclesUsed = distinctDrivers.size;
+  const peopleTransported = distinct.passengers.size;
+  const vehiclesUsed = distinct.drivers.size;
   const averageOccupancy = completedJourneys > 0 ? tripsCompleted / completedJourneys : null;
-  const vehicleTripsAvoided = Math.max(0, peopleTransported - completedJourneys);
+  // Withheld, not shown wrong, once the distinct counts are capped (see ANALYTICS_DISTINCT_TRIP_CAP).
+  const vehicleTripsAvoided = distinct.capped
+    ? null
+    : Math.max(0, peopleTransported - completedJourneys);
 
   const detourDistances: number[] = [];
   const detourDurations: number[] = [];
@@ -175,7 +209,7 @@ export async function getAnalyticsSummaryForStaff(
 
   const averageDistanceMeters = averageDistanceAgg.data().avg;
   const estimatedEmissionsAvoidedKg =
-    vehicleTripsAvoided > 0 && averageDistanceMeters !== null
+    vehicleTripsAvoided !== null && vehicleTripsAvoided > 0 && averageDistanceMeters !== null
       ? (vehicleTripsAvoided * (averageDistanceMeters / 1000) * ASSUMED_CO2_GRAMS_PER_KM) / 1000
       : null;
 
@@ -185,6 +219,8 @@ export async function getAnalyticsSummaryForStaff(
     vehiclesUsed,
     averageOccupancy,
     vehicleTripsAvoided,
+    distinctCountsCapped: distinct.capped,
+    distinctTripCap,
     averageDetourMeters: average(detourDistances),
     averageDetourSeconds: average(detourDurations),
     averageMatchingTimeSeconds: averageMatchingAgg.data().avg,
