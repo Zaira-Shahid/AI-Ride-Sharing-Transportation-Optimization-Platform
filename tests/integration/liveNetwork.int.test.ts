@@ -2,6 +2,7 @@ import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import {
   declareDestination,
+  listActiveTripPositions,
   saveVehicle,
   setAvailability,
   setJourneyDetour,
@@ -150,5 +151,76 @@ describe('subscribeToActiveVehicles (functions + firestore + auth emulators)', (
     } finally {
       unsubscribe();
     }
+  });
+});
+
+describe('listActiveTripPositions (functions + firestore + auth emulators)', () => {
+  const PICKUP = { latitude: 51.44941234, longitude: -2.58139876 };
+  const DESTINATION = { latitude: 51.50494321, longitude: -0.01949999 };
+  const BALANCED = {
+    flexibilityLevel: 'BALANCED',
+    maxWalkingDistance: 500,
+    maxExtraTime: 10,
+    maxDetourDistance: 3,
+    allowSharedRide: true,
+    allowRouteChange: true,
+  };
+
+  const call = (client: Client, name: string, data?: unknown) =>
+    httpsCallable(client.functions, name)(data);
+
+  async function openTrip(prefix: string) {
+    const p = await person('PASSENGER', prefix);
+    const created = await call(p.client, 'createTripRequest', {
+      origin: { ...PICKUP, formattedAddress: 'Home', placeId: 'p1' },
+      destination: { ...DESTINATION, formattedAddress: 'Office', placeId: 'p2' },
+      departure: { kind: 'NOW' },
+      arriveBy: null,
+      preferences: BALANCED,
+    });
+    const tripId = (created.data as { tripId: string }).tripId;
+    return { ...p, tripId };
+  }
+
+  it("rounds a pickup/drop-off to ~11 m, never the trip's own exact place", async () => {
+    const reviewer = await staff('lnw-positions-reviewer');
+    const trip = await openTrip('lnw-positions-open');
+
+    const positions = await listActiveTripPositions(reviewer.client);
+    const own = positions.find((p) => p.tripId === trip.tripId);
+
+    expect(own).toBeDefined();
+    expect(own?.pickup).not.toEqual(PICKUP);
+    expect(own?.dropoff).not.toEqual(DESTINATION);
+    expect(own?.pickup?.latitude).toBeCloseTo(PICKUP.latitude, 3);
+    expect(own?.pickup?.longitude).toBeCloseTo(PICKUP.longitude, 3);
+    expect(own?.dropoff?.latitude).toBeCloseTo(DESTINATION.latitude, 3);
+    expect(own?.dropoff?.longitude).toBeCloseTo(DESTINATION.longitude, 3);
+  });
+
+  it('marks a still-open request unmatched, by status alone', async () => {
+    const reviewer = await staff('lnw-positions-unmatched-reviewer');
+    const trip = await openTrip('lnw-positions-unmatched');
+
+    const positions = await listActiveTripPositions(reviewer.client);
+    const own = positions.find((p) => p.tripId === trip.tripId);
+
+    expect(own?.unmatched).toBe(true);
+  });
+
+  it('excludes a cancelled trip', async () => {
+    const reviewer = await staff('lnw-positions-cancelled-reviewer');
+    const trip = await openTrip('lnw-positions-cancelled');
+    await call(trip.client, 'cancelTripRequest', { tripId: trip.tripId });
+
+    const positions = await listActiveTripPositions(reviewer.client);
+    expect(positions.some((p) => p.tripId === trip.tripId)).toBe(false);
+  });
+
+  it('refuses a non-staff caller', async () => {
+    const trip = await openTrip('lnw-positions-refuse');
+    await expect(listActiveTripPositions(trip.client)).rejects.toMatchObject({
+      kind: 'permission',
+    });
   });
 });
