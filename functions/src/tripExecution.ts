@@ -290,6 +290,9 @@ async function advance(
     if (journeyToCompleteRef) {
       tx.update(journeyToCompleteRef, {
         status: 'COMPLETED',
+        // Phase 14 privacy retention: the moment the journey ended, so the retention sweep can
+        // clear its places 30 days later (updatedAt changes on every write and cannot say).
+        endedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
     }

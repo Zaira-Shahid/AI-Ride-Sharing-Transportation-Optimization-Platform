@@ -12,7 +12,12 @@ import {
   retryStaleAuthorizedHolds,
   retryStuckRequestedTrips,
 } from './failureRecovery.js';
-import { clearExpiredTripPlaces, TRIP_RETENTION_BATCH_SIZE } from './tripRetention.js';
+import {
+  clearExpiredJourneyPlaces,
+  clearExpiredTripPlaces,
+  TRIP_RETENTION_BATCH_SIZE,
+  type TripRetentionOutcome,
+} from './tripRetention.js';
 import { buildHealthResponse } from './health.js';
 import { matchTripRequest } from './matching.js';
 import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
@@ -722,22 +727,35 @@ export const retryStaleAuthorizedHoldsSweep = onSchedule('every 5 minutes', asyn
   }
 });
 
-// Phase 14 (Privacy compliance): once a day, clear the exact places of every trip request that
-// ended more than 30 days ago (functions/src/tripRetention.ts has the policy and what is kept). A
-// backlog bigger than one batch is worked through in the same run, up to a cap, and the rest on the
-// next one. Never throws, and nothing about any trip's own places is logged.
-export const clearExpiredTripPlacesSweep = onSchedule('every 24 hours', async () => {
+// Phase 14 (Privacy compliance): once a day, clear the exact places of every trip request, and of
+// every driver journey, that ended more than 30 days ago (functions/src/tripRetention.ts has the
+// policy and what is kept). A backlog bigger than one batch is worked through in the same run, up to a
+// cap, and the rest on the next one. Never throws, and nothing about any record's own places is logged.
+async function runRetentionBatches(
+  name: string,
+  clearBatch: () => Promise<TripRetentionOutcome>,
+): Promise<void> {
   try {
     let checked = 0;
     let cleared = 0;
     for (let batch = 0; batch < 10; batch += 1) {
-      const outcome = await clearExpiredTripPlaces({ firestore: getFirestore() });
+      const outcome = await clearBatch();
       checked += outcome.checked;
       cleared += outcome.cleared;
       if (outcome.checked < TRIP_RETENTION_BATCH_SIZE || outcome.cleared === 0) break;
     }
-    if (checked > 0) logger.info('Trip place retention sweep finished.', { checked, cleared });
+    if (checked > 0) logger.info(`${name} retention sweep finished.`, { checked, cleared });
   } catch (error) {
-    logger.warn('The trip place retention sweep failed.', { error });
+    logger.warn(`The ${name} retention sweep failed.`, { error });
   }
-});
+}
+
+export const clearExpiredTripPlacesSweep = onSchedule('every 24 hours', () =>
+  runRetentionBatches('Trip place', () => clearExpiredTripPlaces({ firestore: getFirestore() })),
+);
+
+export const clearExpiredJourneyPlacesSweep = onSchedule('every 24 hours', () =>
+  runRetentionBatches('Journey place', () =>
+    clearExpiredJourneyPlaces({ firestore: getFirestore() }),
+  ),
+);

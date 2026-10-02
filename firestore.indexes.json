@@ -25,6 +25,14 @@
       ]
     },
     {
+      "collectionGroup": "driverJourneys",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "placesCleared", "order": "ASCENDING" },
+        { "fieldPath": "endedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "tripRequests",
       "queryScope": "COLLECTION",
       "fields": [

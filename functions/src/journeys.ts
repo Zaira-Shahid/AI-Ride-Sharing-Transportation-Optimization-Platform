@@ -56,6 +56,10 @@ export const NEW_JOURNEY_DEFAULTS = {
   // Every request this journey was assigned by a Phase 6 batch optimization run (Module 6.9), once
   // its status is MATCHING; empty until then.
   matchedTripRequestIds: [],
+  // When the journey ended (COMPLETED) and whether the retention sweep has cleared its places since
+  // (Phase 14 privacy retention, functions/src/tripRetention.ts).
+  endedAt: null,
+  placesCleared: false,
 } as const;
 
 // A journey's DRAFT parts (destination, seats, detour, start) stay editable once the driver goes

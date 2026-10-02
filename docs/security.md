@@ -357,11 +357,23 @@ coordinates and addresses of a private person, when they want to travel and how 
   are cleared (there is nothing left to show on its card, so it is dropped like any unreadable one);
   staff trip detail shows the place as removed instead of a made-up `0,0`. **Not retroactive:** a request
   that ended before `endedAt` existed has no end time and is never cleared (`updatedAt` changes on every
-  write, so it cannot age a request honestly) - no real passengers existed at that point. The driver
-  journey side (a journey's own `origin`, `destination` and last position; route plans hold no places) is a
-  separate retention decision and is **not** covered here. Export and deletion of a person's own data are
-  in "Your own data" below. The
-  privacy notice must state the 30 days before real passengers use the app.
+  write, so it cannot age a request honestly) - no real passengers existed at that point. **The same
+  rule covers a driver's journey** (below). Export and deletion of a person's own data are in "Your own
+  data" below. The privacy notice must state the 30 days before real passengers use the app.
+
+- **Driver journeys: the same 30 days (Phase 14).** A driver's journey carries the same `endedAt` and
+  `placesCleared`. `endedAt` is written where a journey ends, which is one place: `completeDropoff`
+  completing the last matched ride (`COMPLETED`; nothing in the functions sets `CANCELLED` or
+  `PAUSED`). A second daily sweep, `clearExpiredJourneyPlacesSweep` (the same
+  `functions/src/tripRetention.ts`, one shared routine), sets the journey's `origin`, `destination` and
+  `currentLocation` to `null` 30 days after it ended and marks it `placesCleared`, auditing
+  `JOURNEY_PLACES_CLEARED` with the journey's id and no place. What stays: the driver (`driverId` and
+  `vehicleId` - it is still their own journey, only account deletion unlinks it), the status and the
+  matched request ids. **Not retroactive**, like trips. **Not covered:** a journey that never ended, such
+  as a `DRAFT` the driver went offline from and kept - it has no `endedAt`, the same as an open trip
+  request, and it is replaced when the driver declares a new destination. Route plans hold no places
+  (request ids, stop kinds and totals only), so they need no clearing. A new composite index on
+  `driverJourneys` (`placesCleared`, `endedAt`) must be deployed with the function.
 
 ## Driver location (Module 4.1)
 
@@ -771,9 +783,10 @@ data. An export is an explicit allow-list, never a raw document dump, at most 50
   with the profile gone the uid alone identifies nobody), and the per-account rate limit counters hold
   only a uid and a count.
 - Analytics' "distinct passengers" figure loses a deleted passenger, since the id is gone.
-- **Driver journeys are not on a retention clock.** A driver's own journey start and end points are
-  cleared when they delete their account, but unlike a passenger's trip request (30 days after it ends)
-  nothing clears them on a schedule. That is a separate decision.
+- **Driver journeys are on the same 30-day clock as trip requests** (see the retention item above), so a
+  driver does not have to delete their account to have a finished journey's start and end points
+  removed. A journey that never ended (a kept `DRAFT`) is the one gap: it holds its places until the
+  driver declares a new destination or deletes the account.
 - **Before real people use it:** the privacy notice must describe this, and the wording of what is kept
   (financial records, audit trail) should be reviewed for the launch jurisdiction (spec section 56).
 
