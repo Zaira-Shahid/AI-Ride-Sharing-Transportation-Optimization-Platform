@@ -223,6 +223,22 @@ describe('getTripDetail (functions + firestore + auth emulators)', () => {
     expect(serialized).not.toContain(OFFICE.formattedAddress);
   });
 
+  it('reports null places, not 0,0, once the retention sweep has cleared them', async () => {
+    const reviewer = await staff('SUPPORT', 'monitor-detail-cleared-reviewer');
+    const trip = await cancelledTrip('monitor-detail-cleared');
+    await admin().firestore.doc(`tripRequests/${trip.tripId}`).update({
+      origin: null,
+      destination: null,
+      driverLocation: null,
+      placesCleared: true,
+    });
+
+    const detail = await getTripDetail(reviewer.client, trip.tripId);
+    expect(detail.origin).toBeNull();
+    expect(detail.destination).toBeNull();
+    expect(detail).toMatchObject({ tripId: trip.tripId, status: 'CANCELLED' });
+  });
+
   it('reports a trip that does not exist', async () => {
     const reviewer = await staff('ADMIN', 'monitor-detail-missing');
     // Only the code is asserted here, matching every other not-found test in this codebase

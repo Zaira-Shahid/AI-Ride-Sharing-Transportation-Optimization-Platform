@@ -344,19 +344,23 @@ coordinates and addresses of a private person, when they want to travel and how 
   the entry.
 - **The fare is `null`** until pricing exists. The distance and time are filled in by the server a
   moment after a request is created (see "Trip estimate" below).
-- **Retention: 30 days after a request ends (decided, NOT yet implemented).** The policy is that a
-  trip request's exact coordinates and addresses are deleted 30 days after it is COMPLETED or
-  CANCELLED (spec section 56). **Nothing deletes anything today**: every request stays after it
-  ends, because automatic deletion needs a scheduled Cloud Function, and scheduled functions need the
-  Blaze plan (the project is on Spark). This is a known limitation until then. When Blaze is
-  available, add a scheduled function that finds requests whose end time is more than 30 days ago
-  and removes them (or clears their places, if the trip record is still needed for fares and
-  disputes: decide that with the payments module), audits the run without naming places, and has a
-  test on the emulators. The end time is not stored on the request yet (only `updatedAt`, which
-  changes on every write), so that change should also add an explicit `endedAt` written by the
-  functions that complete or cancel a request. Until then a passenger cannot delete their own requests
-  and no export or erasure flow exists (also spec section 56). The privacy notice must state the
-  30 days before real passengers use the app.
+- **Retention: 30 days after a request ends (implemented, Phase 14).** A trip request's exact places
+  are removed 30 days after it is COMPLETED or CANCELLED (spec section 56). The functions that end a
+  request write `endedAt` (`cancelTripRequest`, and `completeDropoff` through `advance`), and a
+  scheduled function, `clearExpiredTripPlacesSweep` (daily, `functions/src/tripRetention.ts`), sets
+  `origin`, `destination` and `driverLocation` (the matched driver's last exact position, left on the
+  request after the trip) to `null` and marks the request `placesCleared`. **The request itself stays**:
+  status, fare, payment fields and who are kept, because fares, receipts, refunds and disputes still
+  need them (the decision this item left open "with the payments module"). Each clearing writes a
+  `TRIP_PLACES_CLEARED` audit entry (actor `system`) naming the request and never a place; a test
+  checks that. Consequences to know: the passenger's own Trips tab leaves out a request once its places
+  are cleared (there is nothing left to show on its card, so it is dropped like any unreadable one);
+  staff trip detail shows the place as removed instead of a made-up `0,0`. **Not retroactive:** a request
+  that ended before `endedAt` existed has no end time and is never cleared (`updatedAt` changes on every
+  write, so it cannot age a request honestly) - no real passengers existed at that point. The driver
+  journey side (a journey's `origin`, plans and stops) is a separate retention decision and is **not**
+  covered here. An erasure/export flow for the passenger's own data is also still to build. The
+  privacy notice must state the 30 days before real passengers use the app.
 
 ## Driver location (Module 4.1)
 

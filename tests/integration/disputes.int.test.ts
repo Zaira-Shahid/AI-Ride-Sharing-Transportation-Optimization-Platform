@@ -201,7 +201,7 @@ describe('getTripDetail on a disputed trip (reused from module 11.4)', () => {
     const trip = await disputedTrip('dispute-detail-target');
 
     const detail = await getTripDetail(reviewer.client, trip.tripId);
-    expect(detail.origin.formattedAddress).toBe(HOME.formattedAddress);
-    expect(detail.destination.formattedAddress).toBe(OFFICE.formattedAddress);
+    expect(detail.origin?.formattedAddress).toBe(HOME.formattedAddress);
+    expect(detail.destination?.formattedAddress).toBe(OFFICE.formattedAddress);
   });
 });

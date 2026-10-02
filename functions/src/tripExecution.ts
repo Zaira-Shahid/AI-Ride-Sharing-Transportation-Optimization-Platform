@@ -270,6 +270,9 @@ async function advance(
     tx.update(tripRef, {
       status: to,
       ...fareFields,
+      // Phase 14 privacy retention: the moment the request ended, so the retention sweep can clear
+      // its exact places 30 days later (updatedAt changes on every write and cannot say).
+      ...(to === 'COMPLETED' ? { endedAt: FieldValue.serverTimestamp() } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
     if (journeyToActivateRef) {
