@@ -265,6 +265,11 @@ Firestore emulators (`npm run test:integration`, needs Java 21). They use the re
 real functions and the real admin script. Playwright end-to-end tests are added with the modules
 that introduce the UI they cover.
 
+`npm run perf` measures how long a few things take on the emulators (a trip request being created, the
+first page of an admin list as it grows) and writes the figures to `tests/perf/last-run.json`. It is on
+demand and not in CI, because wall-clock time on a shared runner proves nothing; `docs/performance.md`
+has the figures and what they do and do not mean.
+
 Cloud Functions are tested on the emulators only. The project is on the Spark plan, which cannot
 deploy functions, so nothing is deployed until the plan is upgraded.
 

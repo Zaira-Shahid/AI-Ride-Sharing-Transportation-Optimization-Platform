@@ -8,6 +8,7 @@
     "vitest.config.mts",
     "vitest.live.config.mts",
     "vitest.integration.config.mts",
+    "vitest.perf.config.mts",
     "playwright.config.ts"
   ]
 }

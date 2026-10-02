@@ -10,10 +10,27 @@ import {
   type VehicleType,
   type VehicleVerificationStatus,
 } from '@ridemesh/types';
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  documentId,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAfter,
+} from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { AuthFlowError, getErrorCode } from './auth-errors';
 import type { FirebaseClient } from './client';
+import {
+  ADMIN_LIST_PAGE_SIZE,
+  sliceStatusPage,
+  type Page,
+  type PageOptions,
+  type StatusCursor,
+} from './paging';
 
 // Module 11.2 (admin dashboard: driver/vehicle management): the staff side of the review flow Module
 // 2.4 already built (functions/src/verification.ts's reviewAsStaff) - only requestReview (the driver's
@@ -45,16 +62,33 @@ function isOneOf<T extends string>(values: readonly T[], value: unknown): value 
 }
 
 /**
- * Every driver, each with their own vehicle (if they have saved one) - PENDING drivers first (the
- * actionable queue), then everyone else, both groups oldest-first by uid ordering (Firestore's own
- * default, no createdAt index needed for this). Firestore rules already let any staff role list
- * `drivers`/`vehicles`/`users` in full (isStaff(), unconditional on the document's own fields), so this
- * is a direct client read, not a callable.
+ * One page of drivers, each with their own vehicle (if they have saved one) - PENDING drivers first (the
+ * actionable queue), then rejected, then verified, each group by uid. That is the database's own order
+ * (`verificationStatus`, then document id: PENDING, REJECTED, VERIFIED happen to sort that way), so a
+ * page is never re-sorted in the browser and the next page continues exactly where this one stopped.
+ * Phase 14 (performance): this used to read every driver at once; it reads `pageSize` (50) and gives a
+ * cursor for the next. Every driver document is created with its `verificationStatus`, so ordering by it
+ * leaves none out. Firestore rules already let any staff role list `drivers`/`vehicles`/`users` in full
+ * (isStaff(), unconditional on the document's own fields), so this is a direct client read, not a
+ * callable.
  */
 export async function listDriversForReview(
   client: Pick<FirebaseClient, 'firestore'>,
-): Promise<DriverReviewRow[]> {
-  const driverDocs = (await getDocs(collection(client.firestore, 'drivers'))).docs;
+  options: PageOptions<StatusCursor> = {},
+): Promise<Page<DriverReviewRow, StatusCursor>> {
+  const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
+  const fetched = (
+    await getDocs(
+      query(
+        collection(client.firestore, 'drivers'),
+        orderBy('verificationStatus'),
+        orderBy(documentId()),
+        ...(options.cursor ? [startAfter(options.cursor.status, options.cursor.id)] : []),
+        limit(pageSize + 1),
+      ),
+    )
+  ).docs;
+  const { docs: driverDocs, nextCursor } = sliceStatusPage(fetched, pageSize, 'verificationStatus');
 
   const rows = await Promise.all(
     driverDocs.map(async (driverDoc): Promise<DriverReviewRow> => {
@@ -103,9 +137,7 @@ export async function listDriversForReview(
     }),
   );
 
-  const rank = (status: DriverVerificationStatus | VehicleVerificationStatus) =>
-    status === 'PENDING' ? 0 : 1;
-  return rows.sort((a, b) => rank(a.driverVerificationStatus) - rank(b.driverVerificationStatus));
+  return { rows, nextCursor };
 }
 
 export interface VehicleReviewRow {
@@ -122,16 +154,35 @@ export interface VehicleReviewRow {
 }
 
 /**
- * Module 11.6 (admin dashboard: vehicle management, standalone page). Every SAVED vehicle (a driver
- * with none yet is simply absent - this is a fleet view, not a driver roster), PENDING first, each
- * with its own driver's name/email so staff can find whose it is. Read-only by design: verify/reject
- * stays on the Drivers page (module 11.2) only, so there is exactly one place that writes a
- * verification decision and one audit trail for it - this page's own "Manage" link points back there.
+ * Module 11.6 (admin dashboard: vehicle management, standalone page). One page of SAVED vehicles (a
+ * driver with none yet is simply absent - this is a fleet view, not a driver roster), PENDING first
+ * (the database's own order, `verificationStatus` then document id, same as the Drivers page), each
+ * with its own driver's name/email so staff can find whose it is. Phase 14 (performance): a page of 50
+ * with a cursor instead of the whole fleet. Read-only by design: verify/reject stays on the Drivers
+ * page (module 11.2) only, so there is exactly one place that writes a verification decision and one
+ * audit trail for it - this page's own "Manage" link points back there.
  */
 export async function listVehiclesForReview(
   client: Pick<FirebaseClient, 'firestore'>,
-): Promise<VehicleReviewRow[]> {
-  const vehicleDocs = (await getDocs(collection(client.firestore, 'vehicles'))).docs;
+  options: PageOptions<StatusCursor> = {},
+): Promise<Page<VehicleReviewRow, StatusCursor>> {
+  const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
+  const fetched = (
+    await getDocs(
+      query(
+        collection(client.firestore, 'vehicles'),
+        orderBy('verificationStatus'),
+        orderBy(documentId()),
+        ...(options.cursor ? [startAfter(options.cursor.status, options.cursor.id)] : []),
+        limit(pageSize + 1),
+      ),
+    )
+  ).docs;
+  const { docs: vehicleDocs, nextCursor } = sliceStatusPage(
+    fetched,
+    pageSize,
+    'verificationStatus',
+  );
 
   const rows = await Promise.all(
     vehicleDocs.map(async (vehicleDoc): Promise<VehicleReviewRow> => {
@@ -160,8 +211,7 @@ export async function listVehiclesForReview(
     }),
   );
 
-  const rank = (status: VehicleVerificationStatus) => (status === 'PENDING' ? 0 : 1);
-  return rows.sort((a, b) => rank(a.verificationStatus) - rank(b.verificationStatus));
+  return { rows, nextCursor };
 }
 
 /**

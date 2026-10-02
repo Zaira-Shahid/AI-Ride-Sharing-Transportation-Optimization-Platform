@@ -64,6 +64,18 @@ export function AnalyticsView() {
 
   return (
     <div className="space-y-6">
+      {summary.distinctCountsCapped ? (
+        <p
+          role="note"
+          className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-clean-white/80"
+        >
+          There are more than {formatNumber(summary.distinctTripCap)} completed trips, so People
+          transported and Vehicles used count only the most recent{' '}
+          {formatNumber(summary.distinctTripCap)}: the real figures are at least these. Vehicle
+          trips avoided and the emissions estimate are not shown, because they are made from those
+          two.
+        </p>
+      ) : null}
       <section>
         <h2 className="mb-2 text-sm font-medium text-clean-white/70">Volume</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

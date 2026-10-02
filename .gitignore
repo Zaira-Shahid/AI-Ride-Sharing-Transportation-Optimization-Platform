@@ -23,6 +23,9 @@ coverage/
 auth-export*
 *-accounts.json
 
+# what `npm run perf` measured (tests/perf), local to one machine
+tests/perf/last-run.json
+
 # firebase
 .firebase/
 firebase-debug.log*

@@ -1,8 +1,24 @@
 import type { SetUserStatusResult, UserStatus } from '@ridemesh/types';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import {
+  collection,
+  documentId,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAfter,
+  where,
+} from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { AuthFlowError, getErrorCode } from './auth-errors';
 import type { FirebaseClient } from './client';
+import {
+  ADMIN_LIST_PAGE_SIZE,
+  sliceStatusPage,
+  type Page,
+  type PageOptions,
+  type StatusCursor,
+} from './paging';
 
 // Module 11.3 (admin dashboard: user management): the staff side of suspending/reinstating a
 // passenger account (functions/src/userManagement.ts's setUserStatus) - see that file's own comment
@@ -23,16 +39,31 @@ function isUserStatus(value: unknown): value is UserStatus {
 }
 
 /**
- * Every passenger account, suspended ones first (the actionable queue). Firestore rules already let
- * any staff role read every `users` document in full, so this is a direct client query, not a
- * callable - the same shape as listDriversForReview.
+ * One page of passenger accounts, suspended ones first (the actionable queue): the database orders by
+ * `status` DESCENDING then document id descending (SUSPENDED sorts after ACTIVE, so descending puts it
+ * first), which needs the `users` index on `role` and `status` in firestore.indexes.json. Phase 14
+ * (performance): a page of 50 with a cursor instead of every passenger. Firestore rules already let any
+ * staff role read every `users` document in full, so this is a direct client query, not a callable -
+ * the same shape as listDriversForReview.
  */
 export async function listPassengersForReview(
   client: Pick<FirebaseClient, 'firestore'>,
-): Promise<PassengerRow[]> {
-  const passengerDocs = (
-    await getDocs(query(collection(client.firestore, 'users'), where('role', '==', 'PASSENGER')))
+  options: PageOptions<StatusCursor> = {},
+): Promise<Page<PassengerRow, StatusCursor>> {
+  const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
+  const fetched = (
+    await getDocs(
+      query(
+        collection(client.firestore, 'users'),
+        where('role', '==', 'PASSENGER'),
+        orderBy('status', 'desc'),
+        orderBy(documentId(), 'desc'),
+        ...(options.cursor ? [startAfter(options.cursor.status, options.cursor.id)] : []),
+        limit(pageSize + 1),
+      ),
+    )
   ).docs;
+  const { docs: passengerDocs, nextCursor } = sliceStatusPage(fetched, pageSize, 'status');
 
   const rows = passengerDocs.map((userDoc): PassengerRow => {
     const uid = userDoc.id;
@@ -46,8 +77,7 @@ export async function listPassengersForReview(
     };
   });
 
-  const rank = (status: UserStatus) => (status === 'SUSPENDED' ? 0 : 1);
-  return rows.sort((a, b) => rank(a.status) - rank(b.status));
+  return { rows, nextCursor };
 }
 
 /**

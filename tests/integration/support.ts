@@ -69,3 +69,22 @@ export async function verifyEmail(user: User, email: string) {
   if (!applied.ok) throw new Error(`Email verification failed for ${email}`);
   await user.getIdToken(true);
 }
+
+/**
+ * Every row of a paged admin list, page after page, in the order the pages come. The lists are shared
+ * with every other spec through one emulator, so a test looks for its own rows across all of them.
+ */
+export async function allPages<Row, Cursor>(
+  loadPage: (cursor: Cursor | null) => Promise<{ rows: Row[]; nextCursor: Cursor | null }>,
+  maxPages = 500,
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  let cursor: Cursor | null = null;
+  for (let page = 0; page < maxPages; page += 1) {
+    const result: { rows: Row[]; nextCursor: Cursor | null } = await loadPage(cursor);
+    rows.push(...result.rows);
+    if (result.nextCursor === null) return rows;
+    cursor = result.nextCursor;
+  }
+  throw new Error(`A list did not end within ${maxPages} pages.`);
+}
