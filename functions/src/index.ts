@@ -22,6 +22,7 @@ import {
   deleteMyAccount as deletePassengerAccount,
   exportMyData as exportPassengerData,
 } from './dataRights.js';
+import { deleteDriverAccount, exportDriverData } from './driverDataRights.js';
 import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
 import { voidStaleAuthorization } from './paymentVoid.js';
 import { handleStripeWebhook } from './paymentWebhook.js';
@@ -361,14 +362,28 @@ export const savePaymentMethod = onCall((request) => {
   );
 });
 
-// Phase 14 (Privacy compliance): a passenger's own data export and account deletion - see
-// dataRights.ts for exactly what is exported, removed, anonymized and kept. Deletion works without
-// Stripe configured (no card was ever saved then); with a saved customer it needs Stripe to reach.
-export const exportMyData = onCall((request) =>
-  exportPassengerData({ firestore: getFirestore() }, callerOf(request)),
-);
+// Phase 14 (Privacy compliance): a rider's own data export and account deletion - see dataRights.ts
+// (passenger) and driverDataRights.ts (driver) for exactly what is exported, removed, anonymized and
+// kept. The same two callables serve both: a driver's goes by the caller's signed role, and anyone
+// else reaches the passenger's, which refuses everything but a verified passenger. A passenger's
+// deletion works without Stripe configured (no card was ever saved then); with a saved customer it
+// needs Stripe to reach.
+export const exportMyData = onCall((request) => {
+  const caller = callerOf(request);
+  return caller.role === 'DRIVER'
+    ? exportDriverData({ firestore: getFirestore() }, caller)
+    : exportPassengerData({ firestore: getFirestore() }, caller);
+});
 
 export const deleteMyAccount = onCall((request) => {
+  const caller = callerOf(request);
+  if (caller.role === 'DRIVER') {
+    return deleteDriverAccount(
+      { firestore: getFirestore(), auth: getAuth() },
+      caller,
+      request.data,
+    );
+  }
   const stripeConfig = stripeConfigFromEnvironment();
   return deletePassengerAccount(
     {
@@ -376,7 +391,7 @@ export const deleteMyAccount = onCall((request) => {
       auth: getAuth(),
       stripe: stripeConfig ? createStripeProvider(stripeConfig) : undefined,
     },
-    callerOf(request),
+    caller,
     request.data,
   );
 });
