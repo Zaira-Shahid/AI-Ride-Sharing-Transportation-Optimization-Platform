@@ -1,7 +1,8 @@
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import { listPassengersForReview, submitUserStatus } from '../../packages/firebase/src';
-import { admin, createClient, signUp, verifyEmail, type Client } from './support';
+import { admin, allPages, createClient, signUp, verifyEmail, type Client } from './support';
+import type { StatusCursor } from '../../packages/firebase/src';
 
 // Module 11.3 (admin dashboard: user management). setUserStatus's own new write path - every OTHER
 // module already tests that status !== 'ACTIVE' actually blocks a passenger/driver action (trip
@@ -165,7 +166,9 @@ describe('listPassengersForReview / submitUserStatus (client wrapper)', () => {
     const suspended = await person('PASSENGER', 'listpass-suspended');
     await submitUserStatus(reviewer.client, suspended.uid, 'SUSPENDED', 'Test suspension.');
 
-    const rows = await listPassengersForReview(reviewer.client);
+    const rows = await allPages((cursor: StatusCursor | null) =>
+      listPassengersForReview(reviewer.client, { cursor }),
+    );
     const activeRow = rows.find((row) => row.uid === active.uid);
     const suspendedRow = rows.find((row) => row.uid === suspended.uid);
 
@@ -182,5 +185,89 @@ describe('listPassengersForReview / submitUserStatus (client wrapper)', () => {
     await expect(
       submitUserStatus(support.client, target.uid, 'SUSPENDED', 'Test.'),
     ).rejects.toMatchObject({ message: 'You are not allowed to manage user accounts.' });
+  });
+});
+
+// Phase 14 (performance): a page of passengers, not every passenger. The emulator is shared with every
+// other spec, so these seed their own passengers and look for them across the pages.
+describe('listPassengersForReview paging', () => {
+  async function seedPassengers(prefix: string, statuses: string[]) {
+    const stamp = Date.now();
+    const uids = statuses.map((_, index) => `${prefix}-${stamp}-${index}`);
+    const now = new Date();
+    for (const [index, uid] of uids.entries()) {
+      await admin()
+        .firestore.doc(`users/${uid}`)
+        .set({
+          role: 'PASSENGER',
+          name: `Paged Passenger ${index}`,
+          email: `${uid}@example.test`,
+          status: statuses[index],
+          statusReason: statuses[index] === 'SUSPENDED' ? 'Test.' : null,
+          createdAt: now,
+          updatedAt: now,
+        });
+    }
+    return uids;
+  }
+
+  async function walk(client: Client, pageSize: number) {
+    const pages: Awaited<ReturnType<typeof listPassengersForReview>>['rows'][] = [];
+    let cursor: Awaited<ReturnType<typeof listPassengersForReview>>['nextCursor'] = null;
+    do {
+      const page = await listPassengersForReview(client, { cursor, pageSize });
+      pages.push(page.rows);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return pages;
+  }
+
+  it('reads a page at a time, every passenger once, suspended first', async () => {
+    const reviewer = await staff('ADMIN', 'passpage-reviewer');
+    const uids = await seedPassengers('passpage', [
+      'ACTIVE',
+      'SUSPENDED',
+      'ACTIVE',
+      'ACTIVE',
+      'SUSPENDED',
+      'ACTIVE',
+      'SUSPENDED',
+    ]);
+
+    const pages = await walk(reviewer.client, 3);
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((rows) => rows.length <= 3)).toBe(true);
+    const mine = pages.flat().filter((row) => uids.includes(row.uid));
+    expect(mine.map((row) => row.uid).sort()).toEqual([...uids].sort());
+    const lastSuspended = mine.map((row) => row.status).lastIndexOf('SUSPENDED');
+    const firstActive = mine.map((row) => row.status).indexOf('ACTIVE');
+    expect(lastSuspended).toBeLessThan(firstActive);
+  });
+
+  it('offers no next page after a page that ends the list, even when it is exactly full', async () => {
+    const reviewer = await staff('ADMIN', 'passpage-full');
+    await seedPassengers('passfull', ['SUSPENDED', 'ACTIVE']);
+    const total = (await walk(reviewer.client, 1000)).flat().length;
+
+    const exact = await listPassengersForReview(reviewer.client, { pageSize: total });
+    expect(exact.rows).toHaveLength(total);
+    expect(exact.nextCursor).toBeNull();
+    const oneShort = await listPassengersForReview(reviewer.client, { pageSize: total - 1 });
+    expect(oneShort.nextCursor).not.toBeNull();
+  });
+
+  it('continues exactly where the page before it stopped', async () => {
+    const reviewer = await staff('ADMIN', 'passpage-cursor');
+    await seedPassengers('passcursor', ['ACTIVE', 'SUSPENDED', 'ACTIVE', 'SUSPENDED', 'ACTIVE']);
+    const everything = (await walk(reviewer.client, 1000)).flat().map((row) => row.uid);
+
+    const first = await listPassengersForReview(reviewer.client, { pageSize: 2 });
+    const second = await listPassengersForReview(reviewer.client, {
+      pageSize: 2,
+      cursor: first.nextCursor,
+    });
+
+    expect([...first.rows, ...second.rows].map((row) => row.uid)).toEqual(everything.slice(0, 4));
   });
 });

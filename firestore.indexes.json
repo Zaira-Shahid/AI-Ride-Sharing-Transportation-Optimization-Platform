@@ -25,6 +25,14 @@
       ]
     },
     {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "driverJourneys",
       "queryScope": "COLLECTION",
       "fields": [
