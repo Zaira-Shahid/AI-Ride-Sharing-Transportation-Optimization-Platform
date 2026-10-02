@@ -18,13 +18,15 @@ import {
   describeDataRightsError,
   exportFileName,
   exportJson,
+  deleteDialogMessage,
   isDeleteConfirmed,
-  PRIVACY_NOTES,
+  privacyNotes,
+  type PrivacyRole,
 } from './privacyData';
 
-// Phase 14 (Privacy compliance): the passenger's way to the export and account deletion built in
-// functions/src/dataRights.ts. Passenger app only (ProfileScreen decides); the driver's own deletion
-// is a separate piece of work, and this section is what it will reuse.
+// Phase 14 (Privacy compliance): a rider's way to the export and account deletion built in
+// functions/src/dataRights.ts (passenger) and driverDataRights.ts (driver). Both apps show it; only the
+// wording differs, since the server picks the right export and deletion by the signed-in role.
 //
 // Export: the web build downloads a .json file, a phone opens the system share sheet with the JSON
 // text - neither needs a file-system dependency. Deletion is two steps on purpose: a dialog saying
@@ -46,7 +48,7 @@ function downloadJson(fileName: string, text: string): void {
 
 type DeleteStep = 'idle' | 'confirming' | 'typing';
 
-export function PrivacySection() {
+export function PrivacySection({ role }: { role: PrivacyRole }) {
   const theme = useAuthTheme();
   const { client, signOut } = useAuth();
 
@@ -120,7 +122,7 @@ export function PrivacySection() {
         Privacy and data
       </Text>
       <View style={styles.notes}>
-        {PRIVACY_NOTES.map((note) => (
+        {privacyNotes(role).map((note) => (
           <Text key={note} style={[styles.note, { color: theme.textSecondary }]}>
             {'•'} {note}
           </Text>
@@ -168,7 +170,7 @@ export function PrivacySection() {
       <ConfirmDialog
         visible={step === 'confirming'}
         title="Delete your account?"
-        message="This permanently deletes your profile, saved card and notifications, and your past rides will no longer be linked to you. Fare and payment records are kept without your name. This cannot be undone."
+        message={deleteDialogMessage(role)}
         confirmLabel="Continue"
         onConfirm={() => setStep('typing')}
         onCancel={cancelDelete}

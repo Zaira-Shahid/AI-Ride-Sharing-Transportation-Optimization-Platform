@@ -464,10 +464,11 @@ describe('through the real callables and the client wrappers', () => {
     expect((await tripData(tripId)).passengerId).toBeNull();
   });
 
-  it('refuses a driver', async () => {
+  // A driver now gets their own export (driverDataRights.int.test.ts); a staff account has neither.
+  it('refuses a staff account', async () => {
     const client = createClient();
-    const { user, uid, email } = await signUp(client, 'rights-driver');
-    await admin().auth.setCustomUserClaims(uid, { role: 'DRIVER' });
+    const { user, uid, email } = await signUp(client, 'rights-staff');
+    await admin().auth.setCustomUserClaims(uid, { role: 'ADMIN' });
     await verifyEmail(user, email);
     await expect(exportMyDataClient(client)).rejects.toMatchObject({
       code: 'functions/permission-denied',

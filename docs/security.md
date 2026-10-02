@@ -358,8 +358,9 @@ coordinates and addresses of a private person, when they want to travel and how 
   staff trip detail shows the place as removed instead of a made-up `0,0`. **Not retroactive:** a request
   that ended before `endedAt` existed has no end time and is never cleared (`updatedAt` changes on every
   write, so it cannot age a request honestly) - no real passengers existed at that point. The driver
-  journey side (a journey's `origin`, plans and stops) is a separate retention decision and is **not**
-  covered here. The passenger's own export and deletion are in "Your own data" below. The
+  journey side (a journey's own `origin`, `destination` and last position; route plans hold no places) is a
+  separate retention decision and is **not** covered here. Export and deletion of a person's own data are
+  in "Your own data" below. The
   privacy notice must state the 30 days before real passengers use the app.
 
 ## Driver location (Module 4.1)
@@ -697,45 +698,84 @@ network efficiency" (section 23 names all of these; none had a methodology). All
   field (the length of `driverJourneys.matchedTripRequestIds`, already staff-readable) - a genuinely
   live number, not Phase 12 Analytics' own cumulative/historical average occupancy.
 
-## Your own data: export and account deletion (passengers, Phase 14)
+## Your own data: export and account deletion (passengers and drivers, Phase 14)
 
-Spec section 56 asks for deletion workflows. `exportMyData` and `deleteMyAccount`
-(`functions/src/dataRights.ts`) are callables for a verified passenger acting on their own account only;
-there is no staff path and no way to name another account. **Passengers only** in this pass: a driver's
-deletion also touches payouts, the earnings ledger and the vehicle, and is a separate decision. The passenger app reaches them from a
-"Privacy and data" section on the Profile tab (`packages/mobile-auth/src/screens/PrivacySection.tsx`, passenger
-app only; the driver app does not show it): the web build downloads the export as a `.json` file, a phone opens
-the share sheet, and deletion is two steps (a dialog saying what goes and what stays, then typing `DELETE`),
-after which the app returns to the welcome screen. A server refusal is shown as written.
+Spec section 56 asks for deletion workflows. `exportMyData` and `deleteMyAccount` are callables for a
+verified passenger or driver acting on their own account only; there is no staff path and no way to
+name another account. The same two callables serve both: a driver's goes by the caller's signed role to
+`functions/src/driverDataRights.ts`, and anyone else reaches the passenger's `functions/src/dataRights.ts`,
+which refuses everything but a verified passenger. Both apps reach them from a "Privacy and data"
+section on the Profile tab (`packages/mobile-auth/src/screens/PrivacySection.tsx`, the wording differs by
+role): the web build downloads the export as a `.json` file, a phone opens the share sheet, and deletion
+is two steps (a dialog saying what goes and what stays, then typing `DELETE`), after which the app
+returns to the welcome screen. A server refusal is shown as written.
 `packages/firebase/src/dataRights.ts` has the client wrappers.
 
-- **Export.** An explicit allow-list, never a raw document dump: the profile (name, email, phone,
-  status, whether a card is saved), each trip request (status, times, the places while they still exist,
-  distance, fare, refund, payment status), receipts and notifications. It leaves out another person's
-  data (the driver's name, plate and position) and internal bookkeeping (platform fee, tokens, Stripe
-  ids). At most 500 of each kind, with `truncated` when that cut something off. It writes one
-  `ACCOUNT_DATA_EXPORTED` audit entry holding none of the data. Limited to 5 a hour.
-- **Deletion needs `confirm: "DELETE"`** and is limited to 3 attempts an hour (every attempt counts,
-  valid or not). It is **refused**, changing nothing, while a ride is open or in progress, a payment hold
-  is outstanding (`AUTHORIZED`), or a dispute is unreviewed; and when a Stripe customer exists but Stripe
+Both share: every export and deletion is limited (5 exports and 3 deletion attempts an hour, every
+attempt counting, valid or not); deletion needs `confirm: "DELETE"`; each step of a deletion tolerates
+having already happened, so calling it again finishes a half-done one; and the audit entries
+`ACCOUNT_DATA_EXPORTED` and `ACCOUNT_DELETED` hold the uid only, never a name, an email, a plate or any
+data. An export is an explicit allow-list, never a raw document dump, at most 500 of each kind with
+`truncated` when that cut something off.
+
+### Passengers
+
+- **Export.** The profile (name, email, phone, status, whether a card is saved), each trip request
+  (status, times, the places while they still exist, distance, fare, refund, payment status), receipts
+  and notifications. It leaves out another person's data (the driver's name, plate and position) and
+  internal bookkeeping (platform fee, tokens, Stripe ids).
+- **Deletion is refused**, changing nothing, while a ride is open or in progress, a payment hold is
+  outstanding (`AUTHORIZED`), or a dispute is unreviewed; and when a Stripe customer exists but Stripe
   cannot be reached or refuses.
 - **Order, so a failure leaves something safe to retry:** delete the Stripe customer (the saved card
   reference), then anonymize every trip request and receipt, then delete the notifications and the
-  profile, write `ACCOUNT_DELETED`, and last delete the sign-in account. Each step tolerates having
-  already happened, so calling it again finishes a half-done deletion.
+  profile, write `ACCOUNT_DELETED`, and last delete the sign-in account.
 - **Anonymized, not deleted (decided with the user).** A trip request keeps its status, fare, payment
   fields and ids, because fares, refunds and disputes are financial records that have to be kept. What
   goes: `passengerId` becomes `null`, the name becomes "Deleted passenger", the exact places and the
   matched driver's last position are cleared and the request is marked `placesCleared`. A receipt keeps
   its amounts with `passengerId` set to `null`. The passenger can no longer read these (the read rule
   needs `passengerId` to match), and staff see "Deleted passenger".
-- **Deliberately not removed.** Audit entries keep the account's uid as the actor (an audit trail that
-  can be edited is not one; with the profile gone the uid alone identifies nobody), and the per-account
-  rate limit counters hold only a uid and a count. **Driver journey plans** that contain a matched
-  passenger's pickup point are the separate journey retention decision and are **not** cleared here.
-  Analytics' "distinct passengers" figure loses a deleted passenger, since the id is gone.
-- **Before real passengers use it:** the privacy notice must describe this, and the wording of what is
-  kept (financial records, audit trail) should be reviewed for the launch jurisdiction (spec section 56).
+
+### Drivers
+
+- **Export.** The profile, the driver profile (verification, availability, rating, trip count), the
+  vehicle (including the plate), their journeys (status, the start and end points while they exist,
+  how many passengers), earnings entries (trip, amount), the rides they drove (status, times and fare
+  only) and notifications. **Never a passenger's name, places or payment detail.**
+- **Deletion is refused**, changing nothing, while the driver is online, has a journey that is
+  `AVAILABLE`, `MATCHING` or `ACTIVE`, drives a ride still in flight, has a payment hold outstanding on a
+  ride they drove, or has an unreviewed dispute on one. A driver who is merely offline with only ended
+  journeys can delete.
+- **Order:** take the driver out of every passenger's trip record, then anonymize the earnings ledger
+  and clear the places and the link from their journeys and route plans, then delete the notifications,
+  vehicle, driver profile and user profile, write `ACCOUNT_DELETED`, and last delete the sign-in
+  account. There is no Stripe step: no driver payout account exists (driver payouts are deliberately not
+  built), so nothing outside Firestore holds a driver's details.
+- **What happens to the passengers' records (decided with the user).** On every ride the driver drove,
+  `matchedDriverId`, `driverName`, the vehicle's type, make, model and plate, and `driverLocation` become
+  `null`. The ride itself, its fare and payment fields, and everything of the passenger's, are untouched.
+  The consequence: a passenger can no longer see who drove a past ride, and staff trip views show no
+  driver for it.
+- **Anonymized, not deleted.** Earnings entries keep their trip, amount and currency with `driverId` set
+  to `null`, the same decision as the passenger's receipts (financial records are kept). Journeys keep
+  their status and matched ids but lose `driverId`, `vehicleId`, the start and end points and the last
+  position; route plans lose `driverId` and hold only request ids, stop kinds and totals (no
+  coordinates), so they hold nothing else to clear.
+- **The plate is freed.** Deleting the vehicle document frees its plate for another driver, since the
+  one-plate-one-vehicle rule is a query on the vehicles themselves.
+
+### Deliberately not removed, and before launch
+
+- **Audit entries keep the account's uid as the actor** (an audit trail that can be edited is not one;
+  with the profile gone the uid alone identifies nobody), and the per-account rate limit counters hold
+  only a uid and a count.
+- Analytics' "distinct passengers" figure loses a deleted passenger, since the id is gone.
+- **Driver journeys are not on a retention clock.** A driver's own journey start and end points are
+  cleared when they delete their account, but unlike a passenger's trip request (30 days after it ends)
+  nothing clears them on a schedule. That is a separate decision.
+- **Before real people use it:** the privacy notice must describe this, and the wording of what is kept
+  (financial records, audit trail) should be reviewed for the launch jurisdiction (spec section 56).
 
 ## Rate limiting (Phase 14 hardening)
 

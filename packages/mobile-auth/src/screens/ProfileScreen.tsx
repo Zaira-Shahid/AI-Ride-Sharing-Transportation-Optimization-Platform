@@ -220,7 +220,7 @@ export function ProfileScreen({ app, theme }: AuthScreenProps) {
         </>
       ) : null}
 
-      {app === 'passenger' && profile.status !== 'loading' ? <PrivacySection /> : null}
+      {profile.status !== 'loading' ? <PrivacySection role={app} /> : null}
 
       {signOutFailed ? (
         <Notice tone="error">We could not sign you out. Please try again.</Notice>
