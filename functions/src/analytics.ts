@@ -11,9 +11,10 @@ import type { StaffCaller } from './verification.js';
 // Disputes/Trip Monitoring/Optimization Monitoring/Payments (Phase 11) already cover: none of them
 // expose an aggregate, platform-wide number like this - every one of them lists individual trips/runs.
 // User-approved scope (a plain-text exchange, same pattern as every module this phase): (a) this
-// pass builds exactly Phase 12's own 12 named metrics, no more, no fewer - the spec's own separate
-// "network efficiency" (section 23) and the fuller section 78/33 metric sets are explicitly a later,
-// separate decision, not part of this; (b) "Average passenger walking distance" is skipped, same
+// pass builds exactly Phase 12's own 12 named metrics, no more, no fewer - "network efficiency"
+// (section 23) belongs to the live network dashboard instead (functions/src/liveNetwork.ts), and the
+// fuller section 78/33 metric sets are explicitly a later, separate decision, not part of this;
+// (b) "Average passenger walking distance" is skipped, same
 // stance as 11.9's own "compatibility %"/"walking distance" refusal - no live walking-distance number
 // is computed anywhere in this codebase, so none is shown, rather than presenting a passenger's own
 // preference ceiling as if it were a measured outcome; (c) any staff role may read this - visibility

@@ -645,8 +645,9 @@ Collections other than `users` stay closed until the module that owns each one d
 
 - Any verified staff role reads the platform-wide totals through `getAnalyticsSummary` (module 12,
   Phase 12's own 12-metric list) - visibility only, computed on demand from existing collections, no
-  new one. Exactly Phase 12's named metrics, no more, no fewer: the spec's own separate "network
-  efficiency" (section 23) and the fuller section 78/33 metric sets are a later, separate decision.
+  new one. Exactly Phase 12's named metrics, no more, no fewer: "network efficiency" belongs to
+  section 23's own live dashboard instead (see "Reading the live network", below), and the fuller
+  section 78/33 metric sets stay a later, separate decision.
 - "Average passenger walking distance" is never shown - no live walking-distance number is computed
   anywhere in this codebase, the same stance module 11.9 already takes for "compatibility %" and
   walking distance, rather than presenting a passenger's own preference ceiling as a measured outcome.
@@ -664,6 +665,33 @@ Collections other than `users` stay closed until the module that owns each one d
 - Distinct passenger/vehicle counts (`peopleTransported`/`vehiclesUsed`) read every `COMPLETED` trip
   request - a known simplification with no cap, unbounded at scale (Firestore has no count-distinct
   aggregate); revisit if that collection grows very large.
+
+### Reading the live network (staff)
+
+Module 11.5's own first pass (vehicles only) deferred three things pending their own explicit
+decisions: pickup/drop-off/unmatched-request map markers, the high-demand heatmap, and "current
+network efficiency" (section 23 names all of these; none had a methodology). All three now exist:
+
+- **Map markers and heatmap.** Showing every open trip's place at once is exactly the kind of
+  unaudited, aggregate exposure this codebase otherwise refuses - `tripMonitoring.ts`'s own list
+  views, and the Firestore rules themselves, draw a hard line that no trip LIST view ever carries an
+  exact place, only the single-trip audited `getTripDetail` call does. The resolution here:
+  `listActiveTripPositionsForStaff` (`functions/src/liveNetwork.ts`) rounds every pickup/drop-off to
+  the same ~11 m precision `reverseGeocode` already uses (`roundForGeocoding`) before it is ever read
+  into the response - this endpoint never has the exact place to begin with, so it is not audited,
+  the same stance `listActiveTripsForStaff` already takes. The high-demand heatmap is built from the
+  same rounded positions, binned into a coarse grid client-side - a heatmap needs no exact point for
+  any single trip either. "Unmatched" (no driver yet) is carried as a plain boolean so the admin map
+  can style those markers differently (section 48's own "Unmatched request" marker type) without a
+  second endpoint.
+- **Network efficiency.** No formula exists anywhere in the spec for this one (section 23 names it;
+  section 78's own, separate "Transportation efficiency" metrics are a later decision, same as
+  analytics' own stance above). This project's own definition: the share of right-now
+  MATCHING/ACTIVE journeys (ones that have actually picked up at least one passenger - an AVAILABLE
+  journey has picked up nobody yet, so it is excluded from both sides of the fraction) carrying more
+  than one passenger. Computed entirely client-side from `ActiveVehicle`'s own new `passengerCount`
+  field (the length of `driverJourneys.matchedTripRequestIds`, already staff-readable) - a genuinely
+  live number, not Phase 12 Analytics' own cumulative/historical average occupancy.
 
 ## Rate limiting (Phase 14 hardening)
 

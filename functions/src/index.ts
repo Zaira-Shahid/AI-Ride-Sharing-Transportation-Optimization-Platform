@@ -57,6 +57,7 @@ import {
 } from './tripMonitoring.js';
 import { listAuditLogsForStaff } from './auditLogs.js';
 import { getAnalyticsSummaryForStaff } from './analytics.js';
+import { listActiveTripPositionsForStaff } from './liveNetwork.js';
 import {
   getMlStatusForStaff,
   predictCancellationForStaff,
@@ -212,6 +213,10 @@ export const setUserStatus = onCall((request) =>
 
 export const listActiveTrips = onCall((request) =>
   listActiveTripsForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const listActiveTripPositions = onCall((request) =>
+  listActiveTripPositionsForStaff({ firestore: getFirestore() }, callerOf(request)),
 );
 
 export const listTripHistory = onCall((request) =>
