@@ -15,7 +15,14 @@ import {
   type RoutingProvider,
 } from '../../functions/src/routing';
 import type { LookupLimits } from '../../functions/src/lookupLimits';
-import { defaultRouteBody, startFakeOsrm, type FakeOsrm } from '../fake-osrm';
+import {
+  FAKE_OSRM_BASE_PATH,
+  FAKE_OSRM_PORT,
+  defaultRouteBody,
+  startFakeOsrm,
+  type FakeOsrm,
+  type FakeRouteRequest,
+} from '../fake-osrm';
 import { admin, createClient, signUp, verifyEmail, type Client } from './support';
 
 // Two ways in, as for reverse geocoding. The logic (the rounding, the cache, the limits, the
@@ -111,6 +118,27 @@ beforeEach(async () => {
   fake.requests.length = 0;
   fake.reply(null);
 });
+
+const roundedTo4 = (value: number) => Math.round(value * 10_000) / 10_000;
+
+/**
+ * The route requests asked about exactly these stops (rounded the way the server rounds them before it
+ * asks), and no others. The fake route server is shared with the Functions emulator's own triggers, so
+ * a request one of them is still making (for a trip another spec created) can land in `fake.requests`
+ * during a test; counting every request made a test fail with "length 1 but got 2" on a stray it never
+ * caused. A test counts only what is about its own stops.
+ */
+function requestsAbout(stops: readonly { latitude: number; longitude: number }[]) {
+  return fake.requests.filter(
+    (request: FakeRouteRequest) =>
+      request.stops.length === stops.length &&
+      request.stops.every(
+        (stop, index) =>
+          stop.latitude === roundedTo4(stops[index]!.latitude) &&
+          stop.longitude === roundedTo4(stops[index]!.longitude),
+      ),
+  );
+}
 
 describe('calculateRoute: what the provider sees, and what is stored', () => {
   it('finds the route, asks the provider about the rounded stops only, and caches it', async () => {
@@ -566,8 +594,16 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
   const call = (client: Client, data: unknown) =>
     httpsCallable(client.functions, 'calculateRoute')(data).then((result) => result.data);
 
-  const A = { latitude: 51.44941234, longitude: -2.58139876 };
-  const B = { latitude: 51.50494321, longitude: -0.01949999 };
+  // Stops no other spec asks about, far from the places the other integration files use (estimate and
+  // matching ask about Bristol and Canary Wharf, so a request of theirs could look like ours).
+  // Rounded to 4 places they are 64.1234,9.8766 and 65.9249,9.9805, about 200 km apart.
+  const A = { latitude: 64.12341234, longitude: 9.87659876 };
+  const B = { latitude: 65.92494321, longitude: 9.98050001 };
+  // The same pair of walking stops every walking test uses, about 400 m apart.
+  const WALK_STOPS = [
+    { latitude: 66.5049, longitude: 12.0195 },
+    { latitude: 66.507, longitude: 12.025 },
+  ];
 
   it('asks the provider named in the environment, as itself, about the rounded stops', async () => {
     const { client } = await person('PASSENGER', 'route-callable');
@@ -585,13 +621,14 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
     expect(result.route.legs[0]?.distanceMeters).toBe(result.route.distanceMeters);
     expect(result.route.geometry.length).toBeGreaterThan(0);
 
-    expect(fake.requests).toHaveLength(1);
-    const [request] = fake.requests;
+    const asked = requestsAbout([A, B]);
+    expect(asked).toHaveLength(1);
+    const [request] = asked;
     expect(request?.stops).toEqual([
-      { latitude: 51.4494, longitude: -2.5814 },
-      { latitude: 51.5049, longitude: -0.0195 },
+      { latitude: 64.1234, longitude: 9.8766 },
+      { latitude: 65.9249, longitude: 9.9805 },
     ]);
-    expect(request?.path).toBe('/routed-car/route/v1/driving/-2.5814,51.4494;-0.0195,51.5049');
+    expect(request?.path).toBe('/routed-car/route/v1/driving/9.8766,64.1234;9.9805,65.9249');
     // No traffic: one plain route, with its line, and nothing else asked for.
     expect(Object.fromEntries(request?.search ?? [])).toEqual({
       overview: 'full',
@@ -601,7 +638,21 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
     });
     // It says who it is with the one contact setting (geocoding's), since routing has none of its own.
     expect(request?.headers['user-agent']).toBe('RideMesh-tests');
-    expect(request?.path).not.toContain('44941234');
+    expect(request?.path).not.toContain('12341234');
+  });
+
+  it('counts only the requests about its own stops, whoever else asks the route server', async () => {
+    const { client } = await person('PASSENGER', 'route-stray');
+    // A request from somewhere else, for other stops, as a trigger still working on another spec's
+    // trip would send. It is on the shared route server but is not about this test's stops.
+    await fetch(
+      `http://127.0.0.1:${FAKE_OSRM_PORT}${FAKE_OSRM_BASE_PATH}/route/v1/driving/-1,50;-1.1,50.1?overview=false`,
+    );
+
+    await call(client, { stops: [A, B] });
+
+    expect(fake.requests).toHaveLength(2);
+    expect(requestsAbout([A, B])).toHaveLength(1);
   });
 
   it('answers a second request for the same stops from the cache, for anybody', async () => {
@@ -611,21 +662,18 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
     await call(first.client, { stops: [A, B] });
     const again = (await call(second.client, {
       stops: [
-        { latitude: 51.44943, longitude: -2.58141 },
-        { latitude: 51.50492, longitude: -0.01951 },
+        { latitude: 64.12343, longitude: 9.87661 },
+        { latitude: 65.92492, longitude: 9.98051 },
       ],
     })) as { status: string };
 
     expect(again.status).toBe('found');
-    expect(fake.requests).toHaveLength(1);
+    expect(requestsAbout([A, B])).toHaveLength(1);
   });
 
   it('asks the foot server for a walking route, and gets a walking pace', async () => {
     const { client } = await person('PASSENGER', 'route-walk');
-    const stops = [
-      { latitude: 51.5049, longitude: -0.0195 },
-      { latitude: 51.507, longitude: -0.025 },
-    ];
+    const stops = WALK_STOPS;
 
     const walking = (await call(client, { stops, profile: 'walking' })) as {
       status: string;
@@ -636,14 +684,13 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
     expect(walking.status).toBe('found');
     expect(driving.status).toBe('found');
     // The two questions went to the two servers, each with its own word for the way of travelling.
-    expect(fake.requests.map((request) => [request.profile, request.path.split('/')[1]])).toEqual([
+    const asked = requestsAbout(stops);
+    expect(asked.map((request) => [request.profile, request.path.split('/')[1]])).toEqual([
       ['walking', 'routed-foot'],
       ['driving', 'routed-car'],
     ]);
-    expect(fake.requests[0]?.path).toBe('/routed-foot/route/v1/foot/-0.0195,51.5049;-0.025,51.507');
-    expect(fake.requests[1]?.path).toBe(
-      '/routed-car/route/v1/driving/-0.0195,51.5049;-0.025,51.507',
-    );
+    expect(asked[0]?.path).toBe('/routed-foot/route/v1/foot/12.0195,66.5049;12.025,66.507');
+    expect(asked[1]?.path).toBe('/routed-car/route/v1/driving/12.0195,66.5049;12.025,66.507');
     // On foot the same trip is slow: walking pace is about 1.25 m/s, a car's about 14 m/s.
     const walkingPace = walking.route.distanceMeters / walking.route.durationSeconds;
     const drivingPace = driving.route.distanceMeters / driving.route.durationSeconds;
@@ -655,33 +702,25 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
   it('answers a second walking request for the same stops from the cache', async () => {
     const first = await person('PASSENGER', 'route-walk-cache-1');
     const second = await person('DRIVER', 'route-walk-cache-2');
-    const stops = [
-      { latitude: 51.5049, longitude: -0.0195 },
-      { latitude: 51.507, longitude: -0.025 },
-    ];
+    const stops = WALK_STOPS;
 
     await call(first.client, { stops, profile: 'walking' });
     const again = (await call(second.client, { stops, profile: 'walking' })) as { status: string };
 
     expect(again.status).toBe('found');
-    expect(fake.requests).toHaveLength(1);
+    expect(requestsAbout(stops)).toHaveLength(1);
   });
 
   it('routes through several stops, with a leg for each pair', async () => {
     const { client } = await person('DRIVER', 'route-legs');
-    const stops = [
-      A,
-      B,
-      { latitude: 52.4862, longitude: -1.8904 },
-      { latitude: 53.4808, longitude: -2.2426 },
-    ];
+    const stops = [A, B, { latitude: 66.1, longitude: 11.1 }, { latitude: 67.4, longitude: 12.2 }];
 
     const result = (await call(client, { stops })) as { route: Route };
 
     expect(result.route.legs).toHaveLength(3);
     const total = result.route.legs.reduce((sum, leg) => sum + leg.distanceMeters, 0);
     expect(Math.abs(total - result.route.distanceMeters)).toBeLessThanOrEqual(3);
-    expect(fake.requests[0]?.stops).toHaveLength(4);
+    expect(requestsAbout(stops)[0]?.stops).toHaveLength(4);
   });
 
   it.each([
@@ -706,7 +745,7 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
 
     expect(await call(client, { stops })).toEqual({ status: 'none', route: null });
     expect(await call(client, { stops })).toEqual({ status: 'none', route: null });
-    expect(fake.requests).toHaveLength(1);
+    expect(requestsAbout(stops)).toHaveLength(1);
   });
 
   it.each([
@@ -728,7 +767,7 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
 
       fake.reply(null);
       expect(await call(client, { stops })).toMatchObject({ status: 'found' });
-      expect(fake.requests).toHaveLength(2);
+      expect(requestsAbout(stops)).toHaveLength(2);
     },
   );
 
@@ -756,20 +795,17 @@ describe('the calculateRoute callable (functions + firestore emulators, fake OSR
     await expect(call(createClient(), { stops: [A, B] })).rejects.toMatchObject({
       code: 'functions/unauthenticated',
     });
-    expect(fake.requests).toHaveLength(0);
+    expect(requestsAbout([A, B])).toHaveLength(0);
   });
 
   it('is what the app calls for a walking route: on foot when asked, by road when not', async () => {
     const { client } = await person('DRIVER', 'route-app-walk');
-    const stops = [
-      { latitude: 51.5049, longitude: -0.0195 },
-      { latitude: 51.507, longitude: -0.025 },
-    ];
+    const stops = WALK_STOPS;
 
     const onFoot = await calculateRouteForApp(client, stops, { profile: 'walking' });
     const byRoad = await calculateRouteForApp(client, stops);
 
-    expect(fake.requests.map((request) => request.profile)).toEqual(['walking', 'driving']);
+    expect(requestsAbout(stops).map((request) => request.profile)).toEqual(['walking', 'driving']);
     expect(
       (onFoot?.durationSeconds ?? 0) > (byRoad?.durationSeconds ?? Number.MAX_SAFE_INTEGER),
     ).toBe(true);
