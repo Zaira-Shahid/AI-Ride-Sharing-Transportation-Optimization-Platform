@@ -702,9 +702,12 @@ network efficiency" (section 23 names all of these; none had a methodology). All
 Spec section 56 asks for deletion workflows. `exportMyData` and `deleteMyAccount`
 (`functions/src/dataRights.ts`) are callables for a verified passenger acting on their own account only;
 there is no staff path and no way to name another account. **Passengers only** in this pass: a driver's
-deletion also touches payouts, the earnings ledger and the vehicle, and is a separate decision. No app
-screen calls them yet (the passenger app has no account settings screen); `packages/firebase/src/
-dataRights.ts` has the client wrappers.
+deletion also touches payouts, the earnings ledger and the vehicle, and is a separate decision. The passenger app reaches them from a
+"Privacy and data" section on the Profile tab (`packages/mobile-auth/src/screens/PrivacySection.tsx`, passenger
+app only; the driver app does not show it): the web build downloads the export as a `.json` file, a phone opens
+the share sheet, and deletion is two steps (a dialog saying what goes and what stays, then typing `DELETE`),
+after which the app returns to the welcome screen. A server refusal is shown as written.
+`packages/firebase/src/dataRights.ts` has the client wrappers.
 
 - **Export.** An explicit allow-list, never a raw document dump: the profile (name, email, phone,
   status, whether a card is saved), each trip request (status, times, the places while they still exist,
