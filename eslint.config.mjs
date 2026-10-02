@@ -12,6 +12,7 @@ export default defineConfig(
       'functions/lib/**',
       '**/dist/**',
       '**/.next/**',
+      '**/.next-e2e/**',
       '**/.expo/**',
       '**/coverage/**',
       '**/next-env.d.ts',
