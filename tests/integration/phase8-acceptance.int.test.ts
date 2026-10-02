@@ -208,7 +208,7 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
 
     // Module 6.9: a fresh match, journey AVAILABLE -> MATCHING.
     const a = await searchingPassenger('p8a-a', { origin: PICKUP_A, destination: DROPOFF_A });
-    await runBatchOptimization({
+    const firstRun = await runBatchOptimization({
       firestore: admin().firestore,
       provider,
       optimizationService: { baseUrl: optimizationService.baseUrl },
@@ -216,7 +216,13 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
       push: noopPush,
     });
     const tripA = (await admin().firestore.doc(`tripRequests/${a.tripId}`).get()).data();
-    expect(tripA?.status).toBe('PICKUP_ASSIGNED');
+    // The messages say what the run did, because the real event-triggered batch run (index.ts) works on
+    // the same requests and journeys at the same moment and uses the real route counters, and a bare
+    // "expected X to be Y" cannot say which of the two did what (see the next step).
+    expect(
+      tripA?.status,
+      `trip A is ${tripA?.status} after the first run, whose outcome was ${JSON.stringify(firstRun)}`,
+    ).toBe('PICKUP_ASSIGNED');
     expect(tripA?.matchedJourneyId).toBe(driver.journeyId);
     const planV1Id = await currentPlanId(driver.journeyId);
 
@@ -231,9 +237,17 @@ describe('Phase 8 acceptance (functions + firestore emulators, the real optimiza
       limits: NO_LIMITS,
       push: noopPush,
     });
-    expect(outcome.insertedRequestCount).toBeGreaterThanOrEqual(1);
-
     const tripB = (await admin().firestore.doc(`tripRequests/${b.tripId}`).get()).data();
+    // Failed intermittently on develop's CI with a bare "expected 0 to be greater than or equal to 1".
+    // Two explanations that this tells apart: trip B still SEARCHING means the insertion did not
+    // happen (for example a route lookup held back by contention on the shared counters); trip B
+    // already PICKUP_ASSIGNED means the event-triggered batch run put it in first, so this run had
+    // nothing left to insert.
+    expect(
+      outcome.insertedRequestCount,
+      `the second run inserted nobody. Its outcome was ${JSON.stringify(outcome)}; trip B is ${tripB?.status} (journey ${tripB?.matchedJourneyId ?? 'none'}). PICKUP_ASSIGNED here means the event-triggered run inserted it first; SEARCHING means the insertion itself did not happen.`,
+    ).toBeGreaterThanOrEqual(1);
+
     expect(tripB?.status).toBe('PICKUP_ASSIGNED');
     expect(tripB?.matchedJourneyId).toBe(driver.journeyId);
     const planV2Id = await currentPlanId(driver.journeyId);
