@@ -4,7 +4,7 @@ import type { ActiveVehicle, MapPosition } from '@ridemesh/firebase';
 import type { LiveTripPosition } from '@ridemesh/types';
 import type L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const TILE_URL_TEMPLATE = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_MAX_ZOOM = 19;
@@ -22,14 +22,40 @@ const DROPOFF_COLOR = '#60a5fa';
 const DEMAND_CELL_DEGREES = 0.01; // ~1.1 km at the equator
 const WORLD_CENTER: L.LatLngTuple = [20, 0];
 const WORLD_ZOOM = 2;
+// The map opens on the world, because nothing is known yet; once the first data is in it frames
+// whatever there is to show, once (see LiveMap's own fit effect). A single point, or points a few
+// metres apart, would otherwise fit to the maximum zoom, which shows a street and no context.
+const FIT_PADDING: L.PointTuple = [48, 48];
+const FIT_MAX_ZOOM = 15;
 
 interface LiveMapProps {
-  vehicles: ActiveVehicle[];
-  tripPositions: LiveTripPosition[];
+  /** null until the first snapshot has arrived, so "nothing yet" is not mistaken for "nothing there". */
+  vehicles: ActiveVehicle[] | null;
+  /** null until the first poll has answered. */
+  tripPositions: LiveTripPosition[] | null;
 }
 
 function toLatLng(point: MapPosition): L.LatLngTuple {
   return [point.latitude, point.longitude];
+}
+
+/** Every point the map draws, so the first fit frames all of it. */
+function pointsToFit(
+  vehicles: ActiveVehicle[],
+  tripPositions: LiveTripPosition[],
+): L.LatLngTuple[] {
+  const points: L.LatLngTuple[] = [];
+  for (const vehicle of vehicles) {
+    for (const point of [vehicle.currentPosition, vehicle.origin, vehicle.destination]) {
+      if (point) points.push(toLatLng(point));
+    }
+  }
+  for (const trip of tripPositions) {
+    for (const point of [trip.pickup, trip.dropoff]) {
+      if (point) points.push(toLatLng(point));
+    }
+  }
+  return points;
 }
 
 function demandCells(
@@ -70,6 +96,13 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
   const heatLayer = useRef<L.LayerGroup | null>(null);
   const markers = useRef<L.LayerGroup | null>(null);
   const leaflet = useRef<typeof L | null>(null);
+  // Set once the map exists, so the drawing effects below run again for data that arrived while
+  // Leaflet was still loading (they would otherwise wait for the next change to the data).
+  const [mapReady, setMapReady] = useState(false);
+  // Whether the map has been framed on the data yet. Only the FIRST data fits the view: the vehicles
+  // update live and the trips every 15 s, and re-fitting each time would undo the staff member's own
+  // zoom and pan.
+  const hasFitted = useRef(false);
 
   useEffect(() => {
     const node = container.current;
@@ -90,6 +123,7 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
       heatLayer.current = Lib.layerGroup().addTo(instance);
       markers.current = Lib.layerGroup().addTo(instance);
       map.current = instance;
+      setMapReady(true);
     });
 
     return () => {
@@ -108,7 +142,7 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
     if (!Lib || !instance || !heat) return;
 
     heat.clearLayers();
-    const cells = demandCells(tripPositions);
+    const cells = demandCells(tripPositions ?? []);
     const maxCount = Math.max(1, ...cells.map((cell) => cell.count));
     for (const cell of cells) {
       const intensity = cell.count / maxCount;
@@ -120,7 +154,7 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
         stroke: false,
       }).addTo(heat);
     }
-  }, [tripPositions]);
+  }, [tripPositions, mapReady]);
 
   useEffect(() => {
     const Lib = leaflet.current;
@@ -129,7 +163,7 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
     if (!Lib || !instance || !group) return;
 
     group.clearLayers();
-    for (const vehicle of vehicles) {
+    for (const vehicle of vehicles ?? []) {
       if (vehicle.origin && vehicle.destination) {
         Lib.polyline(
           [toLatLng(vehicle.origin), toLatLng(vehicle.destination)],
@@ -150,7 +184,7 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
       }
     }
 
-    for (const trip of tripPositions) {
+    for (const trip of tripPositions ?? []) {
       if (trip.pickup) {
         const size = 10;
         const color = trip.unmatched ? PICKUP_COLOR.unmatched : PICKUP_COLOR.matched;
@@ -177,7 +211,20 @@ export function LiveMap({ vehicles, tripPositions }: LiveMapProps) {
         }).addTo(group);
       }
     }
-  }, [vehicles, tripPositions]);
+
+    // Frame the network once, when both the vehicles and the trips have answered and there is
+    // something to frame. Later updates leave the view exactly where the staff member put it.
+    if (!hasFitted.current && vehicles !== null && tripPositions !== null) {
+      const points = pointsToFit(vehicles, tripPositions);
+      if (points.length > 0) {
+        instance.fitBounds(Lib.latLngBounds(points), {
+          padding: FIT_PADDING,
+          maxZoom: FIT_MAX_ZOOM,
+        });
+        hasFitted.current = true;
+      }
+    }
+  }, [vehicles, tripPositions, mapReady]);
 
   return (
     <div
