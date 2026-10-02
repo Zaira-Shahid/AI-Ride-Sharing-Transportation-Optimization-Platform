@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PushProvider, SendPushParams } from '../../functions/src/pushProvider';
-import { reoptimizeDelayedJourney } from '../../functions/src/routeModification';
+import {
+  reoptimizeDelayedJourney,
+  type RouteModificationSkipReason,
+} from '../../functions/src/routeModification';
 import type { RoutePoint, RoutingProvider } from '../../functions/src/routing';
 import { admin } from './support';
 
@@ -177,17 +180,29 @@ async function delayedJourneyWithTwoWaitingPassengers(
   };
 }
 
-function reoptimize(fixture: Fixture, optimizeResponse: unknown, push: PushProvider = noopPush) {
+interface Skip {
+  reason: RouteModificationSkipReason;
+  detail: Record<string, unknown>;
+}
+
+function reoptimize(
+  fixture: Fixture,
+  optimizeResponse: unknown,
+  push: PushProvider = noopPush,
+  options: { skips?: Skip[]; provider?: RoutingProvider } = {},
+) {
+  const { skips, provider = positionalProvider() } = options;
   return reoptimizeDelayedJourney(
     {
       firestore: admin().firestore,
-      provider: positionalProvider(),
+      provider,
       limits: NO_LIMITS,
       optimizationService: {
         baseUrl: 'https://opt.example',
         fetchImpl: fakeOptimizeFetch(optimizeResponse),
       },
       push,
+      ...(skips ? { onSkip: (reason, detail) => skips.push({ reason, detail }) } : {}),
     },
     fixture.journeyId,
   );
@@ -373,11 +388,20 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
     const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-clear');
     await admin().firestore.doc(`driverJourneys/${fixture.journeyId}`).update({ delay: null });
 
+    const skips: Skip[] = [];
     const outcome = await reoptimize(
       fixture,
       planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
+      noopPush,
+      { skips },
     );
     expect(outcome).toBe('skipped');
+    expect(skips).toEqual([
+      {
+        reason: 'journey-not-matching-or-not-delayed',
+        detail: { exists: true, status: 'MATCHING', hasDelay: false },
+      },
+    ]);
 
     const trip = (await admin().firestore.doc(`tripRequests/${fixture.tripAId}`).get()).data();
     expect(trip?.assignedPlanId).toBe(fixture.oldPlanId);
@@ -387,19 +411,110 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
     const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-single');
     await admin().firestore.doc(`tripRequests/${fixture.tripBId}`).update({ status: 'COMPLETED' });
 
-    const outcome = await reoptimize(fixture, planResponse(fixture, [fixture.tripAId]));
+    const skips: Skip[] = [];
+    const outcome = await reoptimize(fixture, planResponse(fixture, [fixture.tripAId]), noopPush, {
+      skips,
+    });
     expect(outcome).toBe('skipped');
+    expect(skips).toEqual([
+      { reason: 'fewer-than-two-waiting', detail: { matched: 2, waiting: 1 } },
+    ]);
   });
 
   it('is skipped for an ACTIVE journey (a passenger already picked up)', async () => {
     const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-active');
     await admin().firestore.doc(`driverJourneys/${fixture.journeyId}`).update({ status: 'ACTIVE' });
 
+    const skips: Skip[] = [];
     const outcome = await reoptimize(
       fixture,
       planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
+      noopPush,
+      { skips },
     );
     expect(outcome).toBe('skipped');
+    expect(skips).toEqual([
+      {
+        reason: 'journey-not-matching-or-not-delayed',
+        detail: { exists: true, status: 'ACTIVE', hasDelay: true },
+      },
+    ]);
+  });
+
+  // The other four reasons, each one named so a skipped re-ordering can say why.
+  it('says why when the journey is missing something it needs', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-fields');
+    await admin()
+      .firestore.doc(`driverJourneys/${fixture.journeyId}`)
+      .update({ maxDetourMinutes: null });
+
+    const skips: Skip[] = [];
+    await reoptimize(fixture, planResponse(fixture, [fixture.tripAId, fixture.tripBId]), noopPush, {
+      skips,
+    });
+    expect(skips).toEqual([
+      {
+        reason: 'journey-fields-missing',
+        detail: {
+          hasDriverId: true,
+          hasCurrentLocation: true,
+          hasDestination: true,
+          hasMaxDetourMinutes: false,
+          hasMaxDetourDistance: true,
+        },
+      },
+    ]);
+  });
+
+  it('says why when fewer than two requests are matched to the journey', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-matched');
+    await admin()
+      .firestore.doc(`driverJourneys/${fixture.journeyId}`)
+      .update({ matchedTripRequestIds: [fixture.tripAId] });
+
+    const skips: Skip[] = [];
+    await reoptimize(fixture, planResponse(fixture, [fixture.tripAId]), noopPush, { skips });
+    expect(skips).toEqual([{ reason: 'fewer-than-two-matched', detail: { matched: 1 } }]);
+  });
+
+  it('says why when the journey has no current plan to re-order', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-plan');
+    await admin().firestore.doc(`journeyPlans/${fixture.oldPlanId}`).delete();
+
+    const skips: Skip[] = [];
+    await reoptimize(fixture, planResponse(fixture, [fixture.tripAId, fixture.tripBId]), noopPush, {
+      skips,
+    });
+    expect(skips).toEqual([{ reason: 'no-current-plan', detail: { hasPlan: false } }]);
+  });
+
+  it('says why when no route cost could be had for the waiting passengers', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-costs');
+    const nowhere: RoutingProvider = { route: () => Promise.resolve(null) };
+
+    const skips: Skip[] = [];
+    await reoptimize(fixture, planResponse(fixture, [fixture.tripAId, fixture.tripBId]), noopPush, {
+      skips,
+      provider: nowhere,
+    });
+    expect(skips).toHaveLength(1);
+    expect(skips[0]?.reason).toBe('fewer-than-two-route-costs');
+    const statuses = skips[0]?.detail.checkStatuses as string[];
+    expect(statuses).toHaveLength(2);
+    expect(statuses.every((status) => status !== 'checked')).toBe(true);
+  });
+
+  it('does not report a skip when it re-orders', async () => {
+    const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-why-none');
+    const skips: Skip[] = [];
+    const outcome = await reoptimize(
+      fixture,
+      planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
+      noopPush,
+      { skips },
+    );
+    expect(outcome).toBe('reoptimized');
+    expect(skips).toEqual([]);
   });
 
   // Module 8.8 (passenger constraint validation): a re-ordered plan that would carry a passenger past
