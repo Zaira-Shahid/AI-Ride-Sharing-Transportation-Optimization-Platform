@@ -12,6 +12,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { EmptyState } from './EmptyState';
 
 const LIVE_POLL_MS = 15_000;
+/** Shown for a place the retention sweep has cleared (30 days after the trip ended). */
+export const PLACE_REMOVED = 'Removed (retention: 30 days after the trip ended)';
 
 function formatMoney(minorUnits: number | null): string {
   if (minorUnits === null) return '—';
@@ -202,9 +204,9 @@ export function TripsTable() {
           </div>
           <dl className="grid grid-cols-2 gap-2 text-clean-white/80">
             <dt className="text-clean-white/50">Pickup</dt>
-            <dd>{detail.origin.formattedAddress}</dd>
+            <dd>{detail.origin?.formattedAddress ?? PLACE_REMOVED}</dd>
             <dt className="text-clean-white/50">Destination</dt>
-            <dd>{detail.destination.formattedAddress}</dd>
+            <dd>{detail.destination?.formattedAddress ?? PLACE_REMOVED}</dd>
             <dt className="text-clean-white/50">Vehicle</dt>
             <dd>
               {detail.vehicleMake && detail.vehicleModel

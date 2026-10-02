@@ -231,3 +231,40 @@ describe('createStripeProvider.verifyWebhookEvent', () => {
     expect(provider.verifyWebhookEvent(params)).toEqual({ status: 'invalid' });
   });
 });
+
+describe('createStripeProvider.deleteCustomer', () => {
+  const providerWith = (del: (id: string) => Promise<unknown>) =>
+    createStripeProvider({ secretKey: 'sk_test_abc' }, {
+      customers: { del },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+
+  it('is deleted when Stripe confirms, passing the customer id through', async () => {
+    const seen: string[] = [];
+    const provider = providerWith(async (id) => {
+      seen.push(id);
+      return { deleted: true };
+    });
+    expect(await provider.deleteCustomer({ stripeCustomerId: 'cus_1' })).toEqual({
+      status: 'deleted',
+    });
+    expect(seen).toEqual(['cus_1']);
+  });
+
+  it('counts a customer Stripe no longer has as deleted, so a retry succeeds', async () => {
+    const provider = providerWith(async () => {
+      throw Object.assign(new Error('No such customer'), { code: 'resource_missing' });
+    });
+    expect(await provider.deleteCustomer({ stripeCustomerId: 'cus_gone' })).toEqual({
+      status: 'deleted',
+    });
+  });
+
+  it('is failed for any other Stripe error', async () => {
+    const provider = providerWith(async () => {
+      throw new Error('Stripe is unreachable');
+    });
+    expect(await provider.deleteCustomer({ stripeCustomerId: 'cus_1' })).toEqual({
+      status: 'failed',
+    });
+  });
+});

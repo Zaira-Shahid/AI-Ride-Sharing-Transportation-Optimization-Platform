@@ -188,6 +188,8 @@ function readMillis(value: unknown): number | null {
 function readTrip(id: string, data: Record<string, unknown>): TripRequestData | null {
   const origin = readPlace(data.origin);
   const destination = readPlace(data.destination);
+  // A request whose places the retention sweep has cleared (30 days after it ended, spec section 56)
+  // has none to show, so it is left out of the list like any other unreadable one.
   if (!origin || !destination) return null;
   if (!(TRIP_REQUEST_STATUSES as readonly unknown[]).includes(data.status)) return null;
   const preferences =

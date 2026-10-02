@@ -11,6 +11,7 @@ import { useAuth } from '@ridemesh/firebase/react';
 import type { TripDetailForStaff } from '@ridemesh/types';
 import { useCallback, useEffect, useState } from 'react';
 import { EmptyState } from './EmptyState';
+import { PLACE_REMOVED } from './TripsTable';
 
 function formatMoney(minorUnits: number | null): string {
   if (minorUnits === null) return '—';
@@ -167,9 +168,9 @@ export function DisputesTable() {
           </div>
           <dl className="grid grid-cols-2 gap-2 text-clean-white/80">
             <dt className="text-clean-white/50">Pickup</dt>
-            <dd>{detail.origin.formattedAddress}</dd>
+            <dd>{detail.origin?.formattedAddress ?? PLACE_REMOVED}</dd>
             <dt className="text-clean-white/50">Destination</dt>
-            <dd>{detail.destination.formattedAddress}</dd>
+            <dd>{detail.destination?.formattedAddress ?? PLACE_REMOVED}</dd>
             <dt className="text-clean-white/50">Vehicle</dt>
             <dd>
               {detail.vehicleMake && detail.vehicleModel

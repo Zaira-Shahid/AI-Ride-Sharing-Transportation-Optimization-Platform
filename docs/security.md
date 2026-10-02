@@ -344,19 +344,23 @@ coordinates and addresses of a private person, when they want to travel and how 
   the entry.
 - **The fare is `null`** until pricing exists. The distance and time are filled in by the server a
   moment after a request is created (see "Trip estimate" below).
-- **Retention: 30 days after a request ends (decided, NOT yet implemented).** The policy is that a
-  trip request's exact coordinates and addresses are deleted 30 days after it is COMPLETED or
-  CANCELLED (spec section 56). **Nothing deletes anything today**: every request stays after it
-  ends, because automatic deletion needs a scheduled Cloud Function, and scheduled functions need the
-  Blaze plan (the project is on Spark). This is a known limitation until then. When Blaze is
-  available, add a scheduled function that finds requests whose end time is more than 30 days ago
-  and removes them (or clears their places, if the trip record is still needed for fares and
-  disputes: decide that with the payments module), audits the run without naming places, and has a
-  test on the emulators. The end time is not stored on the request yet (only `updatedAt`, which
-  changes on every write), so that change should also add an explicit `endedAt` written by the
-  functions that complete or cancel a request. Until then a passenger cannot delete their own requests
-  and no export or erasure flow exists (also spec section 56). The privacy notice must state the
-  30 days before real passengers use the app.
+- **Retention: 30 days after a request ends (implemented, Phase 14).** A trip request's exact places
+  are removed 30 days after it is COMPLETED or CANCELLED (spec section 56). The functions that end a
+  request write `endedAt` (`cancelTripRequest`, and `completeDropoff` through `advance`), and a
+  scheduled function, `clearExpiredTripPlacesSweep` (daily, `functions/src/tripRetention.ts`), sets
+  `origin`, `destination` and `driverLocation` (the matched driver's last exact position, left on the
+  request after the trip) to `null` and marks the request `placesCleared`. **The request itself stays**:
+  status, fare, payment fields and who are kept, because fares, receipts, refunds and disputes still
+  need them (the decision this item left open "with the payments module"). Each clearing writes a
+  `TRIP_PLACES_CLEARED` audit entry (actor `system`) naming the request and never a place; a test
+  checks that. Consequences to know: the passenger's own Trips tab leaves out a request once its places
+  are cleared (there is nothing left to show on its card, so it is dropped like any unreadable one);
+  staff trip detail shows the place as removed instead of a made-up `0,0`. **Not retroactive:** a request
+  that ended before `endedAt` existed has no end time and is never cleared (`updatedAt` changes on every
+  write, so it cannot age a request honestly) - no real passengers existed at that point. The driver
+  journey side (a journey's `origin`, plans and stops) is a separate retention decision and is **not**
+  covered here. The passenger's own export and deletion are in "Your own data" below. The
+  privacy notice must state the 30 days before real passengers use the app.
 
 ## Driver location (Module 4.1)
 
@@ -692,6 +696,43 @@ network efficiency" (section 23 names all of these; none had a methodology). All
   than one passenger. Computed entirely client-side from `ActiveVehicle`'s own new `passengerCount`
   field (the length of `driverJourneys.matchedTripRequestIds`, already staff-readable) - a genuinely
   live number, not Phase 12 Analytics' own cumulative/historical average occupancy.
+
+## Your own data: export and account deletion (passengers, Phase 14)
+
+Spec section 56 asks for deletion workflows. `exportMyData` and `deleteMyAccount`
+(`functions/src/dataRights.ts`) are callables for a verified passenger acting on their own account only;
+there is no staff path and no way to name another account. **Passengers only** in this pass: a driver's
+deletion also touches payouts, the earnings ledger and the vehicle, and is a separate decision. No app
+screen calls them yet (the passenger app has no account settings screen); `packages/firebase/src/
+dataRights.ts` has the client wrappers.
+
+- **Export.** An explicit allow-list, never a raw document dump: the profile (name, email, phone,
+  status, whether a card is saved), each trip request (status, times, the places while they still exist,
+  distance, fare, refund, payment status), receipts and notifications. It leaves out another person's
+  data (the driver's name, plate and position) and internal bookkeeping (platform fee, tokens, Stripe
+  ids). At most 500 of each kind, with `truncated` when that cut something off. It writes one
+  `ACCOUNT_DATA_EXPORTED` audit entry holding none of the data. Limited to 5 a hour.
+- **Deletion needs `confirm: "DELETE"`** and is limited to 3 attempts an hour (every attempt counts,
+  valid or not). It is **refused**, changing nothing, while a ride is open or in progress, a payment hold
+  is outstanding (`AUTHORIZED`), or a dispute is unreviewed; and when a Stripe customer exists but Stripe
+  cannot be reached or refuses.
+- **Order, so a failure leaves something safe to retry:** delete the Stripe customer (the saved card
+  reference), then anonymize every trip request and receipt, then delete the notifications and the
+  profile, write `ACCOUNT_DELETED`, and last delete the sign-in account. Each step tolerates having
+  already happened, so calling it again finishes a half-done deletion.
+- **Anonymized, not deleted (decided with the user).** A trip request keeps its status, fare, payment
+  fields and ids, because fares, refunds and disputes are financial records that have to be kept. What
+  goes: `passengerId` becomes `null`, the name becomes "Deleted passenger", the exact places and the
+  matched driver's last position are cleared and the request is marked `placesCleared`. A receipt keeps
+  its amounts with `passengerId` set to `null`. The passenger can no longer read these (the read rule
+  needs `passengerId` to match), and staff see "Deleted passenger".
+- **Deliberately not removed.** Audit entries keep the account's uid as the actor (an audit trail that
+  can be edited is not one; with the profile gone the uid alone identifies nobody), and the per-account
+  rate limit counters hold only a uid and a count. **Driver journey plans** that contain a matched
+  passenger's pickup point are the separate journey retention decision and are **not** cleared here.
+  Analytics' "distinct passengers" figure loses a deleted passenger, since the id is gone.
+- **Before real passengers use it:** the privacy notice must describe this, and the wording of what is
+  kept (financial records, audit trail) should be reviewed for the launch jurisdiction (spec section 56).
 
 ## Rate limiting (Phase 14 hardening)
 

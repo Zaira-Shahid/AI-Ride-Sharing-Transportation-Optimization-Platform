@@ -100,8 +100,12 @@ export interface TripRequest {
    * without needing read access to the passenger's own user profile.
    */
   passengerName: string;
-  origin: StoredDestination;
-  destination: StoredDestination;
+  /**
+   * The exact pickup and destination - null once the retention sweep has cleared them (30 days after
+   * the request ended, spec section 56; see placesCleared and functions/src/tripRetention.ts).
+   */
+  origin: StoredDestination | null;
+  destination: StoredDestination | null;
   requestedAt: FirestoreTimestamp;
   /** When "leave now" was asked for, this is the moment of the request. */
   requestedDepartureTime: FirestoreTimestamp;
@@ -193,6 +197,18 @@ export interface TripRequest {
   matchedAt: FirestoreTimestamp | null;
   /** requestedAt to matchedAt, in seconds, computed once at match time so analytics can average it directly. */
   matchDurationSeconds: number | null;
+  /**
+   * When this request became COMPLETED or CANCELLED (Phase 14 privacy retention); null while it is
+   * open, and for anything that ended before this field existed (not retroactive - such a request is
+   * never picked up by the retention sweep). updatedAt cannot stand in: it changes on every write.
+   */
+  endedAt: FirestoreTimestamp | null;
+  /**
+   * True once the retention sweep has removed this request's exact places (origin, destination and
+   * the matched driver's last position) 30 days after endedAt. The rest of the record (status, fare,
+   * payment, who) stays: fares, receipts and disputes still need it.
+   */
+  placesCleared: boolean;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -224,6 +240,8 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   disputeReviewed: false,
   matchedAt: null,
   matchDurationSeconds: null,
+  endedAt: null,
+  placesCleared: false,
 } as const;
 
 // How a trip request may move from one status to another (spec section 73: no arbitrary

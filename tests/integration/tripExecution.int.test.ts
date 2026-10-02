@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import { enforceCallRateLimit } from '../../functions/src/callLimits';
@@ -464,6 +465,8 @@ describe('completeDropoff (functions + firestore emulators)', () => {
 
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
     expect(trip?.status).toBe('COMPLETED');
+    // Phase 14 retention: the end time the 30-day clock starts from.
+    expect(trip?.endedAt).toBeInstanceOf(Timestamp);
   });
 
   it('is unchanged, not an error, when already COMPLETED', async () => {
@@ -615,6 +618,7 @@ describe('completeDropoff (functions + firestore emulators)', () => {
         capturePayment: async () => ({ status: 'captured' }),
         voidPayment: async () => ({ status: 'voided' }),
         refundPayment: async () => ({ status: 'refunded' }),
+        deleteCustomer: async () => ({ status: 'deleted' }),
         verifyWebhookEvent: () => ({ status: 'invalid' }),
         ...overrides,
       };

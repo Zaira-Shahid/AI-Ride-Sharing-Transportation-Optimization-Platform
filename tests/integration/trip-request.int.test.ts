@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import { enforceCallRateLimit } from '../../functions/src/callLimits';
@@ -301,6 +302,9 @@ describe('cancelTripRequest (functions + firestore emulators)', () => {
     expect(await passenger.cancel(tripId)).toBe('cancelled');
 
     expect((await tripDoc(tripId))?.status).toBe('CANCELLED');
+    // Phase 14 retention: the end time the 30-day clock starts from; places not cleared yet.
+    expect((await tripDoc(tripId))?.endedAt).toBeInstanceOf(Timestamp);
+    expect((await tripDoc(tripId))?.placesCleared).toBe(false);
     expect((await userDoc(passenger.uid))?.currentTripRequestId).toBeNull();
     const entries = await auditOf(tripId);
     expect(entries.map((entry) => entry.action).sort()).toEqual([

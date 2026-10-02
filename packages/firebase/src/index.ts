@@ -6,6 +6,7 @@ export * from './auth-errors';
 export * from './availability';
 export * from './client';
 export * from './config';
+export * from './dataRights';
 export * from './disputes';
 export * from './driver';
 export * from './geocoding';

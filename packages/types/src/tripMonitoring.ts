@@ -56,8 +56,9 @@ export interface ListTripHistoryResult {
 
 /** A single trip's full detail for staff, including its exact places - only via an audited read. */
 export interface TripDetailForStaff extends TripMonitoringRow {
-  origin: { latitude: number; longitude: number; formattedAddress: string };
-  destination: { latitude: number; longitude: number; formattedAddress: string };
+  /** Null once the retention sweep has cleared the places (30 days after the trip ended). */
+  origin: { latitude: number; longitude: number; formattedAddress: string } | null;
+  destination: { latitude: number; longitude: number; formattedAddress: string } | null;
   estimatedDistance: number | null;
   estimatedDuration: number | null;
   vehicleType: string | null;
