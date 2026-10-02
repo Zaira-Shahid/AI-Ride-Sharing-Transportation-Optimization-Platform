@@ -121,6 +121,21 @@ function releaseDroppedRequest(
 export type RouteModificationOutcome = 'reoptimized' | 'unchanged' | 'skipped';
 
 /**
+ * Why `reoptimizeDelayedJourney` returned 'skipped'. One outcome with seven causes is hard to act on: a
+ * test that failed with "expected 'skipped' to be 'reoptimized'" (phase8-acceptance, intermittently on
+ * develop's CI) could not say which one it was. The reasons are stable strings, and the detail that goes
+ * with each is only counts and states, never a place or a person.
+ */
+export type RouteModificationSkipReason =
+  | 'journey-not-matching-or-not-delayed'
+  | 'journey-fields-missing'
+  | 'fewer-than-two-matched'
+  | 'no-current-plan'
+  | 'fewer-than-two-waiting'
+  | 'fewer-than-two-route-costs'
+  | 'stop-matrix-not-computed';
+
+/**
  * Re-orders `journeyId`'s current plan from the driver's current position, if it is still flagged
  * delayed (Module 8.6) and MATCHING (see the file-level note on why ACTIVE is out of scope). 'skipped'
  * covers every reason this could not even be attempted (not delayed/MATCHING any more, fewer than two
@@ -138,10 +153,19 @@ export async function reoptimizeDelayedJourney(
     push: PushProvider;
     limits?: LookupLimits;
     now?: () => number;
+    /** Told why the outcome is 'skipped', when it is (see RouteModificationSkipReason). */
+    onSkip?: (reason: RouteModificationSkipReason, detail: Record<string, unknown>) => void;
   },
   journeyId: string,
 ): Promise<RouteModificationOutcome> {
   const { firestore } = deps;
+  const skip = (
+    reason: RouteModificationSkipReason,
+    detail: Record<string, unknown>,
+  ): 'skipped' => {
+    deps.onSkip?.(reason, detail);
+    return 'skipped';
+  };
   const now = (deps.now ?? Date.now)();
   const journeyRef = firestore.collection('driverJourneys').doc(journeyId);
   const journeySnap = await journeyRef.get();
@@ -150,7 +174,11 @@ export async function reoptimizeDelayedJourney(
     journeySnap.get('status') !== 'MATCHING' ||
     journeySnap.get('delay') == null
   ) {
-    return 'skipped';
+    return skip('journey-not-matching-or-not-delayed', {
+      exists: journeySnap.exists,
+      status: journeySnap.get('status') ?? null,
+      hasDelay: journeySnap.get('delay') != null,
+    });
   }
   const driverId: unknown = journeySnap.get('driverId');
   const currentLocation = pointOf(journeySnap.get('currentLocation'));
@@ -165,14 +193,20 @@ export async function reoptimizeDelayedJourney(
     !isNumber(maxDetourMinutes) ||
     !isNumber(maxDetourDistanceKm)
   ) {
-    return 'skipped';
+    return skip('journey-fields-missing', {
+      hasDriverId: typeof driverId === 'string' && driverId.length > 0,
+      hasCurrentLocation: currentLocation !== null,
+      hasDestination: destination !== null,
+      hasMaxDetourMinutes: isNumber(maxDetourMinutes),
+      hasMaxDetourDistance: isNumber(maxDetourDistanceKm),
+    });
   }
 
   const matchedIds = journeySnap.get('matchedTripRequestIds');
   const ids = (Array.isArray(matchedIds) ? matchedIds : []).filter(
     (id): id is string => typeof id === 'string' && id.length > 0,
   );
-  if (ids.length < 2) return 'skipped';
+  if (ids.length < 2) return skip('fewer-than-two-matched', { matched: ids.length });
 
   const planQuery = await firestore
     .collection('journeyPlans')
@@ -182,7 +216,9 @@ export async function reoptimizeDelayedJourney(
     .get();
   const oldPlanSnap = planQuery.docs[0];
   const oldPlanVersion = oldPlanSnap?.get('version');
-  if (!oldPlanSnap || !isNumber(oldPlanVersion)) return 'skipped';
+  if (!oldPlanSnap || !isNumber(oldPlanVersion)) {
+    return skip('no-current-plan', { hasPlan: oldPlanSnap !== undefined });
+  }
   const oldStops = oldPlanSnap.get('stops');
   const oldStopsArray: Array<{ kind: unknown; requestId: unknown }> = Array.isArray(oldStops)
     ? oldStops
@@ -236,7 +272,9 @@ export async function reoptimizeDelayedJourney(
       arrivalDeadlineMs: arrivalDeadline instanceof Timestamp ? arrivalDeadline.toMillis() : null,
     });
   }
-  if (waiting.length < 2) return 'skipped';
+  if (waiting.length < 2) {
+    return skip('fewer-than-two-waiting', { matched: ids.length, waiting: waiting.length });
+  }
 
   const routeDeps = {
     firestore,
@@ -248,6 +286,7 @@ export async function reoptimizeDelayedJourney(
   // (not their original origin - that leg is already driven). Sequential, never Promise.all: see
   // checkCandidateRoute's own note on the shared route rate limit.
   const costs: CandidateRouteCostBody[] = [];
+  const checkStatuses: string[] = [];
   for (const request of waiting) {
     const result = await checkCandidateRoute(routeDeps, {
       driverId,
@@ -261,6 +300,7 @@ export async function reoptimizeDelayedJourney(
       passengerMaxExtraMinutes: request.passengerMaxExtraMinutes,
       passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
     });
+    checkStatuses.push(result.status);
     if (result.status !== 'checked') continue;
     costs.push({
       request_id: request.id,
@@ -274,7 +314,7 @@ export async function reoptimizeDelayedJourney(
       passenger_max_detour_distance_km: request.passengerMaxDetourDistanceKm,
     });
   }
-  if (costs.length < 2) return 'skipped';
+  if (costs.length < 2) return skip('fewer-than-two-route-costs', { checkStatuses });
 
   const reachableIds = new Set(costs.map((c) => c.request_id));
   const matrixResult = await buildJourneyStopMatrix(routeDeps, {
@@ -285,7 +325,9 @@ export async function reoptimizeDelayedJourney(
       .filter((r) => reachableIds.has(r.id))
       .map((r) => ({ requestId: r.id, pickup: r.origin, destination: r.destination })),
   });
-  if (matrixResult.status !== 'computed') return 'skipped';
+  if (matrixResult.status !== 'computed') {
+    return skip('stop-matrix-not-computed', { matrixStatus: matrixResult.status });
+  }
 
   const matrixLegs: RouteMatrixLegBody[] = matrixResult.legs.map((leg) => ({
     from_stop: leg.fromStop,

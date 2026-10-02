@@ -621,6 +621,12 @@ export const routeModificationOnDelay = onDocumentUpdated(
           provider: osrmFromEnvironment(),
           optimizationService: { baseUrl },
           push: createPushProvider(pushConfigFromEnvironment()),
+          onSkip: (reason, detail) =>
+            logger.info('Route re-optimization after a traffic delay was skipped.', {
+              journeyId: event.params.journeyId,
+              reason,
+              ...detail,
+            }),
         },
         event.params.journeyId,
       );
