@@ -17,6 +17,7 @@ function fakeStripe(verify: () => VerifyWebhookEventOutcome): StripeProvider {
     capturePayment: async () => ({ status: 'captured' }),
     voidPayment: async () => ({ status: 'voided' }),
     refundPayment: async () => ({ status: 'refunded' }),
+    deleteCustomer: async () => ({ status: 'deleted' }),
     verifyWebhookEvent: verify,
   };
 }

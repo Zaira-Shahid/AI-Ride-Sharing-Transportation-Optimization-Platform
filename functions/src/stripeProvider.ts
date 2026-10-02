@@ -79,6 +79,9 @@ export interface VoidPaymentParams {
 
 export type VoidPaymentOutcome = { status: 'voided' } | { status: 'failed' };
 
+/** Phase 14 (privacy, account deletion): 'deleted' also covers a customer Stripe no longer has. */
+export type DeleteCustomerOutcome = { status: 'deleted' } | { status: 'failed' };
+
 export interface RefundPaymentParams {
   paymentIntentId: string;
   amountMinorUnits: number;
@@ -101,6 +104,12 @@ export interface StripeProvider {
   ping(): Promise<boolean>;
   /** Creates a new Stripe Customer and returns its id. */
   createCustomer(params: CreateCustomerParams): Promise<string>;
+  /**
+   * Phase 14 (privacy, account deletion): deletes the Stripe Customer (and with it their saved payment
+   * methods) so the platform no longer holds the passenger's card reference. A customer Stripe already
+   * does not have counts as deleted, so a retry after a half-finished deletion succeeds. Never thrown.
+   */
+  deleteCustomer(params: { stripeCustomerId: string }): Promise<DeleteCustomerOutcome>;
   /**
    * Holds `amountMinorUnits` against the customer's saved payment method (capture_method: 'manual' -
    * this only ever holds, module 9.4's own capture step is what actually takes the money). 'declined'
@@ -167,6 +176,16 @@ export function createStripeProvider(
     async createCustomer(params) {
       const customer = await client.customers.create({ email: params.email, name: params.name });
       return customer.id;
+    },
+
+    async deleteCustomer(params) {
+      try {
+        await client.customers.del(params.stripeCustomerId);
+        return { status: 'deleted' };
+      } catch (error) {
+        if ((error as { code?: unknown }).code === 'resource_missing') return { status: 'deleted' };
+        return { status: 'failed' };
+      }
     },
 
     async authorizePayment(params) {

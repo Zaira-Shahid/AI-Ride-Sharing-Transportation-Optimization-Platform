@@ -51,6 +51,7 @@ function fakeStripe(overrides: Partial<StripeProvider> = {}): StripeProvider {
     capturePayment: async () => ({ status: 'captured' }),
     voidPayment: async () => ({ status: 'voided' }),
     refundPayment: async () => ({ status: 'refunded' }),
+    deleteCustomer: async () => ({ status: 'deleted' }),
     verifyWebhookEvent: () => ({ status: 'invalid' }),
     ...overrides,
   };

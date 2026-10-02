@@ -18,6 +18,10 @@ import { matchTripRequest } from './matching.js';
 import { optimizationServiceUrlFromEnvironment } from './optimizationClient.js';
 import { runBatchOptimization } from './optimizationRun.js';
 import { runImmediateOptimizationIfDue } from './optimizationTrigger.js';
+import {
+  deleteMyAccount as deletePassengerAccount,
+  exportMyData as exportPassengerData,
+} from './dataRights.js';
 import { savePaymentMethod as savePassengerPaymentMethod } from './paymentMethods.js';
 import { voidStaleAuthorization } from './paymentVoid.js';
 import { handleStripeWebhook } from './paymentWebhook.js';
@@ -352,6 +356,26 @@ export const savePaymentMethod = onCall((request) => {
   }
   return savePassengerPaymentMethod(
     { firestore: getFirestore(), stripe: createStripeProvider(stripeConfig) },
+    callerOf(request),
+    request.data,
+  );
+});
+
+// Phase 14 (Privacy compliance): a passenger's own data export and account deletion - see
+// dataRights.ts for exactly what is exported, removed, anonymized and kept. Deletion works without
+// Stripe configured (no card was ever saved then); with a saved customer it needs Stripe to reach.
+export const exportMyData = onCall((request) =>
+  exportPassengerData({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const deleteMyAccount = onCall((request) => {
+  const stripeConfig = stripeConfigFromEnvironment();
+  return deletePassengerAccount(
+    {
+      firestore: getFirestore(),
+      auth: getAuth(),
+      stripe: stripeConfig ? createStripeProvider(stripeConfig) : undefined,
+    },
     callerOf(request),
     request.data,
   );
