@@ -85,6 +85,10 @@ export const NEW_TRIP_REQUEST_DEFAULTS = {
   // field existed.
   matchedAt: null,
   matchDurationSeconds: null,
+  // When the request ended (COMPLETED/CANCELLED) and whether the retention sweep has cleared its
+  // exact places since (Phase 14 privacy retention, functions/src/tripRetention.ts).
+  endedAt: null,
+  placesCleared: false,
 } as const;
 
 export const SAME_PLACE_DISTANCE_METERS = 50;
@@ -434,7 +438,11 @@ export async function cancelTripRequest(
       );
     }
 
-    tx.update(tripRef, { status: 'CANCELLED', updatedAt: FieldValue.serverTimestamp() });
+    tx.update(tripRef, {
+      status: 'CANCELLED',
+      endedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
     if (user.exists && user.get('currentTripRequestId') === tripId) {
       tx.update(userRef, { currentTripRequestId: null, updatedAt: FieldValue.serverTimestamp() });
     }

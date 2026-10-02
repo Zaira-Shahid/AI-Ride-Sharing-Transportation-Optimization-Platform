@@ -45,8 +45,9 @@ export interface ListTripHistoryResult {
 }
 
 export interface TripDetailForStaff extends TripMonitoringRow {
-  origin: { latitude: number; longitude: number; formattedAddress: string };
-  destination: { latitude: number; longitude: number; formattedAddress: string };
+  /** Null once the retention sweep has cleared the places (tripRetention.ts). */
+  origin: { latitude: number; longitude: number; formattedAddress: string } | null;
+  destination: { latitude: number; longitude: number; formattedAddress: string } | null;
   estimatedDistance: number | null;
   estimatedDuration: number | null;
   vehicleType: string | null;
@@ -174,13 +175,14 @@ export async function getTripDetailForStaff(
       reason: 'Staff opened trip detail',
     });
 
+  // A place the retention sweep has cleared (tripRetention.ts) is null, not a made-up 0,0.
   const place = (value: unknown) => {
-    const stored = value as
-      { latitude?: unknown; longitude?: unknown; formattedAddress?: unknown } | undefined;
+    if (value === null || value === undefined) return null;
+    const stored = value as { latitude?: unknown; longitude?: unknown; formattedAddress?: unknown };
     return {
-      latitude: typeof stored?.latitude === 'number' ? stored.latitude : 0,
-      longitude: typeof stored?.longitude === 'number' ? stored.longitude : 0,
-      formattedAddress: typeof stored?.formattedAddress === 'string' ? stored.formattedAddress : '',
+      latitude: typeof stored.latitude === 'number' ? stored.latitude : 0,
+      longitude: typeof stored.longitude === 'number' ? stored.longitude : 0,
+      formattedAddress: typeof stored.formattedAddress === 'string' ? stored.formattedAddress : '',
     };
   };
 

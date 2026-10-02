@@ -20,6 +20,14 @@
       "collectionGroup": "tripRequests",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "placesCleared", "order": "ASCENDING" },
+        { "fieldPath": "endedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tripRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "paymentStatus", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
