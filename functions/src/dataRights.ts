@@ -5,6 +5,7 @@ import {
   type DocumentReference,
   type Firestore,
 } from 'firebase-admin/firestore';
+import { logger } from 'firebase-functions/v2';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { enforceCallRateLimit } from './callLimits.js';
@@ -46,6 +47,19 @@ const WRITE_CHUNK = 400;
 
 /** Written over the name on an anonymized trip request. */
 export const DELETED_PASSENGER_NAME = 'Deleted passenger';
+
+/**
+ * Where the record of a deleted account goes OUTSIDE Firestore. After a restore from a backup, the
+ * accounts deleted since that backup are back, and the audit log that would name them is in the very
+ * database that was restored, so it cannot say which. Cloud Logging is not restored, so the function
+ * writes one structured entry per deletion: the uid and the role, and nothing else (no name, email or
+ * plate), the same stance as the audit entry. docs/backup.md says how it is used.
+ */
+export type DeletionLog = (event: string, fields: Record<string, unknown>) => void;
+
+export const defaultDeletionLog: DeletionLog = (event, fields) => {
+  logger.info(event, fields);
+};
 
 export const deleteMyAccountInputSchema = z.object({ confirm: z.literal('DELETE') });
 
@@ -175,6 +189,8 @@ export async function deleteMyAccount(
     /** Absent when Stripe is not configured; an account that has a Stripe customer cannot be deleted without it. */
     stripe?: StripeProvider | undefined;
     now?: () => number;
+    /** Where the deletion is recorded outside Firestore; Cloud Logging unless a test passes its own. */
+    log?: DeletionLog;
   },
   caller: PassengerCaller,
   rawInput: unknown,
@@ -280,6 +296,11 @@ export async function deleteMyAccount(
       newState: null,
       reason: 'Passenger deleted their own account',
     });
+  (deps.log ?? defaultDeletionLog)('ACCOUNT_DELETED', {
+    event: 'ACCOUNT_DELETED',
+    uid: caller.uid,
+    role: 'PASSENGER',
+  });
 
   // 5. The sign-in account itself. A missing one is already done.
   try {

@@ -19,6 +19,10 @@ coverage/
 # The tests' emulator settings: no secrets, only a fake local address.
 !functions/.env.demo-ridemesh
 
+# a sign-in account export (npm run admin:backup -- auth-export): emails and password hashes
+auth-export*
+*-accounts.json
+
 # firebase
 .firebase/
 firebase-debug.log*
