@@ -336,7 +336,7 @@ describe('checkCandidateRoute (functions + firestore emulators, a stand-in provi
       { driverId: 'driver-rc-3', passengerId: 'passenger-rc-3', ...points(), ...LIMITS },
     );
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'none' });
   });
 
   it('is unavailable when the driver own route cannot be found', async () => {
@@ -347,7 +347,7 @@ describe('checkCandidateRoute (functions + firestore emulators, a stand-in provi
       { driverId: 'driver-rc-4', passengerId: 'passenger-rc-4', ...points(), ...LIMITS },
     );
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'none' });
   });
 });
 
@@ -434,7 +434,7 @@ describe('buildJourneyStopMatrix (functions + firestore emulators, a stand-in pr
       },
     );
 
-    expect(result).toEqual({ status: 'unavailable' });
+    expect(result).toEqual({ status: 'unavailable', reason: 'none' });
   });
 });
 
@@ -574,5 +574,131 @@ describe('assignment end to end (Module 5.5, functions + firestore emulators, a 
     expect(trip.status).toBe('SEARCHING');
     expect(trip.candidateCount).toBe(0);
     expect(trip.matchedJourneyId).toBeNull();
+  });
+});
+
+// A route lookup that did not work now says WHY (busy, none, or the server failed), and the counters it
+// uses can be given. phase8-acceptance failed intermittently on develop's CI with one of two passengers'
+// route lookups "unavailable"; those three causes had been folded into that one word.
+describe('route lookups: why one was unavailable, and which counters it used', () => {
+  // Coordinates of their own, far from every other describe block's, so no cache entry is shared.
+  const POINTS = {
+    driverOrigin: { latitude: 70, longitude: 20 },
+    driverDestination: { latitude: 71, longitude: 21 },
+    passengerPickup: { latitude: 70.2, longitude: 20.2 },
+    passengerDestination: { latitude: 70.5, longitude: 20.5 },
+  };
+  const DETOUR = {
+    driverMaxDetourMinutes: 10,
+    driverMaxDetourDistanceKm: 3,
+    passengerMaxExtraMinutes: 10,
+    passengerMaxDetourDistanceKm: 3,
+  };
+  const OPEN = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
+  /** One lookup an hour from everybody together: the second one is always held back. */
+  const ONE_AT_A_TIME = { globalSpacingMs: 3_600_000, perCallerPerMinute: 1_000 };
+  const FOUND: Route = {
+    distanceMeters: 10_000,
+    durationSeconds: 900,
+    geometry: '_p~iF~ps|U',
+    legs: [{ distanceMeters: 10_000, durationSeconds: 900 }],
+  };
+  const works: RoutingProvider = { route: () => Promise.resolve(FOUND) };
+  const noRoad: RoutingProvider = { route: () => Promise.resolve(null) };
+  const down: RoutingProvider = { route: () => Promise.reject(new Error('down')) };
+  const own = (name: string) => ({
+    cache: `routeCacheUnderTestWhy_${name}`,
+    limits: {
+      perCaller: `routeLimitsUnderTestWhy_${name}`,
+      global: `routeGlobalUnderTestWhy_${name}`,
+    },
+  });
+  const candidate = {
+    driverId: 'why-driver',
+    passengerId: 'why-passenger',
+    ...POINTS,
+    ...DETOUR,
+  };
+
+  it('says busy when the lookup was held back, not that there was no route', async () => {
+    const result = await checkCandidateRoute(
+      {
+        firestore: admin().firestore,
+        provider: works,
+        limits: ONE_AT_A_TIME,
+        collections: own('busy'),
+      },
+      candidate,
+    );
+    expect(result).toEqual({ status: 'unavailable', reason: 'busy' });
+  });
+
+  it('says none when there is no road route', async () => {
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider: noRoad, limits: OPEN, collections: own('none') },
+      candidate,
+    );
+    expect(result).toEqual({ status: 'unavailable', reason: 'none' });
+  });
+
+  it('says unavailable when the routing server failed', async () => {
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider: down, limits: OPEN, collections: own('down') },
+      candidate,
+    );
+    expect(result).toEqual({ status: 'unavailable', reason: 'unavailable' });
+  });
+
+  it('writes its counters and its cache to the collections it is given, not the real ones', async () => {
+    const collections = own('plumbing');
+    const result = await checkCandidateRoute(
+      { firestore: admin().firestore, provider: works, limits: OPEN, collections },
+      candidate,
+    );
+    expect(result.status).toBe('checked');
+
+    const counter = await admin().firestore.doc(`${collections.limits.global}/lookups`).get();
+    expect(counter.exists).toBe(true);
+    expect(typeof counter.get('lastAt')).toBe('number');
+    const cached = await admin().firestore.collection(collections.cache).limit(1).get();
+    expect(cached.size).toBe(1);
+  });
+
+  const matrixInput = {
+    driverId: 'why-matrix-driver',
+    driverOrigin: POINTS.driverOrigin,
+    driverDestination: POINTS.driverDestination,
+    requests: [
+      {
+        requestId: 'why-request',
+        pickup: POINTS.passengerPickup,
+        destination: POINTS.passengerDestination,
+      },
+    ],
+  };
+
+  it('the stop matrix says busy, none or unavailable the same way', async () => {
+    const busy = await buildJourneyStopMatrix(
+      {
+        firestore: admin().firestore,
+        provider: works,
+        limits: ONE_AT_A_TIME,
+        collections: own('m-busy'),
+      },
+      matrixInput,
+    );
+    expect(busy).toEqual({ status: 'unavailable', reason: 'busy' });
+
+    const none = await buildJourneyStopMatrix(
+      { firestore: admin().firestore, provider: noRoad, limits: OPEN, collections: own('m-none') },
+      matrixInput,
+    );
+    expect(none).toEqual({ status: 'unavailable', reason: 'none' });
+
+    const failed = await buildJourneyStopMatrix(
+      { firestore: admin().firestore, provider: down, limits: OPEN, collections: own('m-down') },
+      matrixInput,
+    );
+    expect(failed).toEqual({ status: 'unavailable', reason: 'unavailable' });
   });
 });
