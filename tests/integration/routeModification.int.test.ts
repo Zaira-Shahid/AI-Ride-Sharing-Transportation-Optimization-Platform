@@ -201,6 +201,7 @@ function reoptimize(
   push: PushProvider = noopPush,
   options: {
     skips?: Skip[];
+    plansWritten?: string[];
     provider?: RoutingProvider;
     limits?: LookupLimits;
     routingCollections?: RoutingCollections;
@@ -208,6 +209,7 @@ function reoptimize(
 ) {
   const {
     skips,
+    plansWritten,
     provider = positionalProvider(),
     limits = NO_LIMITS,
     routingCollections,
@@ -224,6 +226,7 @@ function reoptimize(
       push,
       ...(routingCollections ? { routingCollections } : {}),
       ...(skips ? { onSkip: (reason, detail) => skips.push({ reason, detail }) } : {}),
+      ...(plansWritten ? { onPlanWritten: (planId: string) => plansWritten.push(planId) } : {}),
     },
     fixture.journeyId,
   );
@@ -270,9 +273,12 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
   it("writes a new plan version from the driver's current position and clears the delay flag", async () => {
     const fixture = await delayedJourneyWithTwoWaitingPassengers('reopt-ok');
 
+    const plansWritten: string[] = [];
     const outcome = await reoptimize(
       fixture,
       planResponse(fixture, [fixture.tripBId, fixture.tripAId]),
+      noopPush,
+      { plansWritten },
     );
     expect(outcome).toBe('reoptimized');
 
@@ -286,6 +292,8 @@ describe('reoptimizeDelayedJourney (functions + firestore emulators)', () => {
     const tripB = (await admin().firestore.doc(`tripRequests/${fixture.tripBId}`).get()).data();
     expect(tripA?.assignedPlanId).toBe(tripB?.assignedPlanId);
     expect(tripA?.assignedPlanId).not.toBe(fixture.oldPlanId);
+    // The log is told the new plan's id (spec section 54's planId), and only once it is written.
+    expect(plansWritten).toEqual([tripA?.assignedPlanId]);
     expect(tripA?.status).toBe('PICKUP_ASSIGNED');
     expect(tripA?.driverDelay).toBeNull();
 

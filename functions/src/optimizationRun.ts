@@ -269,6 +269,14 @@ export interface BatchOptimizationOutcome {
    * empty cycle - see matchIntoAvailableJourneys's own note) or the log write itself failed.
    */
   optimizationRunId: string | null;
+  /**
+   * Spec section 54's `requestId` and `planId` correlation IDs: the requests this run assigned (matched
+   * into a fresh journey or inserted into a matching one) and the journeyPlans documents it wrote for
+   * them, logged with the rest of this outcome so a request or a plan can be found in Cloud Logging
+   * and traced to the run (optimizationRunId) that made it. Only ids, never a place.
+   */
+  requestIds: string[];
+  planIds: string[];
 }
 
 /**
@@ -304,6 +312,8 @@ async function matchIntoAvailableJourneys(deps: {
     matchedRequestCount: 0,
     matchedJourneyCount: 0,
     optimizationRunId: null,
+    requestIds: [],
+    planIds: [],
   };
   // Module 11.9 (optimization monitoring): an empty cycle (nothing to evaluate at all) is not logged -
   // there is nothing to show a staff account. Every other early return below DID evaluate real
@@ -443,6 +453,8 @@ async function matchIntoAvailableJourneys(deps: {
   const now = (deps.now ?? Date.now)();
   let matchedRequestCount = 0;
   let matchedJourneyCount = 0;
+  const requestIds: string[] = [];
+  const planIds: string[] = [];
   for (const plan of optimizeResponse.plans) {
     if (plan.request_ids.length === 0) continue;
 
@@ -537,6 +549,8 @@ async function matchIntoAvailableJourneys(deps: {
     if (applied) {
       matchedRequestCount += plan.request_ids.length;
       matchedJourneyCount += 1;
+      requestIds.push(...plan.request_ids);
+      planIds.push(planRef.id);
 
       // Module 10.3 (trip matched push): sent AFTER the transaction above commits (a network call,
       // never inside a Firestore transaction) - one push to the driver (count-based, since OR-Tools
@@ -611,6 +625,8 @@ async function matchIntoAvailableJourneys(deps: {
     matchedRequestCount,
     matchedJourneyCount,
     optimizationRunId,
+    requestIds,
+    planIds,
   };
 }
 
@@ -630,29 +646,33 @@ async function insertStillSearchingRequests(deps: {
   push: PushProvider;
   limits?: LookupLimits;
   now?: () => number;
-}): Promise<number> {
+}): Promise<{ requestIds: string[]; planIds: string[] }> {
   const stillSearching = await readOpenTripRequests(deps.firestore);
-  let insertedRequestCount = 0;
+  const requestIds: string[] = [];
+  const planIds: string[] = [];
   for (const request of stillSearching) {
     if (request.estimatedDistanceMeters === null || request.estimatedDurationSeconds === null) {
       continue;
     }
-    const outcome = await tryInsertIntoMatchingJourney(deps, {
-      id: request.id,
-      passengerId: request.passengerId,
-      origin: request.origin,
-      destination: request.destination,
-      estimatedDistanceMeters: request.estimatedDistanceMeters,
-      estimatedDurationSeconds: request.estimatedDurationSeconds,
-      passengerMaxExtraMinutes: request.passengerMaxExtraMinutes,
-      passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
-      allowSharedRide: request.allowSharedRide,
-      allowRouteChange: request.allowRouteChange,
-      arrivalDeadlineMs: request.arrivalDeadlineMs,
-    });
-    if (outcome === 'inserted') insertedRequestCount += 1;
+    const outcome = await tryInsertIntoMatchingJourney(
+      { ...deps, onPlanWritten: (planId) => planIds.push(planId) },
+      {
+        id: request.id,
+        passengerId: request.passengerId,
+        origin: request.origin,
+        destination: request.destination,
+        estimatedDistanceMeters: request.estimatedDistanceMeters,
+        estimatedDurationSeconds: request.estimatedDurationSeconds,
+        passengerMaxExtraMinutes: request.passengerMaxExtraMinutes,
+        passengerMaxDetourDistanceKm: request.passengerMaxDetourDistanceKm,
+        allowSharedRide: request.allowSharedRide,
+        allowRouteChange: request.allowRouteChange,
+        arrivalDeadlineMs: request.arrivalDeadlineMs,
+      },
+    );
+    if (outcome === 'inserted') requestIds.push(request.id);
   }
-  return insertedRequestCount;
+  return { requestIds, planIds };
 }
 
 /**
@@ -671,6 +691,11 @@ export async function runBatchOptimization(deps: {
   now?: () => number;
 }): Promise<BatchOptimizationOutcome> {
   const phase1 = await matchIntoAvailableJourneys(deps);
-  const insertedRequestCount = await insertStillSearchingRequests(deps);
-  return { ...phase1, insertedRequestCount };
+  const inserted = await insertStillSearchingRequests(deps);
+  return {
+    ...phase1,
+    insertedRequestCount: inserted.requestIds.length,
+    requestIds: [...phase1.requestIds, ...inserted.requestIds],
+    planIds: [...phase1.planIds, ...inserted.planIds],
+  };
 }
