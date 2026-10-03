@@ -32,6 +32,7 @@
     "admin:backfill-driver-profiles": "npm run build:functions && node scripts/backfill-driver-profiles.mjs",
     "admin:review": "npm run build:functions && node scripts/review-driver.mjs",
     "admin:backup": "node scripts/backup.mjs",
+    "load": "npm run build:functions && firebase emulators:exec --config firebase.test.json --only auth,functions,firestore --project demo-ridemesh-load \"vitest run --config vitest.load.config.mts\"",
     "perf": "npm run build:functions && firebase emulators:exec --config firebase.test.json --only auth,functions,firestore --project demo-ridemesh \"vitest run --config vitest.perf.config.mts\"",
     "test:e2e": "npm run build:functions && playwright test"
   },
