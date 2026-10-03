@@ -248,6 +248,8 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
 
     expect(outcome.matchedRequestCount).toBe(1);
     expect(outcome.matchedJourneyCount).toBe(1);
+    // Spec section 54's requestId and planId, carried in the outcome that is logged.
+    expect(outcome.requestIds).toEqual([tripId]);
 
     // Sent concurrently (Promise.all), so order between the driver's and the passenger's own push is
     // not guaranteed.
@@ -285,6 +287,7 @@ describe('runBatchOptimization (functions + firestore emulators, stand-in provid
     expect(journey?.matchedTripRequestIds).toEqual([tripId]);
 
     const planId = trip?.assignedPlanId as string;
+    expect(outcome.planIds).toEqual([planId]);
     const plan = (await admin().firestore.doc(`journeyPlans/${planId}`).get()).data();
     expect(plan?.journeyId).toBe(journeyId);
     expect(plan?.requestIds).toEqual([tripId]);
