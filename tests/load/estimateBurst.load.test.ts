@@ -13,9 +13,11 @@ import { sectionRecorder } from './record';
 // running at any moment), so there every estimate found the route counter free and none ever
 // competed. Cloud Functions in production run each event in an instance of its own, concurrently.
 // This calls estimateTripRequest, the function that trigger runs, for N trip requests at once, in
-// this process, with the REAL route limits (one lookup every 1.1 s for everybody) and the real retry
-// (ESTIMATE_BUSY_ATTEMPTS tries, ESTIMATE_BUSY_WAIT_MS apart), which is what production's concurrency
-// would do to a burst. It uses a collection of its own for the requests (estimateTripRequest's own
+// this process, with the REAL route limits (one lookup every 1.1 s for everybody) and the real
+// waiting (a booked slot, up to ESTIMATE_SLOT_WAIT_MS; then the busy retry), which is what
+// production's concurrency would do to a burst. Before the slot booking this gave an estimate to only
+// 6 of 10, 5 of 25 and 2 of 50 (docs/load-testing.md); now it asserts that every request of a burst
+// that fits in the line gets one. It uses a collection of its own for the requests (estimateTripRequest's own
 // `collection` option), so the real trigger does not also work on them.
 
 const { reset, record } = sectionRecorder('estimates-run-at-the-same-time');
@@ -95,6 +97,7 @@ describe('A2. estimates run at the same time, under the real route limits', () =
         routeLookupsMade: provider.calls,
       });
       expect(outcomes).toHaveLength(burst);
+      expect(count('estimated')).toBe(burst);
     }
-  }, 300_000);
+  }, 900_000);
 });
