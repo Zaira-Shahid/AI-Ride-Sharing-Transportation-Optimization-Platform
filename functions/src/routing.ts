@@ -4,6 +4,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedRider, type Caller } from './callers.js';
 import { claimLookup, type LookupCollections, type LookupLimits } from './lookupLimits.js';
+import { recordOpsEvent, ROUTE_BUSY, ROUTE_UNAVAILABLE } from './opsCounters.js';
 
 // Route calculation (Module 4.3): the distance, time and line of the road route through 2 to 10
 // stops. Functions deploy from this directory alone, so the numbers and helpers below mirror
@@ -323,13 +324,17 @@ export async function calculateRoute(
   const claimed = await claimLookup(firestore, collections.limits, caller.uid, now, limits).catch(
     () => false,
   );
-  if (!claimed) return { status: 'busy', route: null };
+  if (!claimed) {
+    await recordOpsEvent(firestore, ROUTE_BUSY);
+    return { status: 'busy', route: null };
+  }
 
   let route: Route | null;
   try {
     route = await provider.route(stops, profile);
   } catch {
     // Not cached: it may work next time.
+    await recordOpsEvent(firestore, ROUTE_UNAVAILABLE);
     return { status: 'unavailable', route: null };
   }
 
