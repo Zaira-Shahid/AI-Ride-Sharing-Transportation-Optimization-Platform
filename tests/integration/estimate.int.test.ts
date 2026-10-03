@@ -5,6 +5,7 @@ import { cancelTripRequest, createTripRequest } from '../../packages/firebase/sr
 import {
   ESTIMATE_BUSY_ATTEMPTS,
   ESTIMATE_BUSY_WAIT_MS,
+  ESTIMATE_SLOT_WAIT_MS,
   estimateTripRequest,
 } from '../../functions/src/estimates';
 import type { LookupLimits } from '../../functions/src/lookupLimits';
@@ -267,7 +268,7 @@ describe('estimateTripRequest: when the route cannot be had', () => {
     expect(after?.status).toBe('REQUESTED');
   });
 
-  it('waits and tries again when the server is busy, and then writes the estimate', async () => {
+  it('waits for its turn when the server was just used, and then writes the estimate', async () => {
     const { provider, calls } = stubProvider();
     const { ref, id } = await makeTrip();
     const clock = { now: 8_000_000 };
@@ -289,10 +290,71 @@ describe('estimateTripRequest: when the route cannot be had', () => {
     );
 
     expect(outcome).toBe('estimated');
-    expect(sleeps).toEqual([ESTIMATE_BUSY_WAIT_MS]);
-    expect(ESTIMATE_BUSY_WAIT_MS).toBeGreaterThan(1_100);
+    // It booked the first slot at least 1.1 s after the last lookup (slots are on a 1.1 s grid, so
+    // not exactly 1.1 s) and slept until then: no retry needed.
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(1_100);
+    expect(sleeps[0]).toBeLessThan(2_200);
     expect(calls).toHaveLength(1);
     expect((await tripData(ref))?.estimatedDistance).toBe(8_234);
+  });
+
+  it('serves a burst in turn, one slot after another, and every request gets its estimate', async () => {
+    const { provider, calls } = stubProvider();
+    const trips = await Promise.all(Array.from({ length: 8 }, () => makeTrip()));
+    const sleeps: number[] = [];
+
+    const outcomes = await Promise.all(
+      trips.map((trip) =>
+        estimateTripRequest(
+          deps(provider, {
+            limits: { globalSpacingMs: 1_100, perCallerPerMinute: 100 },
+            now: () => 8_000_000,
+            sleep: (ms: number) => {
+              sleeps.push(ms);
+              return Promise.resolve();
+            },
+          }),
+          trip.id,
+        ),
+      ),
+    );
+
+    expect(outcomes).toEqual(trips.map(() => 'estimated'));
+    expect(calls).toHaveLength(8);
+    // Eight different slots, exactly 1.1 s apart, the first within one spacing of now. Which request
+    // got which slot is not asserted.
+    const waits = [...sleeps].sort((a, b) => a - b);
+    expect(waits).toHaveLength(8);
+    expect(waits[0]).toBeLessThan(1_100);
+    waits.slice(1).forEach((wait, i) => expect(wait - waits[i]!).toBe(1_100));
+  });
+
+  it('does not wait in a line longer than it can: it is told busy, tries a few times, and gives up', async () => {
+    const { provider, calls } = stubProvider();
+    const { ref, id } = await makeTrip();
+    const sleeps: number[] = [];
+    // The next free slot is further away than an estimate will wait for.
+    await admin()
+      .firestore.doc('routeGlobal/lookups')
+      .set({ lastAt: 8_000_000 + ESTIMATE_SLOT_WAIT_MS });
+
+    const outcome = await estimateTripRequest(
+      deps(provider, {
+        limits: { globalSpacingMs: 1_100, perCallerPerMinute: 100 },
+        now: () => 8_000_000,
+        sleep: (ms: number) => {
+          sleeps.push(ms);
+          return Promise.resolve();
+        },
+      }),
+      id,
+    );
+
+    expect(outcome).toBe('unavailable');
+    expect(sleeps).toEqual(Array(ESTIMATE_BUSY_ATTEMPTS - 1).fill(ESTIMATE_BUSY_WAIT_MS));
+    expect(calls).toHaveLength(0);
+    expect((await tripData(ref))?.estimatedDistance).toBeNull();
   });
 
   it('gives up after a few tries when the server stays busy, and writes nothing', async () => {

@@ -492,7 +492,7 @@ export const calculateRoute = onCall((request) =>
  * a place.
  */
 export const estimateTripRequestOnCreate = onDocumentCreated(
-  { document: 'tripRequests/{tripId}', timeoutSeconds: 60 },
+  { document: 'tripRequests/{tripId}', timeoutSeconds: 90 },
   async (event) => {
     try {
       await estimateTripRequest(

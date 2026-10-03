@@ -524,7 +524,11 @@ the same way.
   may cause 20 routes a minute (`routeLimits/{uid}`); a route answered from the cache costs neither.
   The counters are separate from geocoding's, because the two servers are separate, and the code is
   shared (`functions/src/lookupLimits.ts`, also used by geocoding, with its tests unchanged). Over a
-  limit, or if the counters cannot be updated, the answer is `busy`. The provider gets 8 s.
+  limit, or if the counters cannot be updated, the answer is `busy`. The provider gets 8 s. The
+  trip estimate does not take a `busy` and retry: it books a slot in line (`reserveLookupSlot`, one
+  document per slot in `routeGlobal/lookups/slots`, up to 60 s ahead), which keeps the same 1.1 s
+  spacing for everybody but lets a burst of requests be served in turn (docs/load-testing.md); the
+  slot documents hold only a number, and old ones are cleared as new ones are booked.
 - **Never an error for the person.** Failure, a timeout, a refusal and a busy server are the normal
   results `unavailable` and `busy`, and the client function returns null and never throws. The
   provider's failure text is not returned.
