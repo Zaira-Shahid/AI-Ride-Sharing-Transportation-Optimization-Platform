@@ -12,6 +12,7 @@ export * from './journey';
 export * from './liveNetwork';
 export * from './location';
 export * from './ml-predictions';
+export * from './operations';
 export * from './optimizationMonitoring';
 export * from './payments';
 export * from './roles';

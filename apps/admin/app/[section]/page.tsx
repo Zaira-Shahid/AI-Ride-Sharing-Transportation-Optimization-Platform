@@ -7,7 +7,8 @@ export const dynamicParams = false;
 
 // Module 11.2 (driver/vehicle management), 11.3 (user management), 11.4 (trip monitoring), 11.5
 // (live map), 11.6 (vehicle management, standalone page), 11.7 (disputes), 11.8 (audit logs), 11.9
-// (optimization monitoring), 11.10 (payments), 12 (analytics) and 13 (AI/ML predictions):
+// (optimization monitoring), 11.10 (payments), 12 (analytics), Phase 14 monitoring (operations) and 13
+// (AI/ML predictions):
 // 'drivers'/'passengers'/'trips'/'live-network'/'vehicles'/'disputes'/'audit-logs'/'optimization'/
 // 'payments'/'analytics'/'ai-predictions' each have their own real page now (app/drivers/page.tsx,
 // app/passengers/page.tsx, app/trips/page.tsx, app/live-network/page.tsx, app/vehicles/page.tsx,
@@ -27,6 +28,7 @@ const SECTIONS_WITH_OWN_PAGE = new Set([
   'optimization',
   'payments',
   'analytics',
+  'operations',
   'ai-predictions',
 ]);
 
