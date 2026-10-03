@@ -270,6 +270,10 @@ first page of an admin list as it grows) and writes the figures to `tests/perf/l
 demand and not in CI, because wall-clock time on a shared runner proves nothing; `docs/performance.md`
 has the figures and what they do and do not mean.
 
+`npm run load` (about 10 minutes, also on demand) puts bursts of trip requests and batch optimization runs
+of growing size through the emulators under the real route limits and writes `tests/load/last-run.json`;
+`docs/load-testing.md` has the results and says what the emulator cannot show.
+
 Cloud Functions are tested on the emulators only. The project is on the Spark plan, which cannot
 deploy functions, so nothing is deployed until the plan is upgraded.
 
