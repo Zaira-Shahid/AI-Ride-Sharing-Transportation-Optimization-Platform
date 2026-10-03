@@ -18,6 +18,8 @@ coverage/
 !.env.example
 # The tests' emulator settings: no secrets, only a fake local address.
 !functions/.env.demo-ridemesh
+# The load run keeps the real route limits (npm run load): no secrets, only fake local addresses.
+!functions/.env.demo-ridemesh-load
 
 # a sign-in account export (npm run admin:backup -- auth-export): emails and password hashes
 auth-export*
@@ -25,6 +27,8 @@ auth-export*
 
 # what `npm run perf` measured (tests/perf), local to one machine
 tests/perf/last-run.json
+# what `npm run load` measured (tests/load), local to one machine
+tests/load/last-run.json
 
 # firebase
 .firebase/
