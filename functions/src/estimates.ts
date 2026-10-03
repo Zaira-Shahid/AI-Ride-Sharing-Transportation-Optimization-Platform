@@ -13,7 +13,14 @@ import { OPEN_TRIP_STATUSES } from './tripRequests.js';
 
 export type EstimateOutcome = 'estimated' | 'skipped' | 'unavailable';
 
-/** When the routing server is busy (its limits), wait a little longer than its spacing and try again. */
+/**
+ * How long an estimate will wait in line for the routing server (lookupLimits.reserveLookupSlot).
+ * About 54 requests at the same moment fit (one slot every 1.1 s); the ones beyond that are told
+ * busy. Kept under the trigger's timeout (index.ts) with room for the provider's own timeout.
+ */
+export const ESTIMATE_SLOT_WAIT_MS = 60_000;
+
+/** When the routing server cannot be counted or is busy for good, wait a little and try again. */
 export const ESTIMATE_BUSY_WAIT_MS = 1_300;
 export const ESTIMATE_BUSY_ATTEMPTS = 4;
 
@@ -84,6 +91,8 @@ export async function estimateTripRequest(
     provider: deps.provider,
     ...(deps.limits ? { limits: deps.limits } : {}),
     ...(deps.now ? { now: deps.now } : {}),
+    maxWaitMs: ESTIMATE_SLOT_WAIT_MS,
+    sleep,
   };
 
   let result = await calculateRoute(routeDeps, caller, input).catch(() => null);

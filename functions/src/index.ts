@@ -492,7 +492,7 @@ export const calculateRoute = onCall((request) =>
  * a place.
  */
 export const estimateTripRequestOnCreate = onDocumentCreated(
-  { document: 'tripRequests/{tripId}', timeoutSeconds: 60 },
+  { document: 'tripRequests/{tripId}', timeoutSeconds: 90 },
   async (event) => {
     try {
       await estimateTripRequest(
@@ -614,6 +614,7 @@ export const routeModificationOnDelay = onDocumentUpdated(
 
     const baseUrl = optimizationServiceUrlFromEnvironment();
     if (!baseUrl) return;
+    let planId: string | null = null;
     try {
       const outcome = await reoptimizeDelayedJourney(
         {
@@ -621,6 +622,9 @@ export const routeModificationOnDelay = onDocumentUpdated(
           provider: osrmFromEnvironment(),
           optimizationService: { baseUrl },
           push: createPushProvider(pushConfigFromEnvironment()),
+          onPlanWritten: (id) => {
+            planId = id;
+          },
           onSkip: (reason, detail) =>
             logger.info('Route re-optimization after a traffic delay was skipped.', {
               journeyId: event.params.journeyId,
@@ -632,6 +636,7 @@ export const routeModificationOnDelay = onDocumentUpdated(
       );
       logger.info('Route re-optimization after a traffic delay finished.', {
         journeyId: event.params.journeyId,
+        planId,
         outcome,
       });
     } catch (error) {

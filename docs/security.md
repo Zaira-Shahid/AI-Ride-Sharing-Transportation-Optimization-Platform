@@ -524,7 +524,11 @@ the same way.
   may cause 20 routes a minute (`routeLimits/{uid}`); a route answered from the cache costs neither.
   The counters are separate from geocoding's, because the two servers are separate, and the code is
   shared (`functions/src/lookupLimits.ts`, also used by geocoding, with its tests unchanged). Over a
-  limit, or if the counters cannot be updated, the answer is `busy`. The provider gets 8 s.
+  limit, or if the counters cannot be updated, the answer is `busy`. The provider gets 8 s. The
+  trip estimate does not take a `busy` and retry: it books a slot in line (`reserveLookupSlot`, one
+  document per slot in `routeGlobal/lookups/slots`, up to 60 s ahead), which keeps the same 1.1 s
+  spacing for everybody but lets a burst of requests be served in turn (docs/load-testing.md); the
+  slot documents hold only a number, and old ones are cleared as new ones are booked.
 - **Never an error for the person.** Failure, a timeout, a refusal and a busy server are the normal
   results `unavailable` and `busy`, and the client function returns null and never throws. The
   provider's failure text is not returned.
@@ -872,12 +876,24 @@ The stale-hold sweep is not closing a "never resolved" gap the way the other two
 the existing fallback for a failed void. It exists to free a passenger's card hold within minutes
 instead of leaving it to that week-long expiry, a genuine improvement rather than a new safety net.
 
+### What section 53 asks of the screens, and was not checked
+
+Section 53 wants nine states for every important operation (success, loading, empty, validation
+error, network error, server error, permission error, timeout, retry) and no raw technical error
+shown to a person. What was checked is the backend half above (the sweeps, and the real error being
+logged). **Not checked: the nine states on every screen.** What a search found is a loading state in
+about thirty files, a `retryable` flag with a "Try again" button in about fourteen, and error text
+that comes from mapped messages (`AuthFailure.message`), but nobody went through each screen and
+checked each state, and one message (`PlaceRejectedError.message` in the place search) is shown as
+it is without checking that it is always written for people. This is a UI audit, not a correctness
+risk for data, and is left for a later UI-polish pass.
+
 ## Monitoring / observability (Phase 14 hardening)
 
 A third audit checked the actual logging code against spec section 54's own list: most of the named
 metrics (unmatched requests, average occupancy, average detour, payment failures, per-run
 optimization latency) are already covered by Phase 12 Analytics or an existing admin page - see that
-section's own definitions above. Two real gaps were found and fixed, both pure logging changes, no
+section's own definitions above. Two real gaps were found and fixed (a third, the `requestId` and `planId` IDs, in a later change), all pure logging changes, no
 new metrics or UI:
 
 - **The correlation IDs section 54 asks for didn't correlate.** `optimizationRunId` - the
@@ -896,10 +912,28 @@ new metrics or UI:
   real production failure at any of these sites would show only THAT it happened, never WHY. Every
   one of those catch blocks now captures and logs `error` alongside its own message.
 
-Deliberately out of scope for this pass (would mean expanding Phase 12 Analytics' own "exactly 12
-metrics, no more" boundary, a separate decision): an aggregate optimization-latency trend across
-runs, a single "matching success rate" %, and an aggregate count of API/Cloud-Function/route-
-calculation errors.
+- **`requestId` and `planId` are now in the logs.** The run outcome that is logged
+  (`BatchOptimizationOutcome`) carries `requestIds` (the requests the run assigned, matched or
+  inserted) and `planIds` (the `journeyPlans` documents it wrote), next to `optimizationRunId`, so a
+  request or a plan found in Cloud Logging can be traced to the run that made it and the other way
+  round. The route re-ordering after a delay logs the new `planId` next to its `journeyId`, and the
+  delayed-journey sweep logs the `planIds` it wrote. Only ids, never a place. In this codebase a
+  "request" is the trip request, so `requestId` and the `tripId` already on the estimate and search
+  logs are the same value; those logs keep `tripId` rather than carry the same id twice.
+
+### Section 54 against the code
+
+| Section 54 asks for                                                  | State                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Optimization latency                                                 | Covered per run: `executionTimeSeconds` on every `optimizationRuns` document (the `/optimize` call only, not the whole cycle). No trend across runs.                                                                                                                                                                                                            |
+| Unmatched requests                                                   | Covered: Analytics, as a live snapshot (not a historical count).                                                                                                                                                                                                                                                                                                |
+| Average occupancy, average detour                                    | Covered: Analytics.                                                                                                                                                                                                                                                                                                                                             |
+| Payment failures                                                     | Partly: Analytics shows the payment success rate; failures are not counted on their own.                                                                                                                                                                                                                                                                        |
+| Matching success rate                                                | **Not built.** A single percentage needs a denominator someone has to define (a request cancelled before it was ever offered, one that matched on the second run), and nothing records the unmatched ones historically, only the live snapshot and each run's reasons. Same stance as Phase 12: no real data to show, so no number rather than an invented one. |
+| Average walking distance                                             | **Not built.** No walking distance is computed anywhere (Analytics skips it for the same reason); showing a passenger's own preference ceiling as if it were measured would be wrong.                                                                                                                                                                           |
+| API errors                                                           | **Not built.** There is no one place API errors pass through: the apps call 41 callables and Firestore directly, and a callable's error goes back to the caller and is not recorded. Counting them would mean wrapping every callable, a separate decision.                                                                                                     |
+| Cloud Function failures, route calculation failures                  | Not counted yet: they are logged (the real error, with `tripId`/`journeyId`) but nothing aggregates them. A separate change (an Operations page with daily counters) is planned; until it exists there is no count. Even then a function that crashes or times out without reaching a `catch` cannot be counted from inside.                                    |
+| Correlation IDs `requestId`, `tripId`, `optimizationRunId`, `planId` | Covered as described above.                                                                                                                                                                                                                                                                                                                                     |
 
 ## Tests
 

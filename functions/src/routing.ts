@@ -3,7 +3,12 @@ import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { z } from 'zod';
 import { requireVerifiedRider, type Caller } from './callers.js';
-import { claimLookup, type LookupCollections, type LookupLimits } from './lookupLimits.js';
+import {
+  claimLookup,
+  reserveLookupSlot,
+  type LookupCollections,
+  type LookupLimits,
+} from './lookupLimits.js';
 
 // Route calculation (Module 4.3): the distance, time and line of the road route through 2 to 10
 // stops. Functions deploy from this directory alone, so the numbers and helpers below mirror
@@ -294,6 +299,14 @@ export async function calculateRoute(
      * exists for tripRequests.
      */
     collections?: RoutingCollections;
+    /**
+     * When set, a lookup that would be refused because the provider is in use is instead booked a
+     * slot (reserveLookupSlot) and waits for it, up to this long, before asking the provider. Without
+     * it the caller is told `busy` at once, which is right for a caller that can retry or give up
+     * cheaply; a caller that must have an answer (the estimate of a request) sets it.
+     */
+    maxWaitMs?: number;
+    sleep?: (ms: number) => Promise<void>;
   },
   caller: Caller,
   rawInput: unknown,
@@ -320,10 +333,26 @@ export async function calculateRoute(
 
   const now = (deps.now ?? Date.now)();
   const limits = deps.limits ?? routingLimitsFromEnvironment();
-  const claimed = await claimLookup(firestore, collections.limits, caller.uid, now, limits).catch(
-    () => false,
-  );
-  if (!claimed) return { status: 'busy', route: null };
+  if (deps.maxWaitMs === undefined) {
+    const claimed = await claimLookup(firestore, collections.limits, caller.uid, now, limits).catch(
+      () => false,
+    );
+    if (!claimed) return { status: 'busy', route: null };
+  } else {
+    const waitMs = await reserveLookupSlot(
+      firestore,
+      collections.limits,
+      caller.uid,
+      now,
+      limits,
+      deps.maxWaitMs,
+    ).catch(() => null);
+    if (waitMs === null) return { status: 'busy', route: null };
+    if (waitMs > 0) {
+      const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+      await sleep(waitMs);
+    }
+  }
 
   let route: Route | null;
   try {

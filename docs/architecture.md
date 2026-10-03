@@ -612,7 +612,8 @@ legs}`: metres (to the nearest metre), seconds (free-flow: OSRM has no traffic),
   copies. Google replaces it with one new provider.
 - **The function's steps** are those of geocoding: check the caller, round the stops, answer from
   `routeCache` if the rounded stops are there, otherwise claim a place in line (`routeGlobal`,
-  `routeLimits/{uid}`; the shared `claimLookup` in `lookupLimits.ts`), ask the provider, cache the
+  `routeLimits/{uid}`; the shared `claimLookup` in `lookupLimits.ts`, or, for the trip estimate,
+  `reserveLookupSlot`, which books a slot in line instead of being refused), ask the provider, cache the
   answer and return it. Privacy and the pre-launch items are in docs/security.md, "Route
   calculation".
 - **Where it is used.** Module 4.3 only provided it; the trip estimate (4.4 and 4.5, below) was its

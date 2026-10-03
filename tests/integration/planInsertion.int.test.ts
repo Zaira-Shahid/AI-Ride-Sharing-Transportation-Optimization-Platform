@@ -200,9 +200,16 @@ function insert(
   tripId: string,
   request: Awaited<ReturnType<typeof buildInsertable>>,
   push: PushProvider = noopPush,
+  plansWritten?: string[],
 ) {
   return tryInsertIntoMatchingJourney(
-    { firestore: admin().firestore, provider: positionalProvider(), push, limits: NO_LIMITS },
+    {
+      firestore: admin().firestore,
+      provider: positionalProvider(),
+      push,
+      limits: NO_LIMITS,
+      ...(plansWritten ? { onPlanWritten: (planId: string) => plansWritten.push(planId) } : {}),
+    },
     { id: tripId, ...request },
   );
 }
@@ -232,11 +239,14 @@ describe('tryInsertIntoMatchingJourney (functions + firestore emulators)', () =>
       estimatedDistanceMeters: 1000,
     });
 
-    const outcome = await insert(tripId, await buildInsertable(tripId));
+    const plansWritten: string[] = [];
+    const outcome = await insert(tripId, await buildInsertable(tripId), noopPush, plansWritten);
     expect(outcome).toBe('inserted');
 
     const trip = (await admin().firestore.doc(`tripRequests/${tripId}`).get()).data();
     expect(trip?.status).toBe('PICKUP_ASSIGNED');
+    // The log is told the new plan's id (spec section 54's planId) once it is written.
+    expect(plansWritten).toEqual([trip?.assignedPlanId]);
     expect(trip?.matchedJourneyId).toBe(fixture.journeyId);
     expect(trip?.matchedDriverId).toBe(fixture.driverId);
     // Module 9.3: insertion always makes a journey shared, for the new passenger too.

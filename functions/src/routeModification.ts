@@ -162,6 +162,8 @@ export async function reoptimizeDelayedJourney(
     routingCollections?: RoutingCollections;
     /** Told why the outcome is 'skipped', when it is (see RouteModificationSkipReason). */
     onSkip?: (reason: RouteModificationSkipReason, detail: Record<string, unknown>) => void;
+    /** Told the id of the new plan (spec section 54's `planId`) once it is written, for the log. */
+    onPlanWritten?: (planId: string) => void;
   },
   journeyId: string,
 ): Promise<RouteModificationOutcome> {
@@ -502,6 +504,7 @@ export async function reoptimizeDelayedJourney(
   });
 
   if (applied) {
+    deps.onPlanWritten?.(newPlanRef.id);
     await sendQueuedPushes(deps, pendingPushes);
   }
 

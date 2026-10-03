@@ -69,6 +69,8 @@ export async function retryStuckRequestedTrips(
 export interface DelayedJourneySweepOutcome {
   checked: number;
   reoptimized: number;
+  /** The plans (spec section 54's `planId`) the sweep wrote, for the log. */
+  planIds: string[];
 }
 
 /**
@@ -95,13 +97,17 @@ export async function retryDelayedJourneys(deps: {
 
   let checked = 0;
   let reoptimized = 0;
+  const planIds: string[] = [];
   for (const doc of snapshot.docs) {
     if (doc.get('delay') == null) continue;
     checked += 1;
-    const outcome = await reoptimizeDelayedJourney(deps, doc.id);
+    const outcome = await reoptimizeDelayedJourney(
+      { ...deps, onPlanWritten: (planId) => planIds.push(planId) },
+      doc.id,
+    );
     if (outcome === 'reoptimized') reoptimized += 1;
   }
-  return { checked, reoptimized };
+  return { checked, reoptimized, planIds };
 }
 
 const STALE_HOLD_THRESHOLD_MS = 10 * 60_000;

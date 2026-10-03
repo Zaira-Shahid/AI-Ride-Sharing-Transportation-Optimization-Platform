@@ -414,6 +414,8 @@ export async function tryInsertIntoMatchingJourney(
     push: PushProvider;
     limits?: LookupLimits;
     now?: () => number;
+    /** Told the id of the new plan (spec section 54's `planId`) once it is written, for the log. */
+    onPlanWritten?: (planId: string) => void;
   },
   request: InsertableTrip,
 ): Promise<InsertionOutcome> {
@@ -577,6 +579,7 @@ export async function tryInsertIntoMatchingJourney(
   });
 
   if (applied) {
+    deps.onPlanWritten?.(newPlanRef.id);
     // Module 10.3 (trip matched push): sent AFTER the transaction above commits (a network call,
     // never inside a Firestore transaction) - the driver gets exactly one push here, since insertion
     // only ever adds one passenger at a time (unlike module 6.9's own batch match, which can pool
