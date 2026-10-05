@@ -68,6 +68,12 @@ import {
 } from './tripMonitoring.js';
 import { listAuditLogsForStaff } from './auditLogs.js';
 import { getAnalyticsSummaryForStaff } from './analytics.js';
+import {
+  clearExpiredOpsCounters,
+  functionFailedKind,
+  getOperationsSummaryForStaff,
+  recordOpsEvent,
+} from './opsCounters.js';
 import { listActiveTripPositionsForStaff } from './liveNetwork.js';
 import {
   getMlStatusForStaff,
@@ -137,6 +143,7 @@ export const stripeWebhook = onRequest(async (request, response) => {
     }
     response.status(200).send('ok');
   } catch (error) {
+    await recordFailure('stripeWebhook');
     logger.error('Stripe webhook handling failed.', error);
     response.status(500).send('Webhook handling failed.');
   }
@@ -182,6 +189,12 @@ export const setVehicleCapacity = onCall(async (request) => {
     request.data,
   );
 });
+
+/**
+ * Counts one caught exception of the named trigger or sweep (opsCounters.ts), for the Operations page.
+ * Never throws and never fails the handler it is called from.
+ */
+const recordFailure = (name: string) => recordOpsEvent(getFirestore(), functionFailedKind(name));
 
 function callerOf(request: {
   auth?: { uid: string; token: { role?: unknown; email_verified?: unknown } };
@@ -260,6 +273,10 @@ export const listPayments = onCall((request) =>
 
 export const getPaymentsSummary = onCall((request) =>
   getPaymentsSummaryForStaff({ firestore: getFirestore() }, callerOf(request)),
+);
+
+export const getOperationsSummary = onCall((request) =>
+  getOperationsSummaryForStaff({ firestore: getFirestore() }, callerOf(request)),
 );
 
 export const getAnalyticsSummary = onCall((request) =>
@@ -500,6 +517,7 @@ export const estimateTripRequestOnCreate = onDocumentCreated(
         event.params.tripId,
       );
     } catch (error) {
+      await recordFailure('estimateTripRequestOnCreate');
       logger.warn('The estimate for a trip request could not be made.', {
         tripId: event.params.tripId,
         error,
@@ -524,6 +542,7 @@ export const matchTripRequestOnCreate = onDocumentCreated(
     try {
       await matchTripRequest({ firestore: getFirestore() }, event.params.tripId);
     } catch (error) {
+      await recordFailure('matchTripRequestOnCreate');
       logger.warn('The search for a trip request could not be started.', {
         tripId: event.params.tripId,
         error,
@@ -555,6 +574,7 @@ export const batchOptimizationRun = onSchedule('every 2 minutes', async () => {
     });
     logger.info('Batch optimization run finished.', outcome);
   } catch (error) {
+    await recordFailure('batchOptimizationRun');
     logger.warn('The batch optimization run failed.', { error });
   }
 });
@@ -585,6 +605,7 @@ export const optimizationRunOnSearching = onDocumentUpdated(
       });
       if (outcome) logger.info('Immediate batch optimization run finished.', outcome);
     } catch (error) {
+      await recordFailure('optimizationRunOnSearching');
       logger.warn('The immediate batch optimization run failed.', {
         tripId: event.params.tripId,
         error,
@@ -640,6 +661,7 @@ export const routeModificationOnDelay = onDocumentUpdated(
         outcome,
       });
     } catch (error) {
+      await recordFailure('routeModificationOnDelay');
       logger.warn('Route re-optimization after a traffic delay failed.', {
         journeyId: event.params.journeyId,
         error,
@@ -684,6 +706,7 @@ export const voidStaleAuthorizationOnRelease = onDocumentUpdated(
         outcome,
       });
     } catch (error) {
+      await recordFailure('voidStaleAuthorizationOnRelease');
       logger.warn('Failed to void a stale payment authorization.', {
         tripId: event.params.tripId,
         error,
@@ -704,6 +727,7 @@ export const retryStuckRequestedTripsSweep = onSchedule('every 2 minutes', async
     const outcome = await retryStuckRequestedTrips({ firestore: getFirestore() });
     if (outcome.checked > 0) logger.info('Stuck REQUESTED trip sweep finished.', outcome);
   } catch (error) {
+    await recordFailure('retryStuckRequestedTripsSweep');
     logger.warn('The stuck REQUESTED trip sweep failed.', { error });
   }
 });
@@ -720,6 +744,7 @@ export const retryDelayedJourneysSweep = onSchedule('every 2 minutes', async () 
     });
     if (outcome.checked > 0) logger.info('Delayed journey sweep finished.', outcome);
   } catch (error) {
+    await recordFailure('retryDelayedJourneysSweep');
     logger.warn('The delayed journey sweep failed.', { error });
   }
 });
@@ -734,6 +759,7 @@ export const retryStaleAuthorizedHoldsSweep = onSchedule('every 5 minutes', asyn
     });
     if (outcome.checked > 0) logger.info('Stale authorized hold sweep finished.', outcome);
   } catch (error) {
+    await recordFailure('retryStaleAuthorizedHoldsSweep');
     logger.warn('The stale authorized hold sweep failed.', { error });
   }
 });
@@ -757,6 +783,7 @@ async function runRetentionBatches(
     }
     if (checked > 0) logger.info(`${name} retention sweep finished.`, { checked, cleared });
   } catch (error) {
+    await recordFailure(`${name} retention sweep`);
     logger.warn(`The ${name} retention sweep failed.`, { error });
   }
 }
@@ -768,5 +795,12 @@ export const clearExpiredTripPlacesSweep = onSchedule('every 24 hours', () =>
 export const clearExpiredJourneyPlacesSweep = onSchedule('every 24 hours', () =>
   runRetentionBatches('Journey place', () =>
     clearExpiredJourneyPlaces({ firestore: getFirestore() }),
+  ),
+);
+
+// The Operations page's daily failure counters are kept 30 days (opsCounters.ts).
+export const clearExpiredOpsCountersSweep = onSchedule('every 24 hours', () =>
+  runRetentionBatches('Operations counter', () =>
+    clearExpiredOpsCounters({ firestore: getFirestore() }),
   ),
 );

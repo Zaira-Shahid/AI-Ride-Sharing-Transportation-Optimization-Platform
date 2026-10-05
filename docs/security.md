@@ -932,8 +932,48 @@ new metrics or UI:
 | Matching success rate                                                | **Not built.** A single percentage needs a denominator someone has to define (a request cancelled before it was ever offered, one that matched on the second run), and nothing records the unmatched ones historically, only the live snapshot and each run's reasons. Same stance as Phase 12: no real data to show, so no number rather than an invented one. |
 | Average walking distance                                             | **Not built.** No walking distance is computed anywhere (Analytics skips it for the same reason); showing a passenger's own preference ceiling as if it were measured would be wrong.                                                                                                                                                                           |
 | API errors                                                           | **Not built.** There is no one place API errors pass through: the apps call 41 callables and Firestore directly, and a callable's error goes back to the caller and is not recorded. Counting them would mean wrapping every callable, a separate decision.                                                                                                     |
-| Cloud Function failures, route calculation failures                  | Not counted yet: they are logged (the real error, with `tripId`/`journeyId`) but nothing aggregates them. A separate change (an Operations page with daily counters) is planned; until it exists there is no count. Even then a function that crashes or times out without reaching a `catch` cannot be counted from inside.                                    |
+| Cloud Function failures, route calculation failures                  | Counted: the Operations page shows the route lookups that were unavailable or busy and the exceptions each trigger and sweep caught, for today and the last seven days (see "Operations counters" below). Not counted: a function that crashes or times out without reaching a `catch`.                                                                         |
 | Correlation IDs `requestId`, `tripId`, `optimizationRunId`, `planId` | Covered as described above.                                                                                                                                                                                                                                                                                                                                     |
+
+## Operations counters (Phase 14 hardening)
+
+Two kinds of failure were only ever logged, never counted, so no one could say how many there were:
+a route lookup that gave no route, and an exception that a Cloud Function trigger or sweep caught.
+The Operations page (admin console, any verified staff role) now shows both, for today and the last
+seven UTC days, through the callable `getOperationsSummary`. It is deliberately not part of
+Analytics, whose list is fixed at Phase 12's twelve metrics.
+
+- **What is counted** (`functions/src/opsCounters.ts`): `route-unavailable` (the routing server failed
+  or did not answer), `route-busy` (the usage limits refused the lookup; normal limiting, shown
+  apart from the failures), and `function-failed:<name>` for each exception caught by the Stripe
+  webhook, the estimate and search triggers, the batch run (scheduled and immediate), the delay
+  re-ordering, the stale-hold void, the three recovery sweeps and the retention sweeps. A route with
+  no road route (`none`) is not a failure and is not counted. A lookup is counted each time it is
+  refused or fails, so one request refused four times counts four.
+- **What is stored:** one increment on a counter document of the day, `opsCounters/{UTC day}_{shard}`,
+  holding the day and counts by kind. No uid, no trip, no place. The day is split over 10 shards
+  so that a burst of refusals does not pile onto one document (the route counter itself once did,
+  docs/load-testing.md); the page adds the shards up. The collection is not in the rules, so it is
+  closed to every client (a rules test checks it).
+- **Best effort, never in the way.** `recordOpsEvent` never throws: a counter that cannot be
+  written is a missed count, not a failed trip or a failed trigger (a test makes the write fail and
+  checks this). Counts can therefore be missed but are never invented. The cost is one small write
+  per refused or failed lookup, which for a batch run under the real limits can be thousands of
+  writes a run (docs/load-testing.md, scenario B); that has not been measured on a real project.
+- **What cannot be counted:** a function that crashes, runs out of memory or times out never reaches
+  its `catch`, so it is not here. Those are in Cloud Logging and Cloud Monitoring only. The page says
+  this in a note, because a zero on it must not be read as "nothing is wrong".
+- **How the catch sites are checked:** the catch blocks are "never throws" wrappers around code that
+  handles its own failures, so a real exception cannot be provoked in them on the emulators. A test
+  therefore reads `functions/src/index.ts` and fails unless every failure log
+  (`logger.warn`/`logger.error`) is immediately preceded by a `recordFailure` call; it was checked
+  to fail when one is removed. The counting of route lookups is tested for real (a failing provider
+  is `unavailable`, a refused lookup is `busy`, found, no route and cached are not counted).
+- **Views and retention:** "today" is the UTC day so far, not a trailing 24 hours (counters are daily,
+  so an exact trailing 24 hours cannot be made from them); "last 7 days" is today and the six UTC
+  days before it. Counter days are kept 30 days and a daily scheduled sweep
+  (`clearExpiredOpsCountersSweep`) deletes older ones, a batch at a time. Like the other sweeps it
+  needs the Blaze plan to run; nothing is deployed on Spark.
 
 ## Tests
 

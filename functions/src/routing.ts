@@ -9,6 +9,7 @@ import {
   type LookupCollections,
   type LookupLimits,
 } from './lookupLimits.js';
+import { recordOpsEvent, ROUTE_BUSY, ROUTE_UNAVAILABLE } from './opsCounters.js';
 
 // Route calculation (Module 4.3): the distance, time and line of the road route through 2 to 10
 // stops. Functions deploy from this directory alone, so the numbers and helpers below mirror
@@ -337,7 +338,10 @@ export async function calculateRoute(
     const claimed = await claimLookup(firestore, collections.limits, caller.uid, now, limits).catch(
       () => false,
     );
-    if (!claimed) return { status: 'busy', route: null };
+    if (!claimed) {
+      await recordOpsEvent(firestore, ROUTE_BUSY);
+      return { status: 'busy', route: null };
+    }
   } else {
     const waitMs = await reserveLookupSlot(
       firestore,
@@ -347,7 +351,10 @@ export async function calculateRoute(
       limits,
       deps.maxWaitMs,
     ).catch(() => null);
-    if (waitMs === null) return { status: 'busy', route: null };
+    if (waitMs === null) {
+      await recordOpsEvent(firestore, ROUTE_BUSY);
+      return { status: 'busy', route: null };
+    }
     if (waitMs > 0) {
       const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
       await sleep(waitMs);
@@ -359,6 +366,7 @@ export async function calculateRoute(
     route = await provider.route(stops, profile);
   } catch {
     // Not cached: it may work next time.
+    await recordOpsEvent(firestore, ROUTE_UNAVAILABLE);
     return { status: 'unavailable', route: null };
   }
 
