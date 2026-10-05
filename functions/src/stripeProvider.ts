@@ -54,6 +54,8 @@ export interface CreateCustomerParams {
 }
 
 export interface AuthorizePaymentParams {
+  /** Part of the idempotency key (see authorizeIdempotencyKey): one hold per trip, card and amount. */
+  tripId: string;
   stripeCustomerId: string;
   paymentMethodId: string;
   amountMinorUnits: number;
@@ -146,6 +148,30 @@ export interface StripeProvider {
   verifyWebhookEvent(params: VerifyWebhookEventParams): VerifyWebhookEventOutcome;
 }
 
+/**
+ * Phase 14 (payment compliance): every call that moves or holds money carries an idempotency key, so
+ * a retry of the same request (a timed-out call, two triggers firing for one trip) returns Stripe's
+ * first result instead of holding or refunding twice. Stripe keeps a key for 24 hours and replays the
+ * first result for it, a decline included.
+ *
+ * The authorization key is trip + payment method + amount: a changed card or fare is a new attempt,
+ * the same card and amount is not retried for 24 hours. The capture, void and refund keys use the
+ * payment intent (one per trip) and, where it matters, the amount, so a retry with a different amount
+ * is a new request rather than one Stripe rejects for reusing a key with different parameters.
+ */
+export function authorizeIdempotencyKey(params: AuthorizePaymentParams): string {
+  return `authorize-${params.tripId}-${params.paymentMethodId}-${params.amountMinorUnits}`;
+}
+export function captureIdempotencyKey(params: CapturePaymentParams): string {
+  return `capture-${params.paymentIntentId}-${params.amountMinorUnits}`;
+}
+export function voidIdempotencyKey(params: VoidPaymentParams): string {
+  return `void-${params.paymentIntentId}`;
+}
+export function refundIdempotencyKey(params: RefundPaymentParams): string {
+  return `refund-${params.paymentIntentId}-${params.amountMinorUnits}`;
+}
+
 type StripeClient = Pick<
   Stripe,
   'balance' | 'customers' | 'paymentIntents' | 'refunds' | 'webhooks'
@@ -190,15 +216,18 @@ export function createStripeProvider(
 
     async authorizePayment(params) {
       try {
-        const intent = await client.paymentIntents.create({
-          amount: params.amountMinorUnits,
-          currency: params.currency,
-          customer: params.stripeCustomerId,
-          payment_method: params.paymentMethodId,
-          capture_method: 'manual',
-          confirm: true,
-          off_session: true,
-        });
+        const intent = await client.paymentIntents.create(
+          {
+            amount: params.amountMinorUnits,
+            currency: params.currency,
+            customer: params.stripeCustomerId,
+            payment_method: params.paymentMethodId,
+            capture_method: 'manual',
+            confirm: true,
+            off_session: true,
+          },
+          { idempotencyKey: authorizeIdempotencyKey(params) },
+        );
         if (intent.status !== 'requires_capture') return { status: 'declined' };
         return { status: 'authorized', paymentIntentId: intent.id };
       } catch {
@@ -208,9 +237,11 @@ export function createStripeProvider(
 
     async capturePayment(params) {
       try {
-        const intent = await client.paymentIntents.capture(params.paymentIntentId, {
-          amount_to_capture: params.amountMinorUnits,
-        });
+        const intent = await client.paymentIntents.capture(
+          params.paymentIntentId,
+          { amount_to_capture: params.amountMinorUnits },
+          { idempotencyKey: captureIdempotencyKey(params) },
+        );
         if (intent.status !== 'succeeded') return { status: 'failed' };
         return { status: 'captured' };
       } catch {
@@ -220,7 +251,9 @@ export function createStripeProvider(
 
     async voidPayment(params) {
       try {
-        const intent = await client.paymentIntents.cancel(params.paymentIntentId);
+        const intent = await client.paymentIntents.cancel(params.paymentIntentId, undefined, {
+          idempotencyKey: voidIdempotencyKey(params),
+        });
         if (intent.status !== 'canceled') return { status: 'failed' };
         return { status: 'voided' };
       } catch {
@@ -230,10 +263,13 @@ export function createStripeProvider(
 
     async refundPayment(params) {
       try {
-        const refund = await client.refunds.create({
-          payment_intent: params.paymentIntentId,
-          amount: params.amountMinorUnits,
-        });
+        const refund = await client.refunds.create(
+          {
+            payment_intent: params.paymentIntentId,
+            amount: params.amountMinorUnits,
+          },
+          { idempotencyKey: refundIdempotencyKey(params) },
+        );
         if (refund.status === 'failed') return { status: 'failed' };
         return { status: 'refunded' };
       } catch {

@@ -165,6 +165,7 @@ export async function authorizeTripPayment(
   const outcome =
     typeof stripeCustomerId === 'string' && typeof paymentMethodId === 'string'
       ? await deps.stripe.authorizePayment({
+          tripId,
           stripeCustomerId,
           paymentMethodId,
           amountMinorUnits: authorizationAmount,
