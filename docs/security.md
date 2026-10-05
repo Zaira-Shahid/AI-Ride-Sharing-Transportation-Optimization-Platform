@@ -935,6 +935,50 @@ new metrics or UI:
 | Cloud Function failures, route calculation failures                  | Counted: the Operations page shows the route lookups that were unavailable or busy and the exceptions each trigger and sweep caught, for today and the last seven days (see "Operations counters" below). Not counted: a function that crashes or times out without reaching a `catch`.                                                                         |
 | Correlation IDs `requestId`, `tripId`, `optimizationRunId`, `planId` | Covered as described above.                                                                                                                                                                                                                                                                                                                                     |
 
+## Payment compliance (Phase 14 hardening)
+
+An audit of how payments are handled, plus one code change. It is not a PCI DSS assessment (no
+self-assessment questionnaire was filled in) and nothing here was run against live Stripe: the Stripe
+key and webhook secret are read from the environment and are `null` until someone sets them.
+
+**Checked, by reading the code**
+
+- Card data stays with Stripe. The passenger and driver apps contain no card-entry or payment-sheet
+  code (a search of `apps/` for stripe/card/PaymentSheet finds only two layout files and the admin
+  disputes table, none of which handle a card number). The backend keeps only Stripe's own ids
+  (`stripeCustomerId`, `paymentMethodId`, `paymentIntentId`) and amounts.
+- Every Stripe call is made from Cloud Functions behind `stripeProvider.ts`; no client talks to Stripe.
+- The webhook verifies Stripe's signature over the raw request body (`constructEvent`) before it
+  trusts anything in it, and an invalid signature is rejected without throwing.
+- The secret key and the webhook secret are separate environment values, never in the source.
+
+**Changed: idempotency keys.** Authorization, capture, void and refund are each read-check, call
+Stripe, then write the result, not one transaction. A retry or two triggers firing for the same trip
+could therefore hold or refund twice. Each call now carries a Stripe idempotency key, which makes a
+repeat of the same request return Stripe's first result:
+
+| Call      | Key                                             |
+| --------- | ----------------------------------------------- |
+| Authorize | `authorize-{tripId}-{paymentMethodId}-{amount}` |
+| Capture   | `capture-{paymentIntentId}-{amount}`            |
+| Void      | `void-{paymentIntentId}`                        |
+| Refund    | `refund-{paymentIntentId}-{amount}`             |
+
+A changed card, fare or trip is a new authorization attempt. The same card, trip and amount is not
+retried within Stripe's 24-hour key window: Stripe replays the first result, a decline included.
+
+**Known limitations**
+
+- A timeout or network error while authorizing is reported as `declined`, which releases the
+  passenger. The hold may in fact exist on Stripe's side. This is the safe direction for the
+  passenger, but the outcome is genuinely unknown rather than a decline. Telling the two apart (a
+  separate `unknown` outcome retried by a sweep with the same key) was considered and deferred as a
+  larger change; revisit it if it shows up in practice.
+- 3-D Secure / strong customer authentication: a card that needs the passenger present is
+  treated as `declined` (the hold is off-session). How that behaves with real cards was not tested.
+- Region and legal requirements (PSD2, tax receipts, a target country) are **not decided**, so none
+  are claimed here.
+
 ## Operations counters (Phase 14 hardening)
 
 Two kinds of failure were only ever logged, never counted, so no one could say how many there were:

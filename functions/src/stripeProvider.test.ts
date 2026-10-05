@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createStripeProvider, stripeConfigFromEnvironment } from './stripeProvider';
+import {
+  authorizeIdempotencyKey,
+  createStripeProvider,
+  stripeConfigFromEnvironment,
+} from './stripeProvider';
 
 describe('stripeConfigFromEnvironment', () => {
   it('is null when STRIPE_SECRET_KEY is not set', () => {
@@ -50,6 +54,7 @@ describe('createStripeProvider.createCustomer', () => {
 
 describe('createStripeProvider.authorizePayment', () => {
   const params = {
+    tripId: 'trip_1',
     stripeCustomerId: 'cus_123',
     paymentMethodId: 'pm_123',
     amountMinorUnits: 1_200,
@@ -265,6 +270,70 @@ describe('createStripeProvider.deleteCustomer', () => {
     });
     expect(await provider.deleteCustomer({ stripeCustomerId: 'cus_1' })).toEqual({
       status: 'failed',
+    });
+  });
+});
+
+describe('idempotency keys (Phase 14, payment compliance)', () => {
+  const secret = { secretKey: 'sk_test_abc' };
+  const authorize = {
+    tripId: 'trip_1',
+    stripeCustomerId: 'cus_123',
+    paymentMethodId: 'pm_123',
+    amountMinorUnits: 1_200,
+    currency: 'usd',
+  };
+
+  it('sends the same authorization key for the same trip, card and amount, so a retry replays', async () => {
+    const keys: unknown[] = [];
+    const provider = createStripeProvider(secret, {
+      paymentIntents: {
+        create: async (_body: unknown, opts: { idempotencyKey: string }) => {
+          keys.push(opts.idempotencyKey);
+          return { id: 'pi_1', status: 'requires_capture' };
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    await provider.authorizePayment(authorize);
+    await provider.authorizePayment({ ...authorize });
+    expect(keys).toEqual([authorizeIdempotencyKey(authorize), authorizeIdempotencyKey(authorize)]);
+    expect(keys[0]).toBe('authorize-trip_1-pm_123-1200');
+  });
+
+  it('changes the authorization key when the card, the amount or the trip changes', () => {
+    const base = authorizeIdempotencyKey(authorize);
+    expect(authorizeIdempotencyKey({ ...authorize, paymentMethodId: 'pm_456' })).not.toBe(base);
+    expect(authorizeIdempotencyKey({ ...authorize, amountMinorUnits: 1_300 })).not.toBe(base);
+    expect(authorizeIdempotencyKey({ ...authorize, tripId: 'trip_2' })).not.toBe(base);
+  });
+
+  it('sends a key on capture, void and refund', async () => {
+    const seen: Record<string, unknown> = {};
+    const provider = createStripeProvider(secret, {
+      paymentIntents: {
+        capture: async (_id: string, _body: unknown, opts: { idempotencyKey: string }) => {
+          seen.capture = opts.idempotencyKey;
+          return { id: 'pi_1', status: 'succeeded' };
+        },
+        cancel: async (_id: string, _body: unknown, opts: { idempotencyKey: string }) => {
+          seen.void = opts.idempotencyKey;
+          return { id: 'pi_1', status: 'canceled' };
+        },
+      },
+      refunds: {
+        create: async (_body: unknown, opts: { idempotencyKey: string }) => {
+          seen.refund = opts.idempotencyKey;
+          return { id: 're_1', status: 'succeeded' };
+        },
+      },
+    } as unknown as Parameters<typeof createStripeProvider>[1]);
+    await provider.capturePayment({ paymentIntentId: 'pi_1', amountMinorUnits: 800 });
+    await provider.voidPayment({ paymentIntentId: 'pi_1' });
+    await provider.refundPayment({ paymentIntentId: 'pi_1', amountMinorUnits: 640 });
+    expect(seen).toEqual({
+      capture: 'capture-pi_1-800',
+      void: 'void-pi_1',
+      refund: 'refund-pi_1-640',
     });
   });
 });
