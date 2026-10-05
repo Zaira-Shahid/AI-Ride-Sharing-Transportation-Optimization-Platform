@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
 import {
   IMMEDIATE_TRIGGER_DEBOUNCE_MS,
@@ -60,6 +61,24 @@ describe('claimImmediateOptimizationRun (functions + firestore emulators)', () =
         now: () => start + IMMEDIATE_TRIGGER_DEBOUNCE_MS,
       }),
     ).toBe(true);
+  });
+
+  it('claims nothing while the window is held in the future (how phase8-acceptance keeps the trigger off)', async () => {
+    const start = Date.now();
+    await admin()
+      .firestore.doc(TRIGGER_DOC)
+      .set({ lastImmediateRunAt: Timestamp.fromMillis(start + 10 * 60_000) });
+
+    expect(
+      await claimImmediateOptimizationRun({ firestore: admin().firestore, now: () => start }),
+    ).toBe(false);
+    expect(
+      await claimImmediateOptimizationRun({
+        firestore: admin().firestore,
+        now: () => start + IMMEDIATE_TRIGGER_DEBOUNCE_MS * 10,
+      }),
+    ).toBe(false);
+    await clearTrigger();
   });
 });
 

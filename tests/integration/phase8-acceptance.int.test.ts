@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -12,7 +13,6 @@ import {
   updateDriverLocation,
 } from '../../packages/firebase/src';
 import { runBatchOptimization } from '../../functions/src/optimizationRun';
-import { claimImmediateOptimizationRun } from '../../functions/src/optimizationTrigger';
 import type { PushProvider } from '../../functions/src/pushProvider';
 import { reoptimizeDelayedJourney } from '../../functions/src/routeModification';
 import { createOsrmProvider, type RoutingProvider } from '../../functions/src/routing';
@@ -80,6 +80,12 @@ const BALANCED = {
   allowRouteChange: true,
 };
 
+// The event-triggered batch run (optimizationRunOnSearching) starts only when it can claim the debounce
+// window kept in this document. Holding the window in the future keeps that trigger from ever running
+// in this file, so the batch runs below are the only ones, however slowly the emulator delivers events.
+const TRIGGER_DOC = 'system/batchOptimizationTrigger';
+const HOLD_TRIGGER_FOR_MS = 10 * 60_000;
+
 let fake: FakeOsrm;
 let optimizationService: OptimizationService;
 let provider: RoutingProvider;
@@ -97,6 +103,10 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
+  await admin()
+    .firestore.doc(TRIGGER_DOC)
+    .delete()
+    .catch(() => undefined);
   await fake.close();
   await optimizationService.close();
 });
@@ -114,6 +124,9 @@ beforeEach(async () => {
   for (const name of ['tripRequests', 'driverJourneys']) {
     await firestore.recursiveDelete(firestore.collection(name));
   }
+  await firestore
+    .doc(TRIGGER_DOC)
+    .set({ lastImmediateRunAt: Timestamp.fromMillis(Date.now() + HOLD_TRIGGER_FOR_MS) });
   fake.requests.length = 0;
   fake.reply(null);
 });
@@ -166,9 +179,10 @@ async function searchingPassenger(
     preferences: BALANCED,
   });
 
-  // Sole control of when the real optimization service is called - see phase6-acceptance's own note
-  // on claiming the debounce window before module 8.1/8.2's own immediate trigger can.
-  await claimImmediateOptimizationRun({ firestore: admin().firestore });
+  // The event-triggered run is held off for the whole file (see TRIGGER_DOC), so nothing but this
+  // file's own runBatchOptimization calls reaches the optimization service. Claiming the window here,
+  // after the request was created, raced the trigger: it could claim first and insert a later
+  // passenger before the test's own run did.
 
   const stop = Date.now() + 20_000;
   for (;;) {
