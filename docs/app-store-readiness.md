@@ -43,10 +43,13 @@ None of the following exists in the repository, and none of it can be created fr
 
 Two things found while reading the apps that are product decisions, not fixes made here:
 
-- **The location permission text says less than the app does.** It reads "RideMesh uses your location
-  to show where you are on the map." A driver's position is also written to the database while they are
-  online (`updateDriverLocation`), and a passenger can later see it on their trip. A store reviewer, and
-  the privacy label below, will expect the text to say that. The wording is the owner's to choose.
+- **The driver's location permission text was misleading, and is now corrected.** It read "RideMesh
+  uses your location to show where you are on the map", but a driver's position is also written to the
+  database while they are online (`updateDriverLocation`) and shown to the passenger matched to them.
+  The driver app's text now says so: "RideMesh uses your location to show your location on the map, and
+  to share your live position with matched passengers while you're online and sharing a trip." The
+  passenger app's text is unchanged: it uses location only to centre its own map, and nothing in it
+  sends the position to the server.
 - **Push notifications are built on the server only.** `functions/src/pushTokens.ts` can store an Expo
   push token and the functions send notifications, but nothing in `apps/` or `packages/` calls it, and
   no notification package is in either app, so a phone is never registered to receive one. The privacy
@@ -101,7 +104,7 @@ privacy notice has to say so, and the 30-day place retention, before real people
 
 1. Final application names and bundle identifiers.
 2. Icon and splash art, and who supplies it.
-3. The wording of the location permission text, and whether to say a driver's position is shared.
+3. Whether the passenger's location permission text needs more than the map, if a later module sends their position anywhere.
 4. When to build Crashlytics, and the Firebase files it needs.
 5. Target country and legal requirements (also open in `docs/architecture.md`), which decide the
    privacy notice, the store forms and any payment-related rules.

@@ -767,7 +767,7 @@ on them.
 | Decision                                                                                                        | Needed by |
 | --------------------------------------------------------------------------------------------------------------- | --------- |
 | Passenger flexibility profile fields. Spec sections 3 and 10 name them differently (camelCase is the standard). | Phase 3   |
-| App store metadata, icons and splash screens                                                                    | Phase 14  |
+| App store metadata, icons and splash screens (see `docs/app-store-readiness.md`)                                | Phase 14  |
 | Target country, currency and legal requirements (emergency features, privacy)                                   | Phase 1+  |
 
 Resolved: camelCase is the field-name standard across the specification, `placeId` is optional or
