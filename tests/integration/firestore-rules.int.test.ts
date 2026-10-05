@@ -340,6 +340,7 @@ describe('other collections stay closed', () => {
     'routeCache/abc123',
     'routeLimits/passenger-1',
     'routeGlobal/lookups',
+    'opsCounters/2026-10-03_0',
   ])('denies %s to every role', async (path) => {
     for (const role of ['PASSENGER', 'DRIVER', 'ADMIN', 'SUPER_ADMIN']) {
       const db = env.authenticatedContext('passenger-1', verified(role)).firestore();
