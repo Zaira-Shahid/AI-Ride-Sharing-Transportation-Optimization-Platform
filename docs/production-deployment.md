@@ -1,8 +1,11 @@
 # Production deployment (Phase 14, module 10)
 
-**Status: planned. Nothing in this document has been run yet.** Each step below is done by hand, one
-at a time, and the next one starts only when the owner says so. No secret value is written here or
-passed through the assistant: the owner sets those themselves.
+**Status: written, intentionally not executed. Nothing in this document has been run, and it is deliberately not going
+to be:** the project is presented as a completed portfolio project built and tested locally (Firebase
+emulators and a local Python optimization service). The runbook is kept so a deployment can be
+carried out later. Each step is done by hand, one at a time, and the next one starts only when the
+owner says so. No secret value is written here or passed through the assistant: the owner sets those
+themselves.
 
 Project: `ai-ride-sharing-system-a6743` (pinned in `.firebaserc`). Region for everything:
 `europe-west1`, to match the Functions' own region (`setGlobalOptions` in `functions/src/index.ts`).
