@@ -17,7 +17,7 @@
 > Firebase emulators on demo data. Payments are in Stripe test mode (no real charges) and the AI
 > predictions are a prototype trained on synthetic data. See [Known limitations](#known-limitations).
 
-**Demo video:** [ADD THE VIDEO LINK HERE](#)
+**Demo video:** [Watch the 3-minute walkthrough](https://drive.google.com/file/d/1_POR2tvfeJmfzYp9Sj5V-JyJvZoe10JJ/view?usp=sharing)
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="A passenger is matched to a driver who is already on the way, and both apps update live" width="800">
@@ -275,7 +275,6 @@ tests/              Integration, end-to-end and load tests
 
 **Zaira Shahid**
 
-- Portfolio: [ADD LINK](#)
-- LinkedIn: [ADD LINK](#)
+- LinkedIn: [linkedin.com/in/zaira-shahid-](https://linkedin.com/in/zaira-shahid-)
 - GitHub: [@Zaira-Shahid](https://github.com/Zaira-Shahid)
-- Email: ADD EMAIL
+- Email: [zairashahid370@gmail.com](mailto:zairashahid370@gmail.com)
