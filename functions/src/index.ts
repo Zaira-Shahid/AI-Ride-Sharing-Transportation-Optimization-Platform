@@ -101,7 +101,14 @@ initializeApp();
 // from the onRequest-facing HttpsOptions it re-exposes only for CallableOptions). onRequest functions
 // (healthCheck, stripeWebhook) never read this option at all, so it cannot affect either of them.
 // See appCheck.ts's own header comment for why this must default to off.
-setGlobalOptions({ region: 'europe-west1', enforceAppCheck: enforceAppCheckFromEnvironment() });
+// maxInstances bounds how far any one function can scale, and so what a runaway loop or a burst of
+// traffic can cost on the Blaze plan. The emulators do not enforce it, so a deployed burst (such as the
+// 50 simultaneous estimates of tests/load) is worth re-checking after the first deploy.
+setGlobalOptions({
+  region: 'europe-west1',
+  maxInstances: 20,
+  enforceAppCheck: enforceAppCheckFromEnvironment(),
+});
 
 export const healthCheck = onRequest((_request, response) => {
   response.status(200).json(buildHealthResponse());
