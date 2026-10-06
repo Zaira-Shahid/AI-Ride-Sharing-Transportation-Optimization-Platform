@@ -19,6 +19,14 @@
 
 **Demo video:** [ADD THE VIDEO LINK HERE](#)
 
+<p align="center">
+  <img src="docs/images/demo.gif" alt="A passenger is matched to a driver who is already on the way, and both apps update live" width="800">
+  <br>
+  <sub>A real match, recorded from the demo: the request is paired with a journey already under way, and both apps update live.</sub>
+</p>
+
+**Contents:** [Why it is different](#why-ridemesh-is-different) · [Screenshots](#screenshots) · [Features](#key-features) · [Architecture](#architecture) · [Engineering decisions](#engineering-decisions-worth-a-look) · [Tech stack](#tech-stack-and-why) · [Getting started](#getting-started) · [Known limitations](#known-limitations)
+
 ## Why RideMesh is different
 
 A typical ride-hailing app answers one question: _which car is nearest to this person?_ That sends a
@@ -121,13 +129,45 @@ flowchart LR
   FN --> STRIPE
 ```
 
-**How a match happens:** a passenger's request is validated and stored by a Cloud Function and moves to
-_searching_. A periodic batch run (every two minutes in production) gathers open requests and journeys
-in progress, filters candidates by distance and direction, and sends them to the Python service. The
-OR-Tools model returns the plans and an explanation per request; the function then writes the
-assignments, which reach both apps live through Firestore.
+### Life of a ride
+
+```mermaid
+sequenceDiagram
+  participant P as Passenger app
+  participant F as Cloud Functions
+  participant S as Firestore
+  participant O as Optimizer (Python)
+  participant D as Driver app
+
+  P->>F: request a ride (places, time, flexibility)
+  F->>S: validate again, store the request (searching)
+  Note over F,O: Batch run, every two minutes in production
+  F->>S: read open requests and journeys in progress
+  F->>O: filter candidates, then optimize
+  O-->>F: plans and a reason for every request
+  F->>S: write the plans, assign the pickup
+  S-->>P: driver, vehicle and route, live
+  S-->>D: matched passenger and stop order, live
+  D->>F: head to pickup, confirm pickup, start trip, drop off
+  F->>S: picked up, in transit, completed
+  S-->>P: live trip status
+```
 
 More detail: [docs/architecture.md](docs/architecture.md).
+
+## Engineering decisions worth a look
+
+- **The server never trusts the client.** The apps validate for a good experience, and every Cloud
+  Function checks places, times and preferences again before anything is stored.
+- **Nobody is stranded.** A driver who goes offline releases passengers who are not yet in the car back
+  into the search instead of cancelling them; a passenger already on board blocks going offline.
+- **Decisions you can explain.** Every optimization run stores why each request was matched or not, and
+  staff can read it in the dashboard.
+- **Fixed by measuring, not guessing.** A load test showed 50 simultaneous route estimates failing; the
+  route-lookup limiter was redesigned around one document per time slot and re-measured until all 50 were
+  served ([docs/load-testing.md](docs/load-testing.md)).
+- **Metrics with a stated definition.** Where the specification names a number but not a formula, the
+  dashboard says "our own definition" next to it, or shows a dash.
 
 ## Tech stack, and why
 
