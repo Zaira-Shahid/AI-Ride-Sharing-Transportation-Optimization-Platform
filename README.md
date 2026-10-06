@@ -206,9 +206,10 @@ Monorepo with npm workspaces; shared packages (`types`, `firebase`, `ui`, `map`,
 ## Project scope
 
 RideMesh was built module by module against a written, phased specification, with each module
-finishing its own tests, lint, type checks and documentation before the next began. Every phase of the
-specification is built and tested locally. The one module that is **planned but not carried out is
-production deployment**: a step-by-step runbook is written
+finishing its own tests, lint, type checks and documentation before the next began. **103 of the 104
+modules are complete across a 15-phase specification** (the author's own module-by-module tally), each
+built and tested locally. The one module that is **planned but not carried out is production
+deployment**: a step-by-step runbook is written
 ([docs/production-deployment.md](docs/production-deployment.md)), and it is intentionally not executed, so
 RideMesh runs on a developer machine, not as a live service.
 
