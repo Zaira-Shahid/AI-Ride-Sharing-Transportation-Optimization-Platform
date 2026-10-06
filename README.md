@@ -13,9 +13,12 @@
 
 </div>
 
-> **A portfolio / demo project.** Everything in the screenshots and the video runs locally against
-> Firebase emulators on demo data. Payments are in Stripe test mode (no real charges) and the AI
-> predictions are a prototype trained on synthetic data. See [Known limitations](#known-limitations).
+> **A completed portfolio project, built and tested locally. It is not deployed.** RideMesh is fully
+> built and tested against the Firebase emulators and a local Python optimization service, and
+> everything in the screenshots and the video runs that way, on demo data. A production deployment
+> runbook exists ([docs/production-deployment.md](docs/production-deployment.md)) but has not been
+> executed. Payments are in Stripe test mode (no real charges) and the AI predictions are a prototype
+> trained on synthetic data. See [Known limitations](#known-limitations).
 
 **Demo video:** [Watch the 3-minute walkthrough](https://drive.google.com/file/d/1_POR2tvfeJmfzYp9Sj5V-JyJvZoe10JJ/view?usp=sharing)
 
@@ -141,7 +144,7 @@ sequenceDiagram
 
   P->>F: request a ride (places, time, flexibility)
   F->>S: validate again, store the request (searching)
-  Note over F,O: Batch run, every two minutes in production
+  Note over F,O: Batch run, scheduled every two minutes (started by hand in the local demo)
   F->>S: read open requests and journeys in progress
   F->>O: filter candidates, then optimize
   O-->>F: plans and a reason for every request
@@ -203,7 +206,10 @@ Monorepo with npm workspaces; shared packages (`types`, `firebase`, `ui`, `map`,
 
 RideMesh was built module by module against a written, phased specification, with each module
 finishing its own tests, lint, type checks and documentation before the next began. Every phase of the
-specification is complete **except the final production-deployment module**, which is the next step.
+specification is built and tested locally. The one module that is **planned but not carried out is
+production deployment**: a step-by-step runbook is written
+([docs/production-deployment.md](docs/production-deployment.md)), and it has not been executed, so
+RideMesh runs on a developer machine, not as a live service.
 
 ## Getting started
 
@@ -250,8 +256,10 @@ tests/              Integration, end-to-end and load tests
 
 ## Known limitations
 
-- **Demo project, not a live service.** It has not been deployed to production, and payments run in
-  Stripe test mode.
+- **Not deployed.** It is built and tested against the Firebase emulators and a local Python
+  optimization service. The production deployment runbook
+  ([docs/production-deployment.md](docs/production-deployment.md)) has not been executed, and payments
+  run in Stripe test mode.
 - **AI predictions are a prototype** trained and validated on synthetic data only; they do not
   influence any real match, payment or notification.
 - **Driver payouts and an earnings screen are not built** (deliberately; see
@@ -261,7 +269,7 @@ tests/              Integration, end-to-end and load tests
 - **Some UI states are unverified:** a matrix of failure-recovery screens is documented as not yet
   checked. Mobile apps have been exercised in the browser build, not on a range of physical devices.
 - **Local demo routing is simulated.** Route lines and estimates in the screenshots come from a stand-in
-  route server (straight lines); production uses a real routing provider.
+  route server (straight lines); the application's own code calls a public routing server.
 
 ## Documentation
 
@@ -270,6 +278,7 @@ tests/              Integration, end-to-end and load tests
 - [Roles, access, security and payment compliance](docs/security.md)
 - [Performance](docs/performance.md) and [load testing](docs/load-testing.md)
 - [Backup strategy](docs/backup.md) and [app store readiness](docs/app-store-readiness.md)
+- [Production deployment runbook](docs/production-deployment.md) (written, not executed)
 
 ## Author
 
