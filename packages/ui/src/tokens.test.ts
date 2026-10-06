@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { palette, radius, themes } from './tokens';
+import { accentTextOnLight, fontFamily, palette, radius, themes } from './tokens';
 
 const css = readFileSync(join(__dirname, 'tokens.css'), 'utf8').toLowerCase();
 
@@ -41,5 +41,40 @@ describe('design tokens (spec section 41)', () => {
     for (const key of ['sm', 'md', 'lg', 'xl'] as const) {
       expect(css).toContain(`--radius-${key}: ${radius[key]}px;`);
     }
+  });
+
+  it('keeps the palette itself unchanged and adds only derived text and button tokens', () => {
+    expect(themes.dark.accentText).toBe(palette.electricCyan);
+    expect(themes.light.accentText).toBe(accentTextOnLight);
+    expect(themes.dark.primary).toBe(palette.electricCyan);
+    expect(themes.light.primary).toBe(palette.midnightNavy);
+  });
+
+  it('keeps text and button labels readable (WCAG AA, 4.5:1) on every theme background', () => {
+    const luminance = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => {
+        const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+        return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      }) as [number, number, number];
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    for (const theme of Object.values(themes)) {
+      expect(contrast(theme.accentText, theme.background)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.onPrimary, theme.primary)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(theme.textPrimary, theme.background)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('names an Inter family for each weight', () => {
+    expect(Object.values(fontFamily)).toEqual([
+      'Inter_400Regular',
+      'Inter_500Medium',
+      'Inter_600SemiBold',
+      'Inter_700Bold',
+    ]);
   });
 });

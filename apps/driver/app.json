@@ -19,7 +19,8 @@
         {
           "locationWhenInUsePermission": "RideMesh uses your location to show your location on the map, and to share your live position with matched passengers while you're online and sharing a trip."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }

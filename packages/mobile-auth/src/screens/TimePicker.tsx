@@ -1,7 +1,8 @@
 import { groupSlots, localDayKey, timeInHour, timeOnDay } from '@ridemesh/types';
 import { fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { useAuthTheme } from '../components';
 import { ChipRow } from './ChipRow';
 import { formatClock, formatDay, formatHour, formatMinute } from './timeFormat';

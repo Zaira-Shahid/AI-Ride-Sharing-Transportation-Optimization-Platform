@@ -7,9 +7,10 @@ import {
 import { useAuth } from '@ridemesh/firebase/react';
 import { useCurrentLocation } from '@ridemesh/map';
 import type { StoredDestination } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { Notice, SecondaryButton, useAuthTheme } from '../components';
 
 interface Props {
@@ -124,7 +125,7 @@ export function OriginSection({ hasJourney, origin, editable }: Props) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[6], gap: spacing[3] },
+  card: { ...cardSurface, padding: spacing[6], gap: spacing[3] },
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   caption: { fontSize: fontSize.sm },
   current: { gap: spacing[1] },

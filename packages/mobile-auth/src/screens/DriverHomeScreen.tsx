@@ -26,9 +26,10 @@ import {
   type GoOnlineCheck,
   type GoOnlineRequirement,
 } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import type { StoredDestination } from '@ridemesh/types';
 import type { AuthScreenProps } from '../app-info';
 import {
@@ -439,7 +440,7 @@ export function DriverHomeScreen({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[6], gap: spacing[3] },
+  card: { ...cardSurface, padding: spacing[6], gap: spacing[3] },
   cardTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   item: { flexDirection: 'row', gap: spacing[3], alignItems: 'flex-start' },
   marker: { fontSize: fontSize.base, fontWeight: fontWeight.bold, width: spacing[4] },

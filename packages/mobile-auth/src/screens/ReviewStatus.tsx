@@ -3,7 +3,8 @@ import { useAuth } from '@ridemesh/firebase/react';
 import type { ReviewTarget } from '@ridemesh/types';
 import { fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { Notice, SecondaryButton, useAuthTheme } from '../components';
 
 type Status = 'PENDING' | 'VERIFIED' | 'REJECTED';

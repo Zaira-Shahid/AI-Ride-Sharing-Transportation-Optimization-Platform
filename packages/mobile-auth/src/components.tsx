@@ -1,5 +1,5 @@
-import { fontSize, fontWeight, palette, radius, spacing, type ThemeColors } from '@ridemesh/ui';
-import { createContext, useContext, type ReactNode, type RefObject } from 'react';
+import { fontSize, fontWeight, radius, shadow, spacing, type ThemeColors } from '@ridemesh/ui';
+import { createContext, useContext, useState, type ReactNode, type RefObject } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -8,11 +8,10 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type TextInputProps,
 } from 'react-native';
+import { Text, TextInput } from './typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const ThemeContext = createContext<ThemeColors | null>(null);
@@ -114,6 +113,7 @@ export function TextField({
   ...inputProps
 }: TextFieldProps) {
   const theme = useAuthTheme();
+  const [focused, setFocused] = useState(false);
   return (
     <View style={styles.field}>
       <Text style={[styles.label, { color: theme.textPrimary }]}>{label}</Text>
@@ -130,10 +130,12 @@ export function TextField({
           {
             color: theme.textPrimary,
             backgroundColor: theme.surface,
-            borderColor: error ? theme.danger : theme.border,
+            borderColor: error ? theme.danger : focused ? theme.accentText : theme.border,
           },
         ]}
         {...inputProps}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
       />
       {error ? (
         <Text accessibilityLiveRegion="polite" style={[styles.message, { color: theme.danger }]}>
@@ -163,12 +165,12 @@ export function PrimaryButton({ label, onPress, loading = false, disabled = fals
       accessibilityState={{ disabled: inactive, busy: loading }}
       disabled={inactive}
       onPress={onPress}
-      style={[styles.button, { backgroundColor: theme.accent, opacity: inactive ? 0.6 : 1 }]}
+      style={[styles.button, { backgroundColor: theme.primary, opacity: inactive ? 0.6 : 1 }]}
     >
       {loading ? (
-        <ActivityIndicator color={palette.midnightNavy} />
+        <ActivityIndicator color={theme.onPrimary} />
       ) : (
-        <Text style={[styles.buttonLabel, { color: palette.midnightNavy }]}>{label}</Text>
+        <Text style={[styles.buttonLabel, { color: theme.onPrimary }]}>{label}</Text>
       )}
     </Pressable>
   );
@@ -204,7 +206,7 @@ export function TextButton({ label, onPress, disabled = false }: ButtonProps) {
       onPress={onPress}
       style={[styles.textButton, { opacity: disabled ? 0.5 : 1 }]}
     >
-      <Text style={[styles.textButtonLabel, { color: theme.textPrimary }]}>{label}</Text>
+      <Text style={[styles.textButtonLabel, { color: theme.accentText }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -268,7 +270,11 @@ export function ConfirmDialog({
           role="alertdialog"
           aria-modal
           accessibilityViewIsModal
-          style={[styles.dialog, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          style={[
+            styles.dialog,
+            shadow.card,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
         >
           <Text
             accessibilityRole="header"
@@ -287,7 +293,7 @@ export function ConfirmDialog({
 
 export function Notice({ tone, children }: { tone: 'error' | 'info'; children: ReactNode }) {
   const theme = useAuthTheme();
-  const color = tone === 'error' ? theme.danger : theme.accent;
+  const color = tone === 'error' ? theme.danger : theme.accentText;
   return (
     <View
       accessibilityRole={tone === 'error' ? 'alert' : undefined}
@@ -312,21 +318,21 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { flexGrow: 1, paddingHorizontal: spacing[6], gap: spacing[4] },
   heading: { gap: spacing[2], marginBottom: spacing[2] },
-  title: { fontSize: fontSize['3xl'], fontWeight: fontWeight.bold },
-  subtitle: { fontSize: fontSize.base },
+  title: { fontSize: fontSize['3xl'], fontWeight: fontWeight.bold, letterSpacing: -0.5 },
+  subtitle: { fontSize: fontSize.base, lineHeight: 24 },
   field: { gap: spacing[1] },
   label: { fontSize: fontSize.sm, fontWeight: fontWeight.medium },
   input: {
     minHeight: 52,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     paddingHorizontal: spacing[4],
     fontSize: fontSize.base,
   },
   message: { fontSize: fontSize.sm },
   button: {
     minHeight: 52,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing[4],
@@ -342,7 +348,7 @@ const styles = StyleSheet.create({
   },
   dialog: {
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     padding: spacing[6],
     gap: spacing[4],
     width: '100%',
@@ -350,6 +356,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   dialogTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.bold },
-  notice: { borderWidth: 1, borderRadius: radius.md, padding: spacing[4] },
+  notice: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4] },
   noticeText: { fontSize: fontSize.sm },
 });

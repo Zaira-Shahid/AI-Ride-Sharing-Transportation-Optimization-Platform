@@ -1,5 +1,6 @@
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '@ridemesh/mobile-auth';
 import { theme } from '../theme';
 
 interface ScreenShellProps {

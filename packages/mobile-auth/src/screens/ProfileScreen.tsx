@@ -11,9 +11,10 @@ import {
   type ProfileField,
   type ProfileUpdateValues,
 } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { appName, type AuthScreenProps, type MobileApp } from '../app-info';
 import {
   AuthFrame,
@@ -240,7 +241,7 @@ export function ProfileScreen({ app, theme }: AuthScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[6], gap: spacing[1] },
+  card: { ...cardSurface, padding: spacing[6], gap: spacing[1] },
   caption: { fontSize: fontSize.sm },
   name: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold },
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },

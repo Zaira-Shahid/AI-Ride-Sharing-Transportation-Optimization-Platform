@@ -25,7 +25,7 @@ import {
   type TripEstimate,
   type TripTimes,
 } from '@ridemesh/types';
-import { radius, spacing } from '@ridemesh/ui';
+import { cardSurface, spacing } from '@ridemesh/ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import type { AuthScreenProps } from '../app-info';
@@ -531,5 +531,5 @@ const styles = StyleSheet.create({
     gap: spacing[3],
   },
   problem: { gap: spacing[1] },
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4], gap: spacing[3] },
+  card: { ...cardSurface, padding: spacing[4], gap: spacing[3] },
 });

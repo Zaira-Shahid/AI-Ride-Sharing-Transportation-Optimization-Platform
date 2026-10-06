@@ -9,3 +9,4 @@ export { RegisterScreen } from './screens/RegisterScreen';
 export { TripsScreen } from './screens/TripsScreen';
 export { VerifyEmailScreen } from './screens/VerifyEmailScreen';
 export { WelcomeScreen } from './screens/WelcomeScreen';
+export { Text, TextInput } from './typography';

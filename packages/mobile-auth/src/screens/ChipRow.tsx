@@ -1,5 +1,6 @@
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { useAuthTheme } from '../components';
 
 export interface Chip {
