@@ -848,6 +848,21 @@ Integrity/App Attest, spec section 57) - neither exists yet (the project is stil
 see below). Wiring the switch now, rather than only once both are ready, means turning it on later
 is a one-variable change, not new code.
 
+## Optimization service access (Phase 14 deployment)
+
+Cloud Functions call the Python optimization service without credentials: `optimizationClient.ts`
+sends no `Authorization` header. To keep it reachable, the production service is deployed to Cloud Run
+with `--allow-unauthenticated`, so **anyone who learns its URL can call its endpoints and use its
+compute**. Accepted for the demo scale, with these limits:
+
+- Cloud Run `--max-instances 2` caps how far the service can scale, and so what it can cost.
+- The Functions side times out its calls after 30 seconds (`OPTIMIZATION_SERVICE_TIMEOUT_MS`).
+- A budget alert on the billing account warns early (see `docs/production-deployment.md`).
+
+Future hardening, the same pattern as App Check and rate limiting above: make the service private
+(Cloud Run IAM) and have the Functions send a Google-signed ID token for the service's URL. That is a
+code change on both sides and is deliberately not done now.
+
 ## Failure recovery (Phase 14 hardening)
 
 A follow-up audit found three one-shot Cloud Function triggers that fire only on a status
@@ -1051,5 +1066,8 @@ Analytics, whose list is fixed at Phase 12's twelve metrics.
   optimization monitoring, payments, analytics, audit logs, the Phase 13 AI predictions page); only
   `ADMIN`/`SUPER_ADMIN` (`REVIEWER_ROLES`) can take a reviewing/financial action (driver/vehicle
   review, refunds).
+- The optimization service is public when deployed (Cloud Run `--allow-unauthenticated`, capped at 2
+  instances) because the Functions call it without credentials. Service-to-service authentication is a
+  future hardening item (see "Optimization service access" above).
 - Functions are tested on the local emulators only. They are not deployed because the project is on
   the Spark plan, which cannot deploy Cloud Functions.

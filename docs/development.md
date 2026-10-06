@@ -69,8 +69,12 @@ saves everything back to it when the emulators stop.
 
 `.env` and `.env.*` files are git-ignored; only `.env.example` files are committed. Anything
 prefixed `NEXT_PUBLIC_` or `EXPO_PUBLIC_` is shipped to the client, so never put a secret in one.
-Privileged credentials such as service account keys, Stripe secret keys and webhook secrets belong
-in Firebase secret management on the server side only.
+The Stripe secret key and webhook secret (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`) are read from
+the deployed function's environment, which for now means the git-ignored `functions/.env.<project id>`
+file. They are **not** in Firebase secret management: that file is deployed with the function, so only
+Stripe test keys belong in it. Moving live keys to secret management is a separate change (the functions
+would declare the secrets instead of reading plain environment variables). Service account keys never
+belong in the repository or in any env file that is committed.
 
 To confirm the local env files work and the app reaches the real project, run
 `npm run verify:firebase`. It checks that every app reads a complete config for the pinned project
