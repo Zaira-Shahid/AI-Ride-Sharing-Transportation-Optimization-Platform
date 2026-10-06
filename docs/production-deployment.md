@@ -1,6 +1,6 @@
 # Production deployment (Phase 14, module 10)
 
-**Status: written, not executed. Nothing in this document has been run, and for now it is not going
+**Status: written, intentionally not executed. Nothing in this document has been run, and it is deliberately not going
 to be:** the project is presented as a completed portfolio project built and tested locally (Firebase
 emulators and a local Python optimization service). The runbook is kept so a deployment can be
 carried out later. Each step is done by hand, one at a time, and the next one starts only when the

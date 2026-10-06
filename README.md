@@ -16,9 +16,10 @@
 > **A completed portfolio project, built and tested locally. It is not deployed.** RideMesh is fully
 > built and tested against the Firebase emulators and a local Python optimization service, and
 > everything in the screenshots and the video runs that way, on demo data. A production deployment
-> runbook exists ([docs/production-deployment.md](docs/production-deployment.md)) but has not been
-> executed. Payments are in Stripe test mode (no real charges) and the AI predictions are a prototype
-> trained on synthetic data. See [Known limitations](#known-limitations).
+> runbook is documented ([docs/production-deployment.md](docs/production-deployment.md)) but
+> intentionally not executed, because this is a portfolio project. Payments are in Stripe test mode (no
+> real charges) and the AI predictions are a prototype trained on synthetic data. See
+> [Known limitations](#known-limitations).
 
 **Demo video:** [Watch the 3-minute walkthrough](https://drive.google.com/file/d/1_POR2tvfeJmfzYp9Sj5V-JyJvZoe10JJ/view?usp=sharing)
 
@@ -208,7 +209,7 @@ RideMesh was built module by module against a written, phased specification, wit
 finishing its own tests, lint, type checks and documentation before the next began. Every phase of the
 specification is built and tested locally. The one module that is **planned but not carried out is
 production deployment**: a step-by-step runbook is written
-([docs/production-deployment.md](docs/production-deployment.md)), and it has not been executed, so
+([docs/production-deployment.md](docs/production-deployment.md)), and it is intentionally not executed, so
 RideMesh runs on a developer machine, not as a live service.
 
 ## Getting started
@@ -258,7 +259,7 @@ tests/              Integration, end-to-end and load tests
 
 - **Not deployed.** It is built and tested against the Firebase emulators and a local Python
   optimization service. The production deployment runbook
-  ([docs/production-deployment.md](docs/production-deployment.md)) has not been executed, and payments
+  ([docs/production-deployment.md](docs/production-deployment.md)) is intentionally not executed, and payments
   run in Stripe test mode.
 - **AI predictions are a prototype** trained and validated on synthetic data only; they do not
   influence any real match, payment or notification.
@@ -278,7 +279,7 @@ tests/              Integration, end-to-end and load tests
 - [Roles, access, security and payment compliance](docs/security.md)
 - [Performance](docs/performance.md) and [load testing](docs/load-testing.md)
 - [Backup strategy](docs/backup.md) and [app store readiness](docs/app-store-readiness.md)
-- [Production deployment runbook](docs/production-deployment.md) (written, not executed)
+- [Production deployment runbook](docs/production-deployment.md) (documented, intentionally not executed)
 
 ## Author
 
