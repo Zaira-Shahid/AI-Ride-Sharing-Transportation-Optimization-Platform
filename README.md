@@ -275,6 +275,7 @@ tests/              Integration, end-to-end and load tests
 
 **Zaira Shahid**
 
+- Portfolio: [my-portfolio-henna-kappa-90.vercel.app](https://my-portfolio-henna-kappa-90.vercel.app/)
 - LinkedIn: [linkedin.com/in/zaira-shahid-](https://linkedin.com/in/zaira-shahid-)
 - GitHub: [@Zaira-Shahid](https://github.com/Zaira-Shahid)
 - Email: [zairashahid370@gmail.com](mailto:zairashahid370@gmail.com)
