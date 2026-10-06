@@ -1,8 +1,9 @@
 import { useMyTripRequests } from '@ridemesh/firebase/react';
 import type { TripRequestData } from '@ridemesh/firebase';
 import { describeEstimate, isOpenTripStatus } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
-import { StyleSheet, Text, View } from 'react-native';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import type { AuthScreenProps } from '../app-info';
 import { AuthFrame, Heading, Notice, TextButton, useAuthTheme } from '../components';
 import { TRIP_STATUS_TEXT } from './tripStatusText';
@@ -119,7 +120,7 @@ const styles = StyleSheet.create({
   groups: { gap: spacing[6] },
   group: { gap: spacing[3] },
   groupTitle: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4], gap: spacing[1] },
+  card: { ...cardSurface, padding: spacing[4], gap: spacing[1] },
   status: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
   line: { fontSize: fontSize.base },
   caption: { fontSize: fontSize.sm },

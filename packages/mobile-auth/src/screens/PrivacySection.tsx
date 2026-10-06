@@ -1,8 +1,9 @@
 import { deleteMyAccount, exportMyData } from '@ridemesh/firebase';
 import { useAuth } from '@ridemesh/firebase/react';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useState } from 'react';
-import { Platform, Share, StyleSheet, Text, View } from 'react-native';
+import { Platform, Share, StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import {
   ConfirmDialog,
   Notice,
@@ -180,7 +181,7 @@ export function PrivacySection({ role }: { role: PrivacyRole }) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[6], gap: spacing[3] },
+  card: { ...cardSurface, padding: spacing[6], gap: spacing[3] },
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   notes: { gap: spacing[1] },
   note: { fontSize: fontSize.sm },

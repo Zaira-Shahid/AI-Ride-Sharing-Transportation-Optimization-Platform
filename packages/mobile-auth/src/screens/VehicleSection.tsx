@@ -15,9 +15,10 @@ import {
   type VehicleFormValues,
   type VehicleType,
 } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import {
   Notice,
   PrimaryButton,
@@ -300,7 +301,7 @@ export function VehicleSection() {
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[6], gap: spacing[4] },
+  card: { ...cardSurface, padding: spacing[6], gap: spacing[4] },
   heading: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
   caption: { fontSize: fontSize.sm },
   message: { fontSize: fontSize.sm },

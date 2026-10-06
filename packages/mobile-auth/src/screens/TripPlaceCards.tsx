@@ -1,6 +1,7 @@
 import type { StoredDestination } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
-import { StyleSheet, Text, View } from 'react-native';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { CompactButton, Notice, SecondaryButton, useAuthTheme } from '../components';
 import { PlaceSearch } from './PlaceSearch';
 
@@ -130,7 +131,7 @@ export function PickupCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4], gap: spacing[3] },
+  card: { ...cardSurface, padding: spacing[4], gap: spacing[3] },
   title: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
   chosen: { flexDirection: 'row', alignItems: 'center', gap: spacing[3] },
   current: { flex: 1, gap: spacing[1] },

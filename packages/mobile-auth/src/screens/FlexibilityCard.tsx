@@ -4,9 +4,10 @@ import {
   type Flexibility,
   type FlexibilityLevel,
 } from '@ridemesh/types';
-import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
+import { cardSurface, fontSize, fontWeight, spacing } from '@ridemesh/ui';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { CompactButton, SecondaryButton, useAuthTheme } from '../components';
 import { ChoiceGroup } from './ChoiceGroup';
 import { ToggleRow } from './ToggleRow';
@@ -125,7 +126,7 @@ export function FlexibilityCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing[4], gap: spacing[3] },
+  card: { ...cardSurface, padding: spacing[4], gap: spacing[3] },
   title: { fontSize: fontSize.base, fontWeight: fontWeight.semibold },
   summaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing[3] },
   summary: { flex: 1, gap: spacing[1] },

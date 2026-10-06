@@ -10,7 +10,8 @@ import {
 import type { StoredDestination } from '@ridemesh/types';
 import { fontSize, fontWeight, radius, spacing } from '@ridemesh/ui';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../typography';
 import { Notice, TextField, useAuthTheme } from '../components';
 
 const SEARCH_DELAY_MS = 300;
