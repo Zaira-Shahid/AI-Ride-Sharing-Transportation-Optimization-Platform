@@ -27,7 +27,7 @@ functions/src/
   corporate/                    NEW  company, invitation, membership, dashboard functions
 ```
 
-### D1. Employee app: new app or reuse the passenger/driver apps?
+### D1. Employee app: new app or reuse the passenger/driver apps? (Decided 2026-11-17: new app)
 
 Recommendation: a **new `apps/employee`** Expo app that composes existing `packages/mobile-auth` screens and the existing
 trip/journey callables. Reasons: the consumer apps stay untouched (your requirement); an employee is both rider and driver, which
@@ -131,6 +131,11 @@ packages/voice
 | A6     | Voice spike, then `packages/voice` core, announcements and menu                                   | Honest voice report              |
 | A7     | Corporate dashboard aggregates and statistics                                                     | Privacy test (no places exposed) |
 | A8     | End-to-end journey, security checks, bug report, docs, launch-readiness report                    | Your acceptance                  |
+
+**Regression gate (required, 2026-11-17).** Every module from A1 on ends with a full run of the existing RideMesh unit
+(`npm test`) and integration (`npm run test:integration`) suites, plus typecheck and lint. All must pass before the next module
+starts. A failure caused by the tenancy layer is fixed first, not deferred. A known pre-existing flake is accepted only after it
+passes when re-run on its own, and is named in the report. A0 records the baseline these runs are compared against.
 
 After A0, each module ends with the standard report you already use (Completed / Files changed / Architecture / Tests / Lint /
 Type check / Firebase / Git branch / Commit / Git push / Next module / Questions).

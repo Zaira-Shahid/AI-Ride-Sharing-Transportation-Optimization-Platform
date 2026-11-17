@@ -16,6 +16,15 @@ matching and trip engine, adds a company (tenant) layer, and leaves the existing
 - Product A is built completely before Product B.
 - Deployment is paused until both products are built and tested.
 - Work goes in feature branches merged into `develop`, with regular pushes.
+- **Regression gate (2026-11-17):** after every Product A module, the existing RideMesh unit and integration suites are run
+  and must pass before the next module starts. If the tenancy layer breaks anything existing, it is fixed first. The result is
+  recorded in each module's report.
+- Employee app is a new `apps/employee`; the passenger and driver apps stay untouched (D1).
+- One employee can both drive and ride: a driver capability is added on top of the existing role (Q1).
+- Company carpooling is free in v1; Stripe payments are off for company rides (Q2).
+- Matching is automatic; the driver may decline within a time limit, else the request returns to searching (Q3).
+- The company admin verifies their own employee-drivers, not platform staff (Q5).
+- No platform approval for new companies (Q4), no recurring commutes in v1 (Q6), English-only voice first (Q7).
 
 ## 3. Roles
 
@@ -94,17 +103,25 @@ is out of scope unless you later approve one.
 - Cross-company matching of any kind.
 - The integration platform (Product B).
 
-## 6. Open questions (need your answer; defaults shown)
+## 6. Resolved questions and the design work they imply
 
-| #   | Question                                                                                                        | Default if unanswered                                                                                                                       |
-| --- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q1  | May one employee both drive and ride (different days)? Today a user has one role.                               | Yes. Add a per-user "can drive" capability with its own verification, keeping `PASSENGER` as base. Needs a design decision before module A1 |
-| Q2  | Who pays? Existing flow charges riders by Stripe.                                                               | Corporate carpooling is **free** inside v1 (payment disabled for company rides). Fare handling deferred                                     |
-| Q3  | Accept/reject: does a driver approve each rider, or does the engine auto-match with the driver able to decline? | Auto-match proposes, driver accepts or declines within a time limit, else the request returns to searching                                  |
-| Q4  | Does a new company need platform approval before use?                                                           | No approval in v1; platform staff can suspend                                                                                               |
-| Q5  | Driver verification: platform staff, or the company admin?                                                      | Company admin verifies licence/vehicle details of own employees; platform-level checks remain optional                                      |
-| Q6  | Recurring commutes in v1?                                                                                       | Out of v1; a single-day rides first, recurring in a later module                                                                            |
-| Q7  | Languages for voice?                                                                                            | English only first; others once the speech spike shows what the devices support                                                             |
+All questions were answered on 2026-11-17. Items marked "Design" need a short design note in the module that builds them.
+
+- **Q1, an employee can both drive and ride.** Design: add a server-set `canDrive` capability alongside the existing role. The
+  existing `role` claim must keep working for every current rule and function. An employee's driver profile and vehicle reuse the
+  existing `drivers` and `vehicles` documents.
+- **Q2, free in v1, Stripe off for company rides.** Company-stamped trips skip payment authorization, capture, receipts and
+  driver earnings. This is enforced server-side and tested, and consumer payments stay unchanged.
+- **Q3, auto-match; the driver may decline within a time limit.** Design: company matches need a "proposed" window before they
+  become final. Today the engine commits matches directly, so this adds a new state and timer for company rides only. A decline
+  or timeout returns the rider to searching. Consumer matching stays exactly as it is.
+- **Q4, no platform approval.** A new company starts `ACTIVE`; platform staff can suspend it.
+- **Q5, the company admin verifies their own employee-drivers.** Design: a new company-scoped review function. The existing
+  `reviewDriver` and `reviewVehicle` stay ADMIN/SUPER_ADMIN only. A company admin can only see and act on drivers in their own
+  company. Risk recorded: this is weaker than the platform-level vetting consumer drivers get. Mitigation: company drivers are
+  only ever matched with colleagues, never with consumers.
+- **Q6, no recurring commutes.** Single-day rides only in v1.
+- **Q7, English-only voice first.** Other languages only after the speech spike shows what devices support.
 
 ## 7. Acceptance for Product A
 
