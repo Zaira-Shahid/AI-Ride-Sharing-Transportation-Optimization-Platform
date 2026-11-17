@@ -6,7 +6,17 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import {
+  Timestamp,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 import { TEST_PORTS } from '../test-ports';
 
@@ -204,5 +214,64 @@ describe('companyInvitations/{id}', () => {
       await assertFails(updateDoc(doc(db, 'companyInvitations/inv-1'), { status: 'ACCEPTED' }));
       await assertFails(deleteDoc(doc(db, 'companyInvitations/inv-1')));
     }
+  });
+});
+
+describe('an employee profile (module A2c: corrections need no function)', () => {
+  const profile = (overrides: Record<string, unknown> = {}) => ({
+    role: 'EMPLOYEE',
+    name: 'Old Name',
+    email: 'emp@example.test',
+    phone: null,
+    status: 'ACTIVE',
+    companyId: 'c1',
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    ...overrides,
+  });
+  const asEmployee = (uid: string) => member(uid, 'c1', 'EMPLOYEE');
+
+  it('lets an employee correct their own name and phone, and nothing else', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users/emp-1'), profile());
+    });
+    const db = asEmployee('emp-1');
+    await assertSucceeds(
+      updateDoc(doc(db, 'users/emp-1'), {
+        name: 'New Name',
+        phone: '+441234567',
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    for (const forbidden of [
+      { role: 'ADMIN' },
+      { companyId: 'c2' },
+      { status: 'ACTIVE', statusReason: 'x' },
+      { email: 'other@example.test' },
+    ]) {
+      await assertFails(
+        updateDoc(doc(db, 'users/emp-1'), { ...forbidden, updatedAt: serverTimestamp() }),
+      );
+    }
+  });
+
+  it('does not let one employee change another, or a removed (suspended) one change anything', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'users/emp-1'), profile());
+      await setDoc(doc(db, 'users/emp-2'), profile({ status: 'SUSPENDED' }));
+    });
+    await assertFails(
+      updateDoc(doc(asEmployee('emp-3'), 'users/emp-1'), {
+        name: 'Hijacked',
+        updatedAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      updateDoc(doc(asEmployee('emp-2'), 'users/emp-2'), {
+        name: 'Edited',
+        updatedAt: serverTimestamp(),
+      }),
+    );
   });
 });
