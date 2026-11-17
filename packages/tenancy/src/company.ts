@@ -23,6 +23,8 @@ export const INVITATION_TTL_DAYS = 7;
 export interface Company {
   name: string;
   status: CompanyStatus;
+  /** Why the company is SUSPENDED (for example when its last member deleted their account); absent while ACTIVE. */
+  statusReason?: string | null;
   createdBy: string;
   createdAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
