@@ -1122,6 +1122,40 @@ Design: `docs/a2b-driver-capability-design.md`. Code: `functions/src/employeeDri
   existing driver and vehicle review actions.
 - **Tests.** `tests/integration/employeeDriving.int.test.ts` (21 tests), each guard mutation-checked.
 
+### Employee data rights (module A2c)
+
+Design: `docs/a2c-employee-data-rights-design.md`. Code: `functions/src/employeeDataRights.ts`.
+
+- **The same two callables.** `exportMyData` and `deleteMyAccount` keep their names. Drivers still go to the
+  driver handlers; an employee goes to the employee handlers; everyone else reaches the passenger handlers,
+  which refuse anyone who is not a verified passenger, as before.
+- **A removed employee keeps these rights.** Removing someone clears their claims, so their token has no role.
+  A caller whose token has _no_ role at all is recognised as an employee by their own profile
+  (`isEmployeeAccount`). A consumer's token always carries its role, so this never captures a consumer, and the
+  handlers only ever touch the caller's own data.
+- **Export** is an explicit allow-list: profile, the company and the person's role in it, the driving status
+  and their own vehicle, the invitation they accepted, rides they took (their own places), rides they drove
+  (status, times and fare only, never who rode), journeys and notices. It never contains another member, the
+  company's other data, an invitation hash or an invitation written to someone else (all checked by a test).
+- **Deletion** refuses while a driver is online, a journey is active, a ride is in flight, a payment hold or an
+  open dispute exists, or while the person is the last administrator of a company with other active members.
+  It anonymizes their rides, strips the membership to non-identifying fields (kept under the uid so past rides
+  still count as numbers, as audit entries already are), clears the email on the invitation they accepted,
+  deletes their notifications, vehicle (freeing its plate), driver profile, profile and sign-in account, and is
+  safe to repeat. If they were the only active member the company is suspended with the reason "Closed by its
+  last member" and a `COMPANY_CLOSED` audit entry.
+- **No payment step.** Company rides are free, so there is no Stripe customer; any receipt or earning that
+  does exist is unlinked defensively.
+- **Corrections.** An employee can correct their own name and phone directly through the existing rule, and
+  nothing else (a rules test checks role, company, status and email cannot be changed, and that a suspended
+  profile cannot be edited).
+- **Known small window.** A removed employee (no role in their token) whose deletion stops in the few
+  milliseconds between deleting the profile and deleting the sign-in account is left with an empty sign-in
+  account that no longer has a profile to prove who they are. It holds no data. An employee with their role
+  still in the token can simply repeat the call.
+- **Tests.** `tests/integration/employeeDataRights.int.test.ts` (18 tests, six guards mutation-checked) and
+  the profile rules in `tests/integration/company-rules.int.test.ts`.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

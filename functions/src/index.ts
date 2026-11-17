@@ -7,6 +7,11 @@ import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { enforceAppCheckFromEnvironment } from './appCheck.js';
 import {
+  deleteEmployeeAccount,
+  exportEmployeeData,
+  isEmployeeAccount,
+} from './employeeDataRights.js';
+import {
   applyToDrive as applyEmployeeToDrive,
   approveEmployeeDriver as approveCompanyDriver,
   listDriverApplications as listCompanyDriverApplications,
@@ -497,18 +502,29 @@ export const savePaymentMethod = onCall((request) => {
 // kept. The same two callables serve both: a driver's goes by the caller's signed role, and anyone
 // else reaches the passenger's, which refuses everything but a verified passenger. A passenger's
 // deletion works without Stripe configured (no card was ever saved then); with a saved customer it
-// needs Stripe to reach.
-export const exportMyData = onCall((request) => {
+// needs Stripe to reach. A company employee (module A2c, employeeDataRights.ts) has their own pair,
+// reached by the token's role or, for someone removed from their company whose token no longer has
+// one, by their own profile; a consumer's token always carries its role, so it never takes that path.
+export const exportMyData = onCall(async (request) => {
   const caller = callerOf(request);
-  return caller.role === 'DRIVER'
-    ? exportDriverData({ firestore: getFirestore() }, caller)
-    : exportPassengerData({ firestore: getFirestore() }, caller);
+  if (caller.role === 'DRIVER') return exportDriverData({ firestore: getFirestore() }, caller);
+  if (await isEmployeeAccount(getFirestore(), caller)) {
+    return exportEmployeeData({ firestore: getFirestore() }, caller);
+  }
+  return exportPassengerData({ firestore: getFirestore() }, caller);
 });
 
-export const deleteMyAccount = onCall((request) => {
+export const deleteMyAccount = onCall(async (request) => {
   const caller = callerOf(request);
   if (caller.role === 'DRIVER') {
     return deleteDriverAccount(
+      { firestore: getFirestore(), auth: getAuth() },
+      caller,
+      request.data,
+    );
+  }
+  if (await isEmployeeAccount(getFirestore(), caller)) {
+    return deleteEmployeeAccount(
       { firestore: getFirestore(), auth: getAuth() },
       caller,
       request.data,
