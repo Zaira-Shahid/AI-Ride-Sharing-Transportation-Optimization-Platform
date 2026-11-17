@@ -27,7 +27,7 @@ const workspaceDirs = [
 
 describe('monorepo structure (spec section 50)', () => {
   it('contains every workspace and top-level directory from Module 0.1', () => {
-    for (const dir of [...workspaceDirs, 'services/optimizer', 'docs', 'tests', 'scripts']) {
+    for (const dir of [...workspaceDirs, 'services/optimization', 'docs', 'tests', 'scripts']) {
       expect(existsSync(join(root, dir)), `${dir} should exist`).toBe(true);
     }
   });

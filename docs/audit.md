@@ -62,7 +62,7 @@ Confirmed by searching `apps`, `packages`, `functions/src` and `services`:
 4. **Privacy rules are strict by design.** `tripRequests` is readable only by the passenger and the matched driver. Not even
    staff. A company dashboard must therefore use aggregates or audited functions, never a blanket read rule.
 5. **Stale documentation.** `docs/architecture.md` says "What exists now (through Module 4.7)" although the code is far beyond
-   that. Comments in `firestore.rules` say no earnings/receipts screen exists yet. Both should be refreshed.
+   that. It has been refreshed in module A0. (The `firestore.rules` comments saying no earnings or receipts screen exists yet are still correct: the driver Earnings and passenger Wallet tabs are placeholders.)
 6. **Known open items _(from notes, unverified)_:** a cursor millisecond-truncation issue in trip history pagination; integration
    test flakes tied to real OR-Tools timing and cold imports; payment-failed and safety notifications intentionally not built;
    no card-update/retry UI; payments never exercised against live Stripe.
