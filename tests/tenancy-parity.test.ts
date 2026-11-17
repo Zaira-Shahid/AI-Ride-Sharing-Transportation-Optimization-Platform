@@ -2,6 +2,7 @@ import { COMPANY_MEMBER_PLATFORM_ROLES } from '@ridemesh/types';
 import * as shared from '@ridemesh/tenancy';
 import { describe, expect, it } from 'vitest';
 import * as fromFunctions from '../functions/src/companies';
+import * as drivingFromFunctions from '../functions/src/employeeDriving';
 import {
   COMPANY_MEMBER_PLATFORM_ROLE as functionsPlatformRole,
   COMPANY_ROLES as functionsCompanyRoles,
@@ -20,6 +21,11 @@ describe('functions and the tenancy package stay aligned', () => {
 type Parser = { safeParse: (value: unknown) => { success: boolean; data?: unknown } };
 
 describe('company onboarding: functions and the tenancy package stay aligned', () => {
+  it('uses the same driving limits', () => {
+    expect(drivingFromFunctions.APPLICATIONS_LIST_LIMIT).toBe(shared.APPLICATIONS_LIST_LIMIT);
+    expect(drivingFromFunctions.APPLY_TO_DRIVE_PER_HOUR).toBe(shared.APPLY_TO_DRIVE_PER_HOUR);
+  });
+
   it('uses the same limits', () => {
     expect(fromFunctions.COMPANY_NAME_MAX).toBe(shared.COMPANY_NAME_MAX);
     expect(fromFunctions.PERSON_NAME_MAX).toBe(shared.PERSON_NAME_MAX);
@@ -110,6 +116,39 @@ describe('company onboarding: functions and the tenancy package stay aligned', (
       fromFunctions.removeEmployeeInputSchema,
       shared.removeEmployeeInputSchema,
       [{ uid: 'u1' }, { uid: '' }, { uid: 'x'.repeat(129) }, {}],
+    ],
+    [
+      'approveEmployeeDriver',
+      drivingFromFunctions.approveEmployeeDriverInputSchema,
+      shared.approveEmployeeDriverInputSchema,
+      [{ uid: 'u1' }, { uid: ' u1 ' }, { uid: 'a/b' }, { uid: '' }, { uid: 'x'.repeat(129) }, {}],
+    ],
+    [
+      'rejectEmployeeDriver',
+      drivingFromFunctions.rejectEmployeeDriverInputSchema,
+      shared.rejectEmployeeDriverInputSchema,
+      [
+        { uid: 'u1', target: 'DRIVER', reason: 'No.' },
+        { uid: 'u1', target: 'VEHICLE', reason: ' Plate mismatch ' },
+        { uid: 'u1', target: 'OTHER', reason: 'No.' },
+        { uid: 'u1', target: 'DRIVER', reason: '' },
+        { uid: 'u1', target: 'DRIVER', reason: 'x'.repeat(500) },
+        { uid: 'u1', target: 'DRIVER', reason: 'x'.repeat(501) },
+        { uid: 'u1', target: 'DRIVER' },
+        { uid: 'a.b', target: 'DRIVER', reason: 'No.' },
+      ],
+    ],
+    [
+      'revokeEmployeeDriver',
+      drivingFromFunctions.revokeEmployeeDriverInputSchema,
+      shared.revokeEmployeeDriverInputSchema,
+      [
+        { uid: 'u1', reason: 'Left.' },
+        { uid: 'u1', reason: '' },
+        { uid: 'u1', reason: 'x'.repeat(501) },
+        { uid: 'u1' },
+        { reason: 'Left.' },
+      ],
     ],
     [
       'setEmployeeRole',

@@ -293,6 +293,7 @@ export async function createCompany(
       canDrive: false,
       driverReviewedBy: null,
       driverReviewedAt: null,
+      driverRequestedAt: null,
       joinedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -610,6 +611,7 @@ export async function acceptInvitation(
         canDrive: false,
         driverReviewedBy: null,
         driverReviewedAt: null,
+        driverRequestedAt: null,
         joinedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -624,6 +626,7 @@ export async function acceptInvitation(
         canDrive: false,
         driverReviewedBy: null,
         driverReviewedAt: null,
+        driverRequestedAt: null,
         joinedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -752,6 +755,7 @@ export async function removeEmployee(
       tx.update(memberRef, {
         status: 'REMOVED',
         canDrive: false,
+        driverRequestedAt: null,
         updatedAt: FieldValue.serverTimestamp(),
       });
       tx.update(profileRef, {

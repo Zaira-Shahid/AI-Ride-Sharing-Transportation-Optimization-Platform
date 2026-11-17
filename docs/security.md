@@ -1089,6 +1089,39 @@ Design: `docs/a2-company-onboarding-design.md`. Code: `functions/src/companies.t
 - **Tests.** `tests/integration/companies.int.test.ts` (47 tests), `functions/src/invitationCode.test.ts`
   and the schema and limit parity checks in `tests/tenancy-parity.test.ts`.
 
+### The driving capability (module A2b)
+
+Design: `docs/a2b-driver-capability-design.md`. Code: `functions/src/employeeDriving.ts`.
+
+- **Reuse, not new driver logic.** The employee functions (`applyToDrive`, `saveEmployeeVehicle`,
+  `setEmployeeVehicleCapacity`, `requestEmployeeDriverReview`) call the existing vehicle and review code
+  with a caller whose role is `DRIVER`, only after reading the membership document to confirm an _active_
+  employee of an _active_ company who has applied. A company driver therefore has the same plate, seat
+  and verification rules as any driver, and a removed employee is stopped at once whatever their token says.
+- **`canDrive` is the administrator's permission, not the whole answer.** Someone can drive only when
+  `canDrive` is true _and_ the driver profile and the vehicle are both currently `VERIFIED`
+  (`hasEffectiveDriveCapability`). This stays correct when an employee edits their vehicle (it goes back
+  to pending) or platform staff change a verification, without touching any consumer code.
+- **No self-review.** An administrator cannot approve, reject or revoke their own application; another
+  administrator must. This matches the existing rule that staff cannot review their own driver profile.
+- **Approval is ordered so every step is a legal state.** The driver profile and the vehicle are verified
+  with the existing audited review, then one last transaction re-reads both and grants `canDrive` only if
+  both are still `VERIFIED`. A vehicle changed in between leaves a verified driver with no capability, and
+  reviewing again finishes it. A missing vehicle is detected before anything changes.
+- **Revocation withdraws the permission first.** `canDrive` goes false in its own transaction, then the
+  driver profile and vehicle are rejected with the existing review, which also takes the driver offline and
+  releases any matched riders.
+- **What an administrator sees.** An applicant's name and email, the verification statuses and reasons, and
+  the vehicle's type, make, model, plate and seats. Never trips, places or locations (checked by a test).
+- **Nobody can drive yet.** The existing go-online and driver functions still refuse the `EMPLOYEE` role
+  (tested). The company-aware wrappers arrive in A3.
+- **Limits that remain.** Verification is a decision, not a document check: the platform has no upload of
+  a licence, insurance or proof of ownership for any driver. Plate numbers are unique platform-wide, so an
+  employee entering a consumer driver's plate is told it is already registered, as consumer drivers are.
+- **Audit.** `EMPLOYEE_DRIVER_APPLIED`, `EMPLOYEE_DRIVER_APPROVED` and `EMPLOYEE_DRIVER_REVOKED`, plus the
+  existing driver and vehicle review actions.
+- **Tests.** `tests/integration/employeeDriving.int.test.ts` (21 tests), each guard mutation-checked.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

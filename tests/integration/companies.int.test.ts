@@ -1,11 +1,8 @@
 import { Timestamp } from 'firebase-admin/firestore';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { httpsCallable } from 'firebase/functions';
 import { describe, expect, it } from 'vitest';
 import type {
   AcceptInvitationResult,
   CreateCompanyResult,
-  InviteEmployeeResult,
   ListEmployeesResult,
   ListInvitationsResult,
   RemoveEmployeeResult,
@@ -13,87 +10,26 @@ import type {
   SetEmployeeRoleResult,
 } from '../../packages/tenancy/src';
 import { createCompany } from '../../functions/src/companies';
+import { admin, allPages } from './support';
 import {
-  PASSWORD,
-  admin,
-  allPages,
-  createClient,
-  signUp,
-  verifyEmail,
-  type Client,
-} from './support';
+  account,
+  auditOf,
+  call,
+  claimsOf,
+  doc,
+  firestore,
+  founder,
+  invite,
+  joined,
+  refused,
+  result,
+  signBackIn,
+  type Account,
+  type Founder,
+} from './company-support';
 
 // Module A2a: company onboarding (functions + firestore + auth emulators). See
 // docs/a2-company-onboarding-design.md.
-
-const call = (client: Client, name: string, data?: unknown) =>
-  httpsCallable(client.functions, name)(data);
-const result = async <T>(client: Client, name: string, data?: unknown) =>
-  (await call(client, name, data)).data as T;
-
-const refused = (code: string, message?: string) => ({
-  code: `functions/${code}`,
-  ...(message ? { message: expect.stringContaining(message) as unknown as string } : {}),
-});
-
-interface Account {
-  client: Client;
-  uid: string;
-  email: string;
-  user: Awaited<ReturnType<typeof signUp>>['user'];
-}
-
-async function account(prefix: string, verified = true): Promise<Account> {
-  const client = createClient();
-  const { user, uid, email } = await signUp(client, prefix);
-  if (verified) await verifyEmail(user, email);
-  return { client, uid, email, user };
-}
-
-/** A verified account that has created a company, with its token refreshed to carry the claims. */
-async function founder(prefix: string, name = 'Acme Ltd') {
-  const acc = await account(prefix);
-  const created = await result<CreateCompanyResult>(acc.client, 'createCompany', {
-    name,
-    ownerName: 'Founder Person',
-  });
-  await acc.user.getIdToken(true);
-  return { ...acc, companyId: created.companyId };
-}
-type Founder = Awaited<ReturnType<typeof founder>>;
-
-async function invite(by: Founder, email: string, companyRole?: 'COMPANY_ADMIN' | 'EMPLOYEE') {
-  return result<InviteEmployeeResult>(by.client, 'inviteEmployee', { email, companyRole });
-}
-
-/** A new account invited by `by` and joined as `companyRole`, token refreshed. */
-async function joined(by: Founder, prefix: string, companyRole?: 'COMPANY_ADMIN' | 'EMPLOYEE') {
-  const acc = await account(prefix);
-  const { code } = await invite(by, acc.email, companyRole);
-  await result<AcceptInvitationResult>(acc.client, 'acceptInvitation', {
-    code,
-    name: 'New Person',
-  });
-  await acc.user.getIdToken(true);
-  return { ...acc, companyId: by.companyId };
-}
-
-/** A removed person's tokens are revoked, so they sign in again for a fresh one. */
-const signBackIn = async (acc: Account) => {
-  await signInWithEmailAndPassword(acc.client.auth, acc.email, PASSWORD);
-};
-
-const firestore = () => admin().firestore;
-const doc = async (path: string) => (await firestore().doc(path).get()).data();
-const claimsOf = async (uid: string) => (await admin().auth.getUser(uid)).customClaims ?? {};
-const auditOf = async (entity: string, action: string) =>
-  (
-    await firestore()
-      .collection('auditLogs')
-      .where('entity', '==', entity)
-      .where('action', '==', action)
-      .get()
-  ).docs;
 
 const INVALID = 'This invitation is not valid or has expired.';
 
