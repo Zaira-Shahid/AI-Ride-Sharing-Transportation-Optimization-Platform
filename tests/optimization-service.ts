@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -50,19 +50,46 @@ async function waitForHealth(baseUrl: string, timeoutMs: number): Promise<void> 
  * it with close().
  */
 export async function startOptimizationService(timeoutMs = 20_000): Promise<OptimizationService> {
-  const child: ChildProcess = spawn(
-    venvPython(),
-    [
-      '-m',
-      'uvicorn',
-      'app.main:app',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(OPTIMIZATION_SERVICE_PORT),
-    ],
-    { cwd: SERVICE_ROOT, stdio: 'pipe' },
-  );
+  // Opt-in: when OPTIMIZATION_SERVICE_DOCKER_IMAGE is set, run the same service from that image
+  // (built from services/optimization/Dockerfile) instead of the local virtualenv. For machines
+  // where the native Python libraries cannot load (for example Windows Smart App Control blocking
+  // numpy's compiled modules). Unset, behaviour is exactly as before.
+  const dockerImage = process.env.OPTIMIZATION_SERVICE_DOCKER_IMAGE;
+  const containerName = `ridemesh-optimization-test-${process.pid}`;
+  const child: ChildProcess = dockerImage
+    ? spawn(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '--name',
+          containerName,
+          '-e',
+          'PORT=8080',
+          '-p',
+          `127.0.0.1:${OPTIMIZATION_SERVICE_PORT}:8080`,
+          dockerImage,
+        ],
+        { stdio: 'pipe' },
+      )
+    : spawn(
+        venvPython(),
+        [
+          '-m',
+          'uvicorn',
+          'app.main:app',
+          '--host',
+          '127.0.0.1',
+          '--port',
+          String(OPTIMIZATION_SERVICE_PORT),
+        ],
+        { cwd: SERVICE_ROOT, stdio: 'pipe' },
+      );
+
+  // Killing the docker CLI process does not stop the container, so remove it by name.
+  const stopContainer = (): void => {
+    if (dockerImage) spawnSync('docker', ['rm', '-f', containerName], { stdio: 'ignore' });
+  };
 
   let stderr = '';
   child.stderr?.on('data', (chunk: Buffer) => {
@@ -81,6 +108,7 @@ export async function startOptimizationService(timeoutMs = 20_000): Promise<Opti
     await Promise.race([waitForHealth(OPTIMIZATION_SERVICE_BASE_URL, timeoutMs), exited]);
   } catch (error) {
     child.kill();
+    stopContainer();
     throw error;
   }
 
@@ -90,6 +118,7 @@ export async function startOptimizationService(timeoutMs = 20_000): Promise<Opti
       new Promise<void>((resolve) => {
         child.once('exit', () => resolve());
         child.kill();
+        stopContainer();
       }),
   };
 }
