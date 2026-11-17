@@ -7,6 +7,16 @@ import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { enforceAppCheckFromEnvironment } from './appCheck.js';
 import {
+  applyToDrive as applyEmployeeToDrive,
+  approveEmployeeDriver as approveCompanyDriver,
+  listDriverApplications as listCompanyDriverApplications,
+  rejectEmployeeDriver as rejectCompanyDriver,
+  requestEmployeeDriverReview as requestCompanyDriverReview,
+  revokeEmployeeDriver as revokeCompanyDriver,
+  saveEmployeeVehicle as saveCompanyVehicle,
+  setEmployeeVehicleCapacity as setCompanyVehicleCapacity,
+} from './employeeDriving.js';
+import {
   acceptInvitation as acceptCompanyInvitation,
   createCompany as createNewCompany,
   inviteEmployee as inviteCompanyEmployee,
@@ -268,6 +278,43 @@ export const removeEmployee = onCall((request) =>
 
 export const setEmployeeRole = onCall((request) =>
   setCompanyEmployeeRole(companyDeps(), companyCallerOf(request), request.data),
+);
+
+const drivingDeps = () => ({
+  firestore: getFirestore(),
+  push: createPushProvider(pushConfigFromEnvironment()),
+});
+
+export const applyToDrive = onCall((request) =>
+  applyEmployeeToDrive({ firestore: getFirestore() }, companyCallerOf(request)),
+);
+
+export const saveEmployeeVehicle = onCall((request) =>
+  saveCompanyVehicle(drivingDeps(), companyCallerOf(request), request.data),
+);
+
+export const setEmployeeVehicleCapacity = onCall((request) =>
+  setCompanyVehicleCapacity(drivingDeps(), companyCallerOf(request), request.data),
+);
+
+export const requestEmployeeDriverReview = onCall((request) =>
+  requestCompanyDriverReview({ firestore: getFirestore() }, companyCallerOf(request), request.data),
+);
+
+export const listDriverApplications = onCall((request) =>
+  listCompanyDriverApplications({ firestore: getFirestore() }, companyCallerOf(request)),
+);
+
+export const approveEmployeeDriver = onCall((request) =>
+  approveCompanyDriver(drivingDeps(), companyCallerOf(request), request.data),
+);
+
+export const rejectEmployeeDriver = onCall((request) =>
+  rejectCompanyDriver(drivingDeps(), companyCallerOf(request), request.data),
+);
+
+export const revokeEmployeeDriver = onCall((request) =>
+  revokeCompanyDriver(drivingDeps(), companyCallerOf(request), request.data),
 );
 
 export const reviewDriver = onCall((request) =>

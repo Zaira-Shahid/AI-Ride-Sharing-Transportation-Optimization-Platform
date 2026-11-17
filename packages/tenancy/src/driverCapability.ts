@@ -18,3 +18,24 @@ export function isDriveCapabilityConsistent(facts: {
   if (!facts.canDrive) return true;
   return facts.driverStatus === 'VERIFIED' && facts.vehicleStatus === 'VERIFIED';
 }
+
+/**
+ * Whether a member can actually drive right now (docs/a2b-driver-capability-design.md, section 2):
+ * the company administrator's permission (canDrive) AND an active membership AND a driver profile
+ * and a vehicle that are both VERIFIED at this moment. Every use of the capability goes through
+ * this check, so a vehicle edited after approval, or a verification withdrawn by platform staff,
+ * stops the person driving without any other code having to know about companies.
+ */
+export function hasEffectiveDriveCapability(facts: {
+  canDrive: boolean;
+  memberStatus: 'ACTIVE' | 'REMOVED';
+  driverStatus: (typeof DRIVER_VERIFICATION_STATUSES)[number] | null;
+  vehicleStatus: (typeof DRIVER_VERIFICATION_STATUSES)[number] | null;
+}): boolean {
+  return (
+    facts.canDrive &&
+    facts.memberStatus === 'ACTIVE' &&
+    facts.driverStatus === 'VERIFIED' &&
+    facts.vehicleStatus === 'VERIFIED'
+  );
+}

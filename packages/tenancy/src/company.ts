@@ -37,6 +37,8 @@ export interface CompanyMember {
   /** The company admin who approved this member as a driver (Q5); null while canDrive is false. */
   driverReviewedBy: string | null;
   driverReviewedAt: FirestoreTimestamp | null;
+  /** When the employee applied to drive; cleared on approval. Null (or absent) until they apply. */
+  driverRequestedAt: FirestoreTimestamp | null;
   joinedAt: FirestoreTimestamp;
   updatedAt: FirestoreTimestamp;
 }
@@ -47,9 +49,10 @@ export const NEW_MEMBER_DEFAULTS = {
   canDrive: false,
   driverReviewedBy: null,
   driverReviewedAt: null,
+  driverRequestedAt: null,
 } as const satisfies Pick<
   CompanyMember,
-  'status' | 'canDrive' | 'driverReviewedBy' | 'driverReviewedAt'
+  'status' | 'canDrive' | 'driverReviewedBy' | 'driverReviewedAt' | 'driverRequestedAt'
 >;
 
 /** companyInvitations/{inviteId}. Only the hash of the emailed token is ever stored. */

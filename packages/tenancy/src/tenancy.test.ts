@@ -4,6 +4,7 @@ import {
   INVITATION_TTL_DAYS,
   NEW_MEMBER_DEFAULTS,
   isCompanyAdmin,
+  hasEffectiveDriveCapability,
   isDriveCapabilityConsistent,
   parseCompanyClaims,
 } from './index';
@@ -91,11 +92,38 @@ describe('constants', () => {
       canDrive: false,
       driverReviewedBy: null,
       driverReviewedAt: null,
+      driverRequestedAt: null,
     });
   });
 
   it('lists the two company roles and a seven-day invitation', () => {
     expect([...COMPANY_ROLES]).toEqual(['COMPANY_ADMIN', 'EMPLOYEE']);
     expect(INVITATION_TTL_DAYS).toBe(7);
+  });
+});
+
+describe('hasEffectiveDriveCapability', () => {
+  const ok = {
+    canDrive: true,
+    memberStatus: 'ACTIVE',
+    driverStatus: 'VERIFIED',
+    vehicleStatus: 'VERIFIED',
+  } as const;
+
+  it('is true only with the permission, an active membership and both verifications', () => {
+    expect(hasEffectiveDriveCapability(ok)).toBe(true);
+  });
+
+  it.each([
+    ['no permission', { ...ok, canDrive: false }],
+    ['a removed member', { ...ok, memberStatus: 'REMOVED' }],
+    ['a pending driver profile', { ...ok, driverStatus: 'PENDING' }],
+    ['a rejected driver profile', { ...ok, driverStatus: 'REJECTED' }],
+    ['no driver profile', { ...ok, driverStatus: null }],
+    ['a vehicle edited after approval (pending)', { ...ok, vehicleStatus: 'PENDING' }],
+    ['a vehicle rejected by platform staff', { ...ok, vehicleStatus: 'REJECTED' }],
+    ['no vehicle', { ...ok, vehicleStatus: null }],
+  ] as const)('is false with %s', (_name, facts) => {
+    expect(hasEffectiveDriveCapability(facts)).toBe(false);
   });
 });
