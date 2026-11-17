@@ -145,6 +145,7 @@ import {
   SELF_SERVICE_ROLES,
   STAFF_ROLES,
   USER_ROLES,
+  COMPANY_MEMBER_PLATFORM_ROLES,
   USER_STATUSES,
 } from '@ridemesh/types';
 import { describe, expect, it } from 'vitest';
@@ -203,7 +204,9 @@ describe('functions and shared types stay aligned', () => {
   it('uses the same role lists', () => {
     expect([...functionsSelfService]).toEqual([...SELF_SERVICE_ROLES]);
     expect([...functionsStaff]).toEqual([...STAFF_ROLES]);
-    expect([...SELF_SERVICE_ROLES, ...STAFF_ROLES].sort()).toEqual([...USER_ROLES].sort());
+    expect(
+      [...SELF_SERVICE_ROLES, ...STAFF_ROLES, ...COMPANY_MEMBER_PLATFORM_ROLES].sort(),
+    ).toEqual([...USER_ROLES].sort());
   });
 
   it('uses the same user statuses', () => {

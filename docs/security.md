@@ -1034,6 +1034,31 @@ Analytics, whose list is fixed at Phase 12's twelve metrics.
   (`clearExpiredOpsCountersSweep`) deletes older ones, a batch at a time. Like the other sweeps it
   needs the Blaze plan to run; nothing is deployed on Spark.
 
+## Companies and employees (Product A, module A1)
+
+The company (tenant) layer for the corporate product. Design: `docs/a1-tenancy-design.md`.
+
+- **Identity.** A company member's token carries three claims, set only by server code
+  (`functions/src/companyClaims.ts`): `role: EMPLOYEE`, `companyId` and `companyRole`
+  (`COMPANY_ADMIN` or `EMPLOYEE`). `EMPLOYEE` is in the shared role enum but not in
+  `SELF_SERVICE_ROLES`, so no client can ask for it, and consumer sign-in refuses it.
+- **One account, one world.** `setCompanyClaims` refuses an account that already has any other role
+  (consumer or staff) and an account already in a different company. This is enforced in the function,
+  not just by convention.
+- **The driving capability is not in the token.** `canDrive` lives on
+  `companies/{id}/members/{uid}` and is read server-side, so changing it needs no token refresh.
+- **Rules.** `companies/{id}` is readable by a member of that company (by the `companyId` claim) and
+  by platform staff. `members/{uid}` is readable by the member themselves, by a `COMPANY_ADMIN` of the
+  same company and by staff. `companyInvitations` is readable by staff only. Every write from a client
+  is denied; admins cannot write either, so a member can never grant themselves `canDrive`.
+- **Stale claims.** A claim can live up to an hour after a member is removed. `clearCompanyClaims`
+  removes the claims and revokes refresh tokens, and the rules guard only low-sensitivity data (the
+  company's own name and status). Anything sensitive must go through a function that reads the
+  membership document.
+- **Tests.** `tests/integration/company-rules.int.test.ts` (reads across companies, admin boundary,
+  forged or half-set claims, every write denied), `functions/src/companyClaims.test.ts`,
+  `packages/tenancy/src/tenancy.test.ts` and `tests/tenancy-parity.test.ts`.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

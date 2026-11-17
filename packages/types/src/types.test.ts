@@ -41,7 +41,7 @@ import {
 } from './index';
 
 describe('state and role enumerations (spec sections 11, 26, 73, 74)', () => {
-  it('defines the six roles from the specification', () => {
+  it('defines the six roles from the specification plus the company-member role', () => {
     expect(USER_ROLES).toEqual([
       'PASSENGER',
       'DRIVER',
@@ -49,6 +49,7 @@ describe('state and role enumerations (spec sections 11, 26, 73, 74)', () => {
       'OPERATIONS',
       'ADMIN',
       'SUPER_ADMIN',
+      'EMPLOYEE',
     ]);
   });
 

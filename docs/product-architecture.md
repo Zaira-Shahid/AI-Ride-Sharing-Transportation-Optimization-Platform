@@ -57,6 +57,12 @@ their own membership and company name. Nobody reads another company. `tripReques
 
 Every place that picks candidates must filter on the same `companyId` (null matches only null, so consumers match only consumers):
 
+**Caveat found in A1, to be solved in A3.** Firestore's `== null` matches only documents where the field exists and is `null`; it does
+not match documents where the field is missing. Existing consumer `tripRequests` and `driverJourneys` have no `companyId` field at all,
+so a plain `where('companyId', '==', null)` would find none of them. A3 must either write an explicit `companyId: null` on every new
+consumer document and backfill existing ones, or filter consumers differently. This is decided in the A3 design note, with a test that
+consumer matching still finds consumer documents.
+
 | Site                                                    | Change                                                                           |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `matching.ts:134` (available journeys for a request)    | add `.where('companyId', '==', request.companyId)`                               |
