@@ -17,6 +17,18 @@ service cloud.firestore {
       return isVerified() && role() in ['SUPPORT', 'OPERATIONS', 'ADMIN', 'SUPER_ADMIN'];
     }
 
+    // The company a member belongs to and their role in it, from claims only server code can set.
+    function companyClaim() {
+      return request.auth.token.get('companyId', '');
+    }
+
+    function isCompanyAdminOf(companyDocId) {
+      return isVerified()
+          && role() == 'EMPLOYEE'
+          && companyClaim() == companyDocId
+          && request.auth.token.get('companyRole', '') == 'COMPANY_ADMIN';
+    }
+
     // A person may change only their name and phone, and updatedAt must carry the server's clock.
     // Every other field (role, email, status, ...) is locked: adding, changing or removing any of
     // them shows up in affectedKeys() and is denied. Keep the phone pattern in step with
@@ -129,6 +141,35 @@ service cloud.firestore {
       allow read: if isVerified()
                   && ((request.auth.uid == resource.data.passengerId && role() == 'PASSENGER')
                       || isStaff());
+      allow write: if false;
+    }
+
+    // A company (Product A, docs/a1-tenancy-design.md), server-written only. A member reads their own
+    // company, matched by the `companyId` claim, which only server code sets. The claim can be up to
+    // an hour stale after a member is removed, so this guards only low-sensitivity data (the
+    // company's own name and status); anything sensitive goes through a function that reads the
+    // membership document. Another company's document is never readable.
+    match /companies/{companyDocId} {
+      allow read: if isVerified()
+                  && ((role() == 'EMPLOYEE' && companyClaim() == companyDocId) || isStaff());
+      allow write: if false;
+
+      // A membership. A member reads only their own; a company admin reads their own company's
+      // members. canDrive lives here, not in the token, so changing it needs no token refresh.
+      match /members/{memberId} {
+        allow read: if isVerified()
+                    && ((role() == 'EMPLOYEE' && companyClaim() == companyDocId
+                         && request.auth.uid == memberId)
+                        || isCompanyAdminOf(companyDocId)
+                        || isStaff());
+        allow write: if false;
+      }
+    }
+
+    // A company invitation. The whole invitation flow runs through functions, and the emailed token is
+    // stored only as a hash, so no client reads this; staff can list it for support.
+    match /companyInvitations/{invitationId} {
+      allow read: if isStaff();
       allow write: if false;
     }
 
