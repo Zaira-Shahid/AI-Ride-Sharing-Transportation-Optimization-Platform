@@ -6,6 +6,16 @@ import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/fire
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { enforceAppCheckFromEnvironment } from './appCheck.js';
+import {
+  acceptInvitation as acceptCompanyInvitation,
+  createCompany as createNewCompany,
+  inviteEmployee as inviteCompanyEmployee,
+  listEmployees as listCompanyEmployees,
+  listInvitations as listCompanyInvitations,
+  removeEmployee as removeCompanyEmployee,
+  revokeInvitation as revokeCompanyInvitation,
+  setEmployeeRole as setCompanyEmployeeRole,
+} from './companies.js';
 import { estimateTripRequest } from './estimates.js';
 import {
   retryDelayedJourneys,
@@ -215,6 +225,50 @@ function callerOf(request: {
     emailVerified: request.auth.token.email_verified === true,
   };
 }
+
+/** The caller plus the company claim, for the company callables (Product A). Authority still comes from the membership document. */
+function companyCallerOf(request: {
+  auth?: {
+    uid: string;
+    token: { role?: unknown; email_verified?: unknown; companyId?: unknown };
+  };
+}) {
+  return { ...callerOf(request), companyId: request.auth?.token.companyId };
+}
+
+const companyDeps = () => ({ auth: getAuth(), firestore: getFirestore() });
+
+export const createCompany = onCall((request) =>
+  createNewCompany(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const inviteEmployee = onCall((request) =>
+  inviteCompanyEmployee(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const listInvitations = onCall((request) =>
+  listCompanyInvitations(companyDeps(), companyCallerOf(request)),
+);
+
+export const revokeInvitation = onCall((request) =>
+  revokeCompanyInvitation(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const acceptInvitation = onCall((request) =>
+  acceptCompanyInvitation(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const listEmployees = onCall((request) =>
+  listCompanyEmployees(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const removeEmployee = onCall((request) =>
+  removeCompanyEmployee(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const setEmployeeRole = onCall((request) =>
+  setCompanyEmployeeRole(companyDeps(), companyCallerOf(request), request.data),
+);
 
 export const reviewDriver = onCall((request) =>
   reviewAsStaff(
