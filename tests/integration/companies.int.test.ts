@@ -641,6 +641,11 @@ describe('acceptInvitation', () => {
     await expect(
       call(staff.client, 'acceptInvitation', { code: staffInvite.code, name: 'S' }),
     ).rejects.toMatchObject(refused('failed-precondition', 'already has a role'));
+    // Refused before anything is written, not after: no profile, no membership, invitation still open.
+    expect((await doc(`users/${staff.uid}`)) ?? null).toBeNull();
+    expect((await doc(`companies/${boss.companyId}/members/${staff.uid}`)) ?? null).toBeNull();
+    expect((await doc(`companyInvitations/${staffInvite.invitationId}`))?.status).toBe('PENDING');
+    expect(await claimsOf(staff.uid)).toEqual({ role: 'SUPPORT' });
 
     const elsewhere = await founder('accept-elsewhere', 'Elsewhere Co');
     const crossInvite = await invite(boss, elsewhere.email);
@@ -648,6 +653,8 @@ describe('acceptInvitation', () => {
       call(elsewhere.client, 'acceptInvitation', { code: crossInvite.code, name: 'E' }),
     ).rejects.toMatchObject(refused('failed-precondition'));
     expect(await claimsOf(elsewhere.uid)).toMatchObject({ companyId: elsewhere.companyId });
+    expect((await doc(`companies/${boss.companyId}/members/${elsewhere.uid}`)) ?? null).toBeNull();
+    expect((await doc(`companyInvitations/${crossInvite.invitationId}`))?.status).toBe('PENDING');
   });
 
   it('refuses invalid details', async () => {
