@@ -19,18 +19,19 @@ matching and trip engine, adds a company (tenant) layer, and leaves the existing
 
 ## 3. Roles
 
-| Role | Who | Can do |
-| --- | --- | --- |
-| Company admin | A person at the company | Manage company profile/settings, invite and remove employees, view company dashboard (aggregates only), see pending requests counts |
-| Employee | A company member | Set home/work, commute preferences, post a ride offer, request a ride, accept/reject requests, manage upcoming rides, use voice |
-| Platform staff | Existing roles | Existing admin console; can also see companies (read-only for support; details in the architecture doc) |
-| Consumer users | Existing passengers/drivers | Unchanged. Never see or match with company rides |
+| Role           | Who                         | Can do                                                                                                                              |
+| -------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Company admin  | A person at the company     | Manage company profile/settings, invite and remove employees, view company dashboard (aggregates only), see pending requests counts |
+| Employee       | A company member            | Set home/work, commute preferences, post a ride offer, request a ride, accept/reject requests, manage upcoming rides, use voice     |
+| Platform staff | Existing roles              | Existing admin console; can also see companies (read-only for support; details in the architecture doc)                             |
+| Consumer users | Existing passengers/drivers | Unchanged. Never see or match with company rides                                                                                    |
 
 A company admin is not platform staff and gets no access to other companies or to the consumer network.
 
 ## 4. Functional requirements
 
 ### 4.1 Company onboarding and management
+
 - C1. A company is created by a signup flow for its first admin (name, work site address, contact email). New companies start
   as `ACTIVE` unless Q4 says otherwise.
 - C2. Company profile and settings: name, sites (one or more work addresses), default commute window, whether employees may
@@ -40,6 +41,7 @@ A company admin is not platform staff and gets no access to other companies or t
 - C5. An employee belongs to exactly one company in v1.
 
 ### 4.2 Employee features
+
 - E1. Invitation-based onboarding: accept invite, set name/phone, home location, work site, commute times.
 - E2. Create a ride offer (drive): date/time window, seats, detour tolerance (existing journey model).
 - E3. Request a ride: pickup, destination, time window.
@@ -50,6 +52,7 @@ A company admin is not platform staff and gets no access to other companies or t
 - E8. Recurring commutes (for example, weekdays 8:00) are desirable. Scope in Q6.
 
 ### 4.3 Corporate dashboard (web, company admin)
+
 - D1. Employee activity: invited, joined, active in the last 30 days.
 - D2. Ride activity: rides offered, completed, cancelled, seats filled, per day/week.
 - D3. Available rides and pending requests as counts and time distribution.
@@ -60,7 +63,9 @@ A company admin is not platform staff and gets no access to other companies or t
   home or trip locations. The existing platform rule that nobody but the rider and matched driver can read trip places is kept.
 
 ### 4.4 Voice (on-device, free)
+
 See the architecture doc for how. Requirements:
+
 - V1. Spoken output: ride updates (match found, driver on the way, pickup, arrival, cancellation, request received) and
   announcements, while the app is open.
 - V2. Voice menu: hands-free navigation of core actions (hear today's ride, offer a ride, request a ride, accept/reject a
@@ -74,6 +79,7 @@ not custom audio. Voice menus therefore work inside the app, not by phone call. 
 is out of scope unless you later approve one.
 
 ### 4.5 Non-functional
+
 - Mobile-first; desktop compatibility for the company dashboard.
 - Role-based access, server-side validation (zod schemas shared with clients), audit entries for company/employee changes.
 - No secrets in code; environment variables only. Test data only, never real personal data.
@@ -81,6 +87,7 @@ is out of scope unless you later approve one.
 - Automated tests per module: unit, emulator integration, rules tests, and e2e for the main journey.
 
 ## 5. Out of scope for Product A v1
+
 - Phone calls / IVR / any paid voice or SMS provider.
 - Multi-company membership for one person.
 - Company billing, subsidies, or invoicing (unless Q2 changes this).
@@ -89,15 +96,15 @@ is out of scope unless you later approve one.
 
 ## 6. Open questions (need your answer; defaults shown)
 
-| # | Question | Default if unanswered |
-| --- | --- | --- |
-| Q1 | May one employee both drive and ride (different days)? Today a user has one role. | Yes. Add a per-user "can drive" capability with its own verification, keeping `PASSENGER` as base. Needs a design decision before module A1 |
-| Q2 | Who pays? Existing flow charges riders by Stripe. | Corporate carpooling is **free** inside v1 (payment disabled for company rides). Fare handling deferred |
-| Q3 | Accept/reject: does a driver approve each rider, or does the engine auto-match with the driver able to decline? | Auto-match proposes, driver accepts or declines within a time limit, else the request returns to searching |
-| Q4 | Does a new company need platform approval before use? | No approval in v1; platform staff can suspend |
-| Q5 | Driver verification: platform staff, or the company admin? | Company admin verifies licence/vehicle details of own employees; platform-level checks remain optional |
-| Q6 | Recurring commutes in v1? | Out of v1; a single-day rides first, recurring in a later module |
-| Q7 | Languages for voice? | English only first; others once the speech spike shows what the devices support |
+| #   | Question                                                                                                        | Default if unanswered                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1  | May one employee both drive and ride (different days)? Today a user has one role.                               | Yes. Add a per-user "can drive" capability with its own verification, keeping `PASSENGER` as base. Needs a design decision before module A1 |
+| Q2  | Who pays? Existing flow charges riders by Stripe.                                                               | Corporate carpooling is **free** inside v1 (payment disabled for company rides). Fare handling deferred                                     |
+| Q3  | Accept/reject: does a driver approve each rider, or does the engine auto-match with the driver able to decline? | Auto-match proposes, driver accepts or declines within a time limit, else the request returns to searching                                  |
+| Q4  | Does a new company need platform approval before use?                                                           | No approval in v1; platform staff can suspend                                                                                               |
+| Q5  | Driver verification: platform staff, or the company admin?                                                      | Company admin verifies licence/vehicle details of own employees; platform-level checks remain optional                                      |
+| Q6  | Recurring commutes in v1?                                                                                       | Out of v1; a single-day rides first, recurring in a later module                                                                            |
+| Q7  | Languages for voice?                                                                                            | English only first; others once the speech spike shows what the devices support                                                             |
 
 ## 7. Acceptance for Product A
 

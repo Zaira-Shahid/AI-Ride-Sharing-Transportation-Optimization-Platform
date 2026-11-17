@@ -28,6 +28,7 @@ functions/src/
 ```
 
 ### D1. Employee app: new app or reuse the passenger/driver apps?
+
 Recommendation: a **new `apps/employee`** Expo app that composes existing `packages/mobile-auth` screens and the existing
 trip/journey callables. Reasons: the consumer apps stay untouched (your requirement); an employee is both rider and driver, which
 neither app models; voice needs its own screens. Cost: some UI duplication, kept low by sharing packages. Alternative: add a
@@ -38,6 +39,7 @@ neither app models; voice needs its own screens. Cost: some UI duplication, kept
 Add a company layer without touching consumer behavior.
 
 **Data**
+
 - `companies/{companyId}`: name, sites, settings, status, createdAt.
 - `companies/{companyId}/members/{uid}`: companyRole (`COMPANY_ADMIN` | `EMPLOYEE`), status, joinedAt.
 - `companyInvitations/{inviteId}`: companyId, email, tokenHash, expiresAt, status. Only the **hash** of the token is stored.
@@ -55,12 +57,12 @@ their own membership and company name. Nobody reads another company. `tripReques
 
 Every place that picks candidates must filter on the same `companyId` (null matches only null, so consumers match only consumers):
 
-| Site | Change |
-| --- | --- |
-| `matching.ts:134` (available journeys for a request) | add `.where('companyId', '==', request.companyId)` |
-| `optimizationRun.ts:172, 221` (batch run) | partition requests and journeys by `companyId`; run the optimizer once per group |
-| `planInsertion.ts:131` (insert into a MATCHING journey) | same filter |
-| `passengerConstraints.ts` / any other candidate loop | audit during module A3 |
+| Site                                                    | Change                                                                           |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `matching.ts:134` (available journeys for a request)    | add `.where('companyId', '==', request.companyId)`                               |
+| `optimizationRun.ts:172, 221` (batch run)               | partition requests and journeys by `companyId`; run the optimizer once per group |
+| `planInsertion.ts:131` (insert into a MATCHING journey) | same filter                                                                      |
+| `passengerConstraints.ts` / any other candidate loop    | audit during module A3                                                           |
 
 This is enforced and tested at the function layer (server-side), and by a dedicated test that seeds two companies and a consumer
 group with overlapping routes and asserts zero cross-matches. New composite Firestore indexes are required and will be added to
@@ -118,17 +120,17 @@ packages/voice
 
 ## 8. Delivery plan for Product A (one module at a time, each its own branch and PR into `develop`)
 
-| Module | Content | Gate |
-| --- | --- | --- |
-| A0 | Baseline: re-run unit/integration suites, fix known flakes noted in the audit, refresh stale docs | Green baseline recorded |
-| A1 | `packages/tenancy` types, `companies`/members/invitations model, claims, rules and rules tests | Isolation tests pass |
-| A2 | Company creation, invitations, accept flow, employee management (functions + tests) | Integration tests |
-| A3 | Tenant stamp on requests/journeys, tenant-filtered matching/optimization, no-cross-match test | Cross-company test passes |
-| A4 | `apps/corporate`: sign-in, company settings, employees, invitations | UI tests, responsive check |
-| A5 | `apps/employee`: onboarding, ride offers/requests, accept/reject, upcoming rides, notifications | e2e journey |
-| A6 | Voice spike, then `packages/voice` core, announcements and menu | Honest voice report |
-| A7 | Corporate dashboard aggregates and statistics | Privacy test (no places exposed) |
-| A8 | End-to-end journey, security checks, bug report, docs, launch-readiness report | Your acceptance |
+| Module | Content                                                                                           | Gate                             |
+| ------ | ------------------------------------------------------------------------------------------------- | -------------------------------- |
+| A0     | Baseline: re-run unit/integration suites, fix known flakes noted in the audit, refresh stale docs | Green baseline recorded          |
+| A1     | `packages/tenancy` types, `companies`/members/invitations model, claims, rules and rules tests    | Isolation tests pass             |
+| A2     | Company creation, invitations, accept flow, employee management (functions + tests)               | Integration tests                |
+| A3     | Tenant stamp on requests/journeys, tenant-filtered matching/optimization, no-cross-match test     | Cross-company test passes        |
+| A4     | `apps/corporate`: sign-in, company settings, employees, invitations                               | UI tests, responsive check       |
+| A5     | `apps/employee`: onboarding, ride offers/requests, accept/reject, upcoming rides, notifications   | e2e journey                      |
+| A6     | Voice spike, then `packages/voice` core, announcements and menu                                   | Honest voice report              |
+| A7     | Corporate dashboard aggregates and statistics                                                     | Privacy test (no places exposed) |
+| A8     | End-to-end journey, security checks, bug report, docs, launch-readiness report                    | Your acceptance                  |
 
 After A0, each module ends with the standard report you already use (Completed / Files changed / Architecture / Tests / Lint /
 Type check / Firebase / Git branch / Commit / Git push / Next module / Questions).

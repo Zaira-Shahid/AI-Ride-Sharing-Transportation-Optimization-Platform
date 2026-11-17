@@ -14,31 +14,31 @@ RideMesh is a ride-sharing optimization platform: passengers request trips, driv
 optimization engine groups passengers into shared routes. It is a single global network. It is not a company-scoped
 carpooling product.
 
-| Area | What exists |
-| --- | --- |
-| Monorepo | npm workspaces: `apps/passenger`, `apps/driver` (Expo / React Native), `apps/admin` (Next.js), `packages/{config,firebase,map,maps,mobile-auth,types,ui}`, `functions` (Cloud Functions), `services/optimization` (Python, OR-Tools) |
-| Auth and roles | Firebase Auth with email verification. Role is a server-set custom claim (`PASSENGER`, `DRIVER`, `SUPPORT`, `OPERATIONS`, `ADMIN`, `SUPER_ADMIN`). Staff roles are never self-service (`scripts/set-staff-role.mjs`) |
-| Data | Firestore: `users`, `drivers`, `vehicles`, `driverJourneys`, `tripRequests`, `journeyPlans`, `notifications`, `driverEarnings`, `receipts`, `config`, `auditLogs` and others behind functions. Default rule is deny |
-| Rides | trip request, matching (batch every 2 min plus on-create), route insertion, delay re-optimization, trip execution (`headToPickup` ... `completeDropoff`) |
-| Payments | Stripe authorization/capture/void/refund, inbound Stripe webhook, driver earnings, receipts |
-| Notifications | in-app plus Expo push |
-| Admin console | staff sign-in, drivers/vehicles review, passengers, trips, live map, optimization monitoring, payments, disputes, audit logs, analytics |
-| Compliance | data export and account deletion, retention sweeps, audit trail, App Check |
-| Docs | README, `docs/architecture.md`, `docs/security.md`, `docs/production-deployment.md`, and others |
+| Area           | What exists                                                                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Monorepo       | npm workspaces: `apps/passenger`, `apps/driver` (Expo / React Native), `apps/admin` (Next.js), `packages/{config,firebase,map,maps,mobile-auth,types,ui}`, `functions` (Cloud Functions), `services/optimization` (Python, OR-Tools) |
+| Auth and roles | Firebase Auth with email verification. Role is a server-set custom claim (`PASSENGER`, `DRIVER`, `SUPPORT`, `OPERATIONS`, `ADMIN`, `SUPER_ADMIN`). Staff roles are never self-service (`scripts/set-staff-role.mjs`)                 |
+| Data           | Firestore: `users`, `drivers`, `vehicles`, `driverJourneys`, `tripRequests`, `journeyPlans`, `notifications`, `driverEarnings`, `receipts`, `config`, `auditLogs` and others behind functions. Default rule is deny                  |
+| Rides          | trip request, matching (batch every 2 min plus on-create), route insertion, delay re-optimization, trip execution (`headToPickup` ... `completeDropoff`)                                                                             |
+| Payments       | Stripe authorization/capture/void/refund, inbound Stripe webhook, driver earnings, receipts                                                                                                                                          |
+| Notifications  | in-app plus Expo push                                                                                                                                                                                                                |
+| Admin console  | staff sign-in, drivers/vehicles review, passengers, trips, live map, optimization monitoring, payments, disputes, audit logs, analytics                                                                                              |
+| Compliance     | data export and account deletion, retention sweeps, audit trail, App Check                                                                                                                                                           |
+| Docs           | README, `docs/architecture.md`, `docs/security.md`, `docs/production-deployment.md`, and others                                                                                                                                      |
 
 ## 2. What is missing relative to the two products
 
 Confirmed by searching `apps`, `packages`, `functions/src` and `services`:
 
-| Needed | Present? |
-| --- | --- |
-| Company / tenant / organization concept | **No.** No company entity, no `companyId` anywhere |
-| Employee invitation or company-scoped access | **No** |
-| Company admin role | **No.** Only platform staff roles exist |
-| Voice (text-to-speech, speech recognition, menus) | **No code at all** |
-| Public REST API, API keys, OAuth provider | **No** (only Firebase callables and one inbound Stripe webhook) |
-| Outbound webhooks, retry/delivery logs | **No** |
-| Connector/adapter layer, developer dashboard | **No** |
+| Needed                                            | Present?                                                        |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| Company / tenant / organization concept           | **No.** No company entity, no `companyId` anywhere              |
+| Employee invitation or company-scoped access      | **No**                                                          |
+| Company admin role                                | **No.** Only platform staff roles exist                         |
+| Voice (text-to-speech, speech recognition, menus) | **No code at all**                                              |
+| Public REST API, API keys, OAuth provider         | **No** (only Firebase callables and one inbound Stripe webhook) |
+| Outbound webhooks, retry/delivery logs            | **No**                                                          |
+| Connector/adapter layer, developer dashboard      | **No**                                                          |
 
 ## 3. Reusable as-is
 
