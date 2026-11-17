@@ -1059,6 +1059,36 @@ The company (tenant) layer for the corporate product. Design: `docs/a1-tenancy-d
   forged or half-set claims, every write denied), `functions/src/companyClaims.test.ts`,
   `packages/tenancy/src/tenancy.test.ts` and `tests/tenancy-parity.test.ts`.
 
+### Company onboarding (module A2a)
+
+Design: `docs/a2-company-onboarding-design.md`. Code: `functions/src/companies.ts`.
+
+- **Administrator check reads the membership, not the token.** Every administrator function
+  (`inviteEmployee`, `listInvitations`, `revokeInvitation`, `listEmployees`, `removeEmployee`,
+  `setEmployeeRole`) requires an _active_ `COMPANY_ADMIN` membership of an _active_ company, read
+  from Firestore on each call. A removed or demoted administrator is therefore stopped at once, even
+  while their token still names the company.
+- **Invitation codes.** `<invitationId>.<token>`, with a 256-bit random token shown once. Only its
+  SHA-256 hash is stored (compared in constant time), and neither the code nor the hash is ever logged,
+  audited or returned by a list. Codes expire after 7 days. A wrong, used, revoked, expired or
+  suspended-company code all give the same answer ("This invitation is not valid or has expired").
+- **No account-existence leak.** An administrator cannot learn whether an email already has an
+  account: `inviteEmployee` answers the same either way. A consumer, driver or staff account that
+  tries to accept is refused at accept time (to the account owner only) and left unchanged.
+- **One account, one world.** Accepting or creating a company is refused for any account that already
+  has a role or belongs to another company. An employee cannot later register as a consumer
+  (`completeRegistration` refuses it).
+- **Abuse limits.** Company creation: 3 attempts per account per day plus a platform-wide daily limit
+  (default 50, `COMPANY_CREATIONS_PER_DAY`), because there is no approval step. Invitations: 30 per
+  administrator per hour, 200 pending per company. Accepting: 10 attempts per account per hour.
+- **Removal keeps history.** A removed member is kept as `REMOVED` (so past rides still count as
+  numbers), the profile is suspended with a reason, claims are cleared and refresh tokens revoked.
+  Nothing is deleted. The last active administrator cannot be removed or demoted.
+- **Audit.** `COMPANY_CREATED`, `EMPLOYEE_INVITED`, `INVITATION_REVOKED`, `INVITATION_ACCEPTED`,
+  `EMPLOYEE_REMOVED` and `EMPLOYEE_ROLE_CHANGED`, all written in the same transaction as the change.
+- **Tests.** `tests/integration/companies.int.test.ts` (47 tests), `functions/src/invitationCode.test.ts`
+  and the schema and limit parity checks in `tests/tenancy-parity.test.ts`.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with
