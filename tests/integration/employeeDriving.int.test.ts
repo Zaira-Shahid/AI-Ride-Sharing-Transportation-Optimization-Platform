@@ -499,16 +499,19 @@ describe('revokeEmployeeDriver', () => {
   });
 });
 
-describe('nobody can drive yet', () => {
-  it('keeps an approved employee out of the existing driver functions until A3 adds the company wrappers', async () => {
+describe('what an approved employee can reach', () => {
+  it('reaches the driver functions through the company adapter, but not the consumer-only ones', async () => {
     const boss = await founder('no-drive');
     const employee = await applicant(boss, 'no-drive-employee');
     await call(boss.client, 'approveEmployeeDriver', { uid: employee.uid });
     await employee.user.getIdToken(true);
 
+    // Module A3a: the driver functions now accept an approved employee. Going online is refused for the
+    // ordinary reason (no destination, seats or detour chosen yet), not because of who they are.
     await expect(
       call(employee.client, 'setAvailability', { status: 'ONLINE' }),
-    ).rejects.toMatchObject(refused('permission-denied'));
+    ).rejects.toMatchObject(refused('failed-precondition', 'cannot go online'));
+    // The consumer's own vehicle function is still not theirs: they use saveEmployeeVehicle.
     await expect(call(employee.client, 'saveVehicle', vehicleInput())).rejects.toMatchObject(
       refused('permission-denied'),
     );

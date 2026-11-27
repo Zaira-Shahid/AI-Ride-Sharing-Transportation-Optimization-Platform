@@ -185,6 +185,22 @@ export async function clearScenarioCollections(): Promise<void> {
   for (const name of COLLECTIONS_TO_CLEAR) {
     await firestore.recursiveDelete(firestore.collection(name));
   }
+  // The scenario's audit entries and notifications carry its fixed ids, and nothing else clears them, so
+  // a second run in the same emulator session (the mixed-world test runs this scenario too) would
+  // otherwise read the first run's entries as its own.
+  const ours = (text: string) => text.includes(P) || text.includes(N);
+  const audits = await firestore
+    .collection('auditLogs')
+    .where('action', 'in', ['PLAN_REVISED', 'TRIP_INSERTED_INTO_JOURNEY'])
+    .get();
+  const notices = await firestore.collection('notifications').get();
+  const stale = [
+    ...audits.docs.filter((doc) =>
+      ours(`${doc.get('entity') as string} ${JSON.stringify(doc.get('newState'))}`),
+    ),
+    ...notices.docs.filter((doc) => ours(String(doc.get('recipientId')))),
+  ];
+  await Promise.all(stale.map((doc) => doc.ref.delete()));
 }
 
 export const line = (lat: number) => ({ latitude: lat, longitude: 0 });
