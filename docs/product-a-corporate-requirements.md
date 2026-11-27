@@ -22,7 +22,7 @@ matching and trip engine, adds a company (tenant) layer, and leaves the existing
 - Employee app is a new `apps/employee`; the passenger and driver apps stay untouched (D1).
 - One employee can both drive and ride: a driver capability is added on top of the existing role (Q1).
 - Company carpooling is free in v1; Stripe payments are off for company rides (Q2).
-- Matching is automatic; the driver may decline within a time limit, else the request returns to searching (Q3).
+- Matching is automatic and stands unless the driver declines within a time limit; silence confirms the match (Q3, settled in A3b).
 - The company admin verifies their own employee-drivers, not platform staff (Q5).
 - No platform approval for new companies (Q4), no recurring commutes in v1 (Q6), English-only voice first (Q7).
 
@@ -55,7 +55,8 @@ A company admin is not platform staff and gets no access to other companies or t
 - E2. Create a ride offer (drive): date/time window, seats, detour tolerance (existing journey model).
 - E3. Request a ride: pickup, destination, time window.
 - E4. Matching: only against colleagues of the same company, using the existing engine (route, destination, time, seats).
-- E5. Accept/reject: a driver can accept or reject a match before it is final. Decision rules in Q3.
+- E5. Decline: a matched driver can decline a match inside a window the company sets (default 5 minutes). A decline returns the
+  rider to searching and they are never offered to that driver again. If the driver does nothing, the match stands. Decision rules in Q3.
 - E6. Ride status and notifications (in-app, push, and spoken per section 5).
 - E7. Manage upcoming rides: view, cancel, change seats/time.
 - E8. Recurring commutes (for example, weekdays 8:00) are desirable. Scope in Q6.
@@ -112,9 +113,12 @@ All questions were answered on 2026-11-17. Items marked "Design" need a short de
   existing `drivers` and `vehicles` documents.
 - **Q2, free in v1, Stripe off for company rides.** Company-stamped trips skip payment authorization, capture, receipts and
   driver earnings. This is enforced server-side and tested, and consumer payments stay unchanged.
-- **Q3, auto-match; the driver may decline within a time limit.** Design: company matches need a "proposed" window before they
-  become final. Today the engine commits matches directly, so this adds a new state and timer for company rides only. A decline
-  or timeout returns the rider to searching. Consumer matching stays exactly as it is.
+- **Q3, auto-match; the driver may decline within a time limit; silence confirms.** Built in A3b (`docs/a3b-driver-decline-design.md`).
+  The engine matches automatically and the match stands unless the driver declines inside the window. Only a decline returns the
+  rider to searching; **doing nothing never does** (this replaces an earlier wording that said a timeout returned the rider to
+  searching, which would have meant approving every rider by hand). There is no new ride state and no timer: a company ride carries
+  a decision marker with a deadline, and the window closes by the clock. The company sets the window from 0 to 30 minutes (default
+  5; 0 means a match is final at once). Consumer matching stays exactly as it is.
 - **Q4, no platform approval.** A new company starts `ACTIVE`; platform staff can suspend it.
 - **Q5, the company admin verifies their own employee-drivers.** Design: a new company-scoped review function. The existing
   `reviewDriver` and `reviewVehicle` stay ADMIN/SUPER_ADMIN only. A company admin can only see and act on drivers in their own
@@ -126,7 +130,7 @@ All questions were answered on 2026-11-17. Items marked "Design" need a short de
 ## 7. Acceptance for Product A
 
 A reviewer can: create a company, invite two employees, have both join; one posts a ride and the other requests it; the
-match is proposed and accepted; both get status updates (in-app, push, spoken); the ride completes; the company admin sees
+match is made automatically, and stands (the driver may decline inside the window, and a decline sends the rider back to searching); both get status updates (in-app, push, spoken); the ride completes; the company admin sees
 the ride in the dashboard counts, never the exact places; a second company's employees never see or match with any of it;
 and every voice action has a working touch equivalent. Each of these is covered by an automated test, and voice is reported separately,
 stating exactly what works on which platform.

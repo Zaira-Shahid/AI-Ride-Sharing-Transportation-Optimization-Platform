@@ -1195,6 +1195,36 @@ Design: `docs/a3-company-matching-design.md`. Code: `functions/src/tenant.ts`, `
   geospatial index yet"); a per-company indexed query is a later change if pools grow. Platform staff see company rides in the admin
   console under the same privacy rules as any ride. The decline-within-a-time-limit flow is module A3b.
 
+### A company driver's say over a match (module A3b)
+
+Design: `docs/a3b-driver-decline-design.md`. Code: `functions/src/driverDecision.ts` and `declineWindow.ts`, with small
+changes to the batch run, insertion, candidate pool and trip steps.
+
+- **Silence confirms.** The engine matches automatically and the match stands unless the driver declines before a deadline. Only a
+  decline sends the rider back to searching; doing nothing never does. No new ride state and no timer: a company ride stays
+  `PICKUP_ASSIGNED` and carries a `driverDecision` (`OPEN` with a deadline, or `CONFIRMED`), and the window closes by the clock.
+- **Company rides only.** The marker is written by the batch run and by insertion only when the ride has a company. A consumer ride is
+  written exactly as before, with no `driverDecision` and no declined list (the characterization golden files are unchanged, and a
+  mutation that gives a consumer ride a window fails them).
+- **The window is the company's setting**, 0 to 30 minutes (default 5, and the default for a missing or invalid value; 0 means final
+  at once), read once per company group, so a consumer's run reads nothing extra.
+- **Declining** releases that one rider (`SEARCHING`, driver and vehicle fields cleared, a "Finding a new driver" notice and push, an
+  audit entry `TRIP_DECLINED_BY_DRIVER`), revises the plan without their stops (a new version; the other riders keep their place),
+  returns the journey to `AVAILABLE` if nobody is left, and records the journey on the rider's `declinedJourneyIds`. The batch run,
+  insertion and single assignment never offer that journey to that rider again. There is no limit on declines in v1; each is audited
+  and counted (`declineCount`).
+- **Confirming.** `confirmMatchedRider` ends the window early. Starting the pickup also confirms, so a driver who has begun the ride
+  cannot then decline it.
+- **Who may do either.** Only the ride's own driver, in the ride's own company, through the same entry-point adapter as every other
+  driving function. Anyone else, in any company, a consumer driver, a ride that does not exist and a consumer ride all get the same
+  "not found", so nothing is revealed about company rides. A late, repeated or already-started decline is refused or answers
+  "unchanged", and a refused call writes nothing.
+- **Tests.** `tests/integration/driver-decline.int.test.ts` (14), `driver-decline-callables.int.test.ts` (3, real accounts), unit and
+  parity tests for the window rules, and the unchanged A3a characterization and mixed-world tests. Each guard was mutation-checked.
+- **Known limits.** If the route cannot be recomputed when a rider declines, the shortened plan keeps its earlier totals and no legs,
+  as other plan revisions already tolerate. Single-request assignment is not wired into any live trigger, so it does not start a
+  window. The company's window is read from `settings`; the screen that sets it arrives with the company dashboard (A4).
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with
