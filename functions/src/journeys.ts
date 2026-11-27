@@ -164,6 +164,8 @@ export async function declareDestination(
       driverId: caller.uid,
       vehicleId: caller.uid,
       destination,
+      // Only a company's journey has the field (module A3a); a consumer's is exactly as it was.
+      ...(caller.companyId ? { companyId: caller.companyId } : {}),
       ...NEW_JOURNEY_DEFAULTS,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
