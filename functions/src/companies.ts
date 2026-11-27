@@ -17,7 +17,9 @@ import {
   type CompanyRole,
 } from './companyClaims.js';
 import { generateInvitationCode, parseInvitationCode, tokenMatchesHash } from './invitationCode.js';
+import type { PushProvider } from './pushProvider.js';
 import type { RoleDeps } from './registration.js';
+import { reviewVerification } from './verification.js';
 
 // Company onboarding (module A2a, docs/a2-company-onboarding-design.md): create a company, invite
 // and accept employees, list and remove them, change their role. Functions deploy from this
@@ -78,6 +80,8 @@ export interface CompanyCaller {
 export interface CompanyDeps extends RoleDeps {
   /** Overrides the platform-wide daily company limit (tests). */
   maxCompaniesPerDay?: number;
+  /** Told about riders released when a removed driver goes offline (module A3a). */
+  push?: PushProvider;
 }
 
 export function companyCreationsPerDayFromEnvironment(): number {
@@ -774,6 +778,19 @@ export async function removeEmployee(
       return { status: 'removed' };
     },
   );
+
+  // A removed person who was driving must not stay in the pool (module A3a): the existing review
+  // takes a driver offline and releases any matched riders, so a rejected driver profile does both.
+  // Safe to repeat: an already-rejected profile is left alone.
+  const driver = await firestore.doc(`drivers/${uid}`).get();
+  if (driver.exists && driver.get('verificationStatus') !== 'REJECTED') {
+    await reviewVerification(
+      { firestore, push: deps.push ?? { sendPush: () => Promise.resolve({ status: 'sent' }) } },
+      'DRIVER',
+      caller.uid,
+      { driverId: uid, decision: 'REJECTED', reason: 'Removed from the company' },
+    );
+  }
 
   // Claims and tokens last, outside the transaction: a repeat call finds the member REMOVED and
   // returns early, so clear them whenever the call is a removal or a repeat of one.

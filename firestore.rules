@@ -29,6 +29,18 @@ service cloud.firestore {
           && request.auth.token.get('companyRole', '') == 'COMPANY_ADMIN';
     }
 
+    // A company employee rides and drives through the same documents as everyone else (module A3a), so
+    // the same ownership checks also accept the EMPLOYEE role. They are still tied to the document's own
+    // passengerId, matchedDriverId or driverId equalling the caller's uid, so nothing about anyone else
+    // becomes readable.
+    function actsAsDriver() {
+      return role() == 'DRIVER' || role() == 'EMPLOYEE';
+    }
+
+    function actsAsPassenger() {
+      return role() == 'PASSENGER' || role() == 'EMPLOYEE';
+    }
+
     // A person may change only their name and phone, and updatedAt must carry the server's clock.
     // Every other field (role, email, status, ...) is locked: adding, changing or removing any of
     // them shows up in affectedKeys() and is denied. Keep the phone pattern in step with
@@ -63,7 +75,7 @@ service cloud.firestore {
     // later Phase 2 module opens only the specific fields it owns.
     match /drivers/{driverId} {
       allow read: if isVerified()
-                  && ((request.auth.uid == driverId && role() == 'DRIVER') || isStaff());
+                  && ((request.auth.uid == driverId && actsAsDriver()) || isStaff());
       allow write: if false;
     }
 
@@ -71,7 +83,7 @@ service cloud.firestore {
     // it (it must enforce a unique plate number, which rules cannot). The driver can read their own.
     match /vehicles/{vehicleId} {
       allow read: if isVerified()
-                  && ((request.auth.uid == vehicleId && role() == 'DRIVER') || isStaff());
+                  && ((request.auth.uid == vehicleId && actsAsDriver()) || isStaff());
       allow write: if false;
     }
 
@@ -79,7 +91,7 @@ service cloud.firestore {
     // server functions create or change it (Module 2.6 onwards); the driver can read their own.
     match /driverJourneys/{journeyId} {
       allow read: if isVerified()
-                  && ((request.auth.uid == resource.data.driverId && role() == 'DRIVER')
+                  && ((request.auth.uid == resource.data.driverId && actsAsDriver())
                       || isStaff());
       allow write: if false;
     }
@@ -92,8 +104,8 @@ service cloud.firestore {
     // functions).
     match /tripRequests/{tripId} {
       allow read: if isVerified()
-                  && ((request.auth.uid == resource.data.passengerId && role() == 'PASSENGER')
-                      || (request.auth.uid == resource.data.matchedDriverId && role() == 'DRIVER'));
+                  && ((request.auth.uid == resource.data.passengerId && actsAsPassenger())
+                      || (request.auth.uid == resource.data.matchedDriverId && actsAsDriver()));
       allow write: if false;
     }
 
@@ -102,7 +114,7 @@ service cloud.firestore {
     // pickup/dropoff order (Module 7.1).
     match /journeyPlans/{planId} {
       allow read: if isVerified()
-                  && ((request.auth.uid == resource.data.driverId && role() == 'DRIVER')
+                  && ((request.auth.uid == resource.data.driverId && actsAsDriver())
                       || isStaff());
       allow write: if false;
     }
