@@ -1,4 +1,4 @@
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, Timestamp } from 'firebase-admin/firestore';
 import {
   assignSearchingTripRequest,
   findCandidateJourneysNow,
@@ -180,25 +180,40 @@ const COLLECTIONS_TO_CLEAR = [
   'goldenTrips',
 ];
 
+/**
+ * The ids the scenario tests use for their own fixed documents. Everything under them is removed before
+ * AND after each use, so these tests neither read another test's leftovers nor leave any for another
+ * test: a driver-role user left behind here is picked up by the driver-profile backfill test, which
+ * creates profiles and audit entries for it.
+ */
+const OWN_PREFIXES = [P, 'anoise-', 'hostile-', 'pool-', 'count-', 'assign-', 'ins-', 'e2e-'];
+const mentionsOwn = (text: string) => OWN_PREFIXES.some((prefix) => text.includes(prefix));
+
 export async function clearScenarioCollections(): Promise<void> {
   const { firestore } = admin();
   for (const name of COLLECTIONS_TO_CLEAR) {
     await firestore.recursiveDelete(firestore.collection(name));
   }
-  // The scenario's audit entries and notifications carry its fixed ids, and nothing else clears them, so
-  // a second run in the same emulator session (the mixed-world test runs this scenario too) would
-  // otherwise read the first run's entries as its own.
-  const ours = (text: string) => text.includes(P) || text.includes(N);
-  const audits = await firestore
-    .collection('auditLogs')
-    .where('action', 'in', ['PLAN_REVISED', 'TRIP_INSERTED_INTO_JOURNEY'])
-    .get();
-  const notices = await firestore.collection('notifications').get();
+  // The accounts the scenarios seed, by id prefix.
+  for (const name of ['users', 'vehicles', 'drivers']) {
+    for (const prefix of OWN_PREFIXES) {
+      const owned = await firestore
+        .collection(name)
+        .where(FieldPath.documentId(), '>=', prefix)
+        .where(FieldPath.documentId(), '<', `${prefix}\uf8ff`)
+        .get();
+      await Promise.all(owned.docs.map((doc) => doc.ref.delete()));
+    }
+  }
+  // What was written about them: audit entries (of any action) and notifications. They carry the fixed
+  // ids, so a later run would otherwise read an earlier run's entries as its own.
+  const audits = await firestore.collection('auditLogs').select('entity', 'newState').get();
+  const notices = await firestore.collection('notifications').select('recipientId').get();
   const stale = [
     ...audits.docs.filter((doc) =>
-      ours(`${doc.get('entity') as string} ${JSON.stringify(doc.get('newState'))}`),
+      mentionsOwn(`${doc.get('entity') as string} ${JSON.stringify(doc.get('newState'))}`),
     ),
-    ...notices.docs.filter((doc) => ours(String(doc.get('recipientId')))),
+    ...notices.docs.filter((doc) => mentionsOwn(String(doc.get('recipientId')))),
   ];
   await Promise.all(stale.map((doc) => doc.ref.delete()));
 }
