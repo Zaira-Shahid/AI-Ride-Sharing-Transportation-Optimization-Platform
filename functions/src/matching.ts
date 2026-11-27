@@ -7,6 +7,7 @@ import {
   type RoutingCollections,
   type RoutingProvider,
 } from './routing.js';
+import { sameTenant, tenantOf, type Tenant } from './tenant.js';
 import { distanceMeters } from './tripRequests.js';
 
 // Candidate discovery (Module 5.2) and starting the search (Module 5.3). Candidate discovery is a
@@ -129,23 +130,31 @@ function pointOf(value: unknown): Point | null {
 export async function findCandidateJourneysNow(
   deps: { firestore: Firestore },
   trip: CandidateSourceTrip,
+  /**
+   * The company the trip belongs to, or null for a consumer (module A3a). Only journeys of the same
+   * company are candidates, so a company ride is never offered another company's driver or a
+   * consumer's. Defaults to the consumer network, so an omitted value can only ever narrow the pool.
+   */
+  tenant: Tenant = null,
 ): Promise<CandidateJourney[]> {
   const snapshot = await deps.firestore
     .collection('driverJourneys')
     .where('status', '==', 'AVAILABLE')
     .get();
 
-  const journeys: CandidateSourceJourney[] = snapshot.docs.map((doc) => {
-    const data = doc.data();
-    const driverId: unknown = data.driverId;
-    return {
-      id: doc.id,
-      driverId: typeof driverId === 'string' ? driverId : '',
-      origin: pointOf(data.origin),
-      destination: pointOf(data.destination),
-      availableSeats: isNumber(data.availableSeats) ? data.availableSeats : null,
-    };
-  });
+  const journeys: CandidateSourceJourney[] = snapshot.docs
+    .filter((doc) => sameTenant(tenantOf(doc.data()), tenant))
+    .map((doc) => {
+      const data = doc.data();
+      const driverId: unknown = data.driverId;
+      return {
+        id: doc.id,
+        driverId: typeof driverId === 'string' ? driverId : '',
+        origin: pointOf(data.origin),
+        destination: pointOf(data.destination),
+        availableSeats: isNumber(data.availableSeats) ? data.availableSeats : null,
+      };
+    });
 
   return findCandidateJourneys(trip, journeys);
 }
@@ -206,8 +215,13 @@ export async function matchTripRequest(
     const origin = pointOf(trip.get('origin'));
     const destination = pointOf(trip.get('destination'));
     if (origin && destination) {
-      candidateCount = (await findCandidateJourneysNow({ firestore }, { origin, destination }))
-        .length;
+      candidateCount = (
+        await findCandidateJourneysNow(
+          { firestore },
+          { origin, destination },
+          tenantOf(trip.data()),
+        )
+      ).length;
     }
   }
 
@@ -458,10 +472,10 @@ export async function assignSearchingTripRequest(
   const passengerMaxExtraMinutes = preferences.maxExtraTime;
   const passengerMaxDetourDistanceKm = preferences.maxDetourDistance;
 
-  const candidates = (await findCandidateJourneysNow({ firestore }, { origin, destination })).slice(
-    0,
-    ASSIGN_CANDIDATES_CHECKED,
-  );
+  const tripTenant = tenantOf(trip.data());
+  const candidates = (
+    await findCandidateJourneysNow({ firestore }, { origin, destination }, tripTenant)
+  ).slice(0, ASSIGN_CANDIDATES_CHECKED);
 
   const compatible: Array<
     CandidateJourney &
@@ -533,6 +547,11 @@ export async function assignSearchingTripRequest(
       currentJourney.get('status') !== 'AVAILABLE' ||
       currentJourney.get('driverId') !== winner.driverId
     ) {
+      return 'unmatched';
+    }
+    // Second line of defence (module A3a): never commit a pairing across companies, whatever
+    // proposed it.
+    if (!sameTenant(tenantOf(currentTrip.data()), tenantOf(currentJourney.data()))) {
       return 'unmatched';
     }
 

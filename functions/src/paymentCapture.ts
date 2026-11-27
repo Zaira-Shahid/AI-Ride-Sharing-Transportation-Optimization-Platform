@@ -7,6 +7,7 @@ import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
 import { recordReceipt } from './receipts.js';
 import type { StripeProvider } from './stripeProvider.js';
+import { isCompanyRide } from './tenant.js';
 
 // Module 9.4 (payment capture): once a trip is COMPLETED and its final fare is known (Module 9.3),
 // captures exactly finalFareMinorUnits from the hold Module 9.2 placed - never the full authorized
@@ -53,6 +54,9 @@ export async function captureTripPayment(
   const { firestore } = deps;
   const tripRef = firestore.collection('tripRequests').doc(tripId);
   const tripSnap = await tripRef.get();
+
+  // A company ride is free (module A3a, Q2): Stripe is never contacted for one, whatever else is true.
+  if (tripSnap.exists && isCompanyRide(tripSnap.data())) return 'skipped';
 
   if (
     !tripSnap.exists ||

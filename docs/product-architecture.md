@@ -57,11 +57,11 @@ their own membership and company name. Nobody reads another company. `tripReques
 
 Every place that picks candidates must filter on the same `companyId` (null matches only null, so consumers match only consumers):
 
-**Caveat found in A1, to be solved in A3.** Firestore's `== null` matches only documents where the field exists and is `null`; it does
+**Caveat found in A1, settled in A3a (see `docs/a3-company-matching-design.md`, section 2, and `docs/security.md`).** Firestore's `== null` matches only documents where the field exists and is `null`; it does
 not match documents where the field is missing. Existing consumer `tripRequests` and `driverJourneys` have no `companyId` field at all,
-so a plain `where('companyId', '==', null)` would find none of them. A3 must either write an explicit `companyId: null` on every new
-consumer document and backfill existing ones, or filter consumers differently. This is decided in the A3 design note, with a test that
-consumer matching still finds consumer documents.
+so a plain `where('companyId', '==', null)` would find none of them. A3a settled it by **never asking Firestore about `companyId`**: consumer documents never get the field (no backfill, no explicit
+`null`), and code reads a document it already has through `tenantOf`, which treats missing, `null` and empty as the same "consumer".
+The existing queries are unchanged and the split by company happens in memory, so there is no migration and no new index.
 
 | Site                                                    | Change                                                                           |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- |

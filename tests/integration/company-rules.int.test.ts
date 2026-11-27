@@ -275,3 +275,83 @@ describe('an employee profile (module A2c: corrections need no function)', () =>
     );
   });
 });
+
+describe('an employee’s own rides, journeys and driving documents (module A3a)', () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'tripRequests/trip-1'), {
+        passengerId: 'rider-1',
+        matchedDriverId: 'driver-1',
+        companyId: 'c1',
+      });
+      await setDoc(doc(db, 'driverJourneys/journey-1'), { driverId: 'driver-1', companyId: 'c1' });
+      await setDoc(doc(db, 'journeyPlans/plan-1'), {
+        driverId: 'driver-1',
+        journeyId: 'journey-1',
+      });
+      await setDoc(doc(db, 'drivers/driver-1'), { userId: 'driver-1' });
+      await setDoc(doc(db, 'vehicles/driver-1'), { driverId: 'driver-1' });
+    });
+  });
+
+  const rider = () => member('rider-1', 'c1', 'EMPLOYEE');
+  const driver = () => member('driver-1', 'c1', 'EMPLOYEE');
+  const colleague = () => member('colleague-1', 'c1', 'EMPLOYEE');
+
+  it('lets a rider read their own trip, and a driver their own trip, journey, plan, profile and vehicle', async () => {
+    await assertSucceeds(getDoc(doc(rider(), 'tripRequests/trip-1')));
+    await assertSucceeds(getDoc(doc(driver(), 'tripRequests/trip-1')));
+    await assertSucceeds(getDoc(doc(driver(), 'driverJourneys/journey-1')));
+    await assertSucceeds(getDoc(doc(driver(), 'journeyPlans/plan-1')));
+    await assertSucceeds(getDoc(doc(driver(), 'drivers/driver-1')));
+    await assertSucceeds(getDoc(doc(driver(), 'vehicles/driver-1')));
+  });
+
+  it('keeps a colleague out of all of it, and a company administrator too', async () => {
+    const admin = () => member('boss-1', 'c1', 'COMPANY_ADMIN');
+    for (const db of [colleague(), admin()]) {
+      for (const path of [
+        'tripRequests/trip-1',
+        'driverJourneys/journey-1',
+        'journeyPlans/plan-1',
+        'drivers/driver-1',
+        'vehicles/driver-1',
+      ]) {
+        await assertFails(getDoc(doc(db, path)));
+      }
+    }
+  });
+
+  it('does not let a rider read the driver’s journey, or the driver’s documents', async () => {
+    for (const path of ['driverJourneys/journey-1', 'journeyPlans/plan-1', 'drivers/driver-1']) {
+      await assertFails(getDoc(doc(rider(), path)));
+    }
+  });
+
+  it('never lets an employee write any of them', async () => {
+    for (const db of [rider(), driver()]) {
+      await assertFails(updateDoc(doc(db, 'tripRequests/trip-1'), { status: 'COMPLETED' }));
+      await assertFails(updateDoc(doc(db, 'driverJourneys/journey-1'), { status: 'ACTIVE' }));
+      await assertFails(updateDoc(doc(db, 'drivers/driver-1'), { verificationStatus: 'VERIFIED' }));
+      await assertFails(
+        updateDoc(doc(db, 'vehicles/driver-1'), { verificationStatus: 'VERIFIED' }),
+      );
+    }
+  });
+
+  it('does not open anything to an unverified email or a token with no role', async () => {
+    const unverified = env
+      .authenticatedContext('driver-1', {
+        email_verified: false,
+        role: 'EMPLOYEE',
+        companyId: 'c1',
+      })
+      .firestore();
+    await assertFails(getDoc(doc(unverified, 'driverJourneys/journey-1')));
+    const noRole = env
+      .authenticatedContext('driver-1', { email_verified: true, companyId: 'c1' })
+      .firestore();
+    await assertFails(getDoc(doc(noRole, 'driverJourneys/journey-1')));
+  });
+});

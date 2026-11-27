@@ -9,6 +9,7 @@ import { captureTripPayment } from './paymentCapture.js';
 import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
 import type { StripeProvider } from './stripeProvider.js';
+import { isCompanyRide } from './tenant.js';
 import { canTransition } from './tripRequests.js';
 
 // Module 7.2 (trip execution, Phase 7): advances a matched request one step at a time, through
@@ -243,7 +244,8 @@ async function advance(
     }
 
     let fareFields: { finalFareMinorUnits: number; platformFeeMinorUnits: number } | null = null;
-    if (fareConfig) {
+    // Company rides are free (module A3a, Q2): no fare is ever worked out for one.
+    if (fareConfig && !isCompanyRide(trip.data())) {
       const estimatedDistance = trip.get('estimatedDistance');
       const estimatedDuration = trip.get('estimatedDuration');
       if (typeof estimatedDistance === 'number' && typeof estimatedDuration === 'number') {

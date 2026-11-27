@@ -5,6 +5,12 @@ export interface Caller {
   uid: string;
   role: unknown;
   emailVerified: boolean;
+  /**
+   * Set only for an employee acting through employeeActing.ts (module A3a): the company, taken from
+   * their membership document and never from anything the client sends. A consumer's caller never
+   * has it, so what a consumer writes is unchanged.
+   */
+  companyId?: string;
 }
 
 export type DriverCaller = Caller;
@@ -24,7 +30,10 @@ export function requireVerifiedPassenger(caller: PassengerCaller): void {
 
 /** Drivers and passengers, with a verified email: who may ask for an address or a route. */
 export function requireVerifiedRider(caller: Caller): void {
-  if (!caller.emailVerified || (caller.role !== 'DRIVER' && caller.role !== 'PASSENGER')) {
+  if (
+    !caller.emailVerified ||
+    (caller.role !== 'DRIVER' && caller.role !== 'PASSENGER' && caller.role !== 'EMPLOYEE')
+  ) {
     throw new HttpsError('permission-denied', 'Only verified drivers and passengers can do this.');
   }
 }

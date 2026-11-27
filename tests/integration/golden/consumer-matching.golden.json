@@ -1,0 +1,637 @@
+{
+  "candidatePool": {
+    "nearX": [
+      {
+        "journey": "j-x",
+        "driver": "d-x",
+        "distanceMeters": 111
+      }
+    ],
+    "nearYAgainstTheGrain": [],
+    "nowhere": []
+  },
+  "onCreateCount": {
+    "outcome": "searching",
+    "status": "SEARCHING",
+    "candidateCount": 1
+  },
+  "singleAssignment": {
+    "outcome": "matched",
+    "status": "MATCHED",
+    "matchedJourneyId": "j-v",
+    "matchedDriverId": "d-v",
+    "journey": {
+      "status": "MATCHING",
+      "matchedTripRequestId": "r-asg"
+    }
+  },
+  "batch": {
+    "requestCount": 6,
+    "journeyCount": 3,
+    "matchedRequestCount": 4,
+    "matchedJourneyCount": 3,
+    "insertedRequestCount": 1,
+    "requestIds": ["r-w1", "r-x1", "r-x2", "r-y1", "r-z1"],
+    "planIds": ["plan:j-w:v1", "plan:j-x:v1", "plan:j-y:v1", "plan:j-z:v2"],
+    "hasRunId": true
+  },
+  "trips": {
+    "x1": {
+      "status": "PICKUP_ASSIGNED",
+      "matchedJourneyId": "j-x",
+      "matchedDriverId": "d-x",
+      "assignedPlanId": "plan:j-x:v1",
+      "driverName": "Driver",
+      "vehicle": ["CAR", "Toyota", "Corolla", "GLD-X"],
+      "sharedRide": true,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "driverName",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchDurationSeconds",
+        "matchedAt",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "sharedRide",
+        "status",
+        "updatedAt",
+        "vehicleMake",
+        "vehicleModel",
+        "vehiclePlateNumber",
+        "vehicleType"
+      ]
+    },
+    "x2": {
+      "status": "PICKUP_ASSIGNED",
+      "matchedJourneyId": "j-x",
+      "matchedDriverId": "d-x",
+      "assignedPlanId": "plan:j-x:v1",
+      "driverName": "Driver",
+      "vehicle": ["CAR", "Toyota", "Corolla", "GLD-X"],
+      "sharedRide": true,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "driverName",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchDurationSeconds",
+        "matchedAt",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "sharedRide",
+        "status",
+        "updatedAt",
+        "vehicleMake",
+        "vehicleModel",
+        "vehiclePlateNumber",
+        "vehicleType"
+      ]
+    },
+    "y1": {
+      "status": "PICKUP_ASSIGNED",
+      "matchedJourneyId": "j-y",
+      "matchedDriverId": "d-y",
+      "assignedPlanId": "plan:j-y:v1",
+      "driverName": "Driver",
+      "vehicle": ["CAR", "Toyota", "Corolla", "GLD-Y"],
+      "sharedRide": false,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "driverName",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchDurationSeconds",
+        "matchedAt",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "sharedRide",
+        "status",
+        "updatedAt",
+        "vehicleMake",
+        "vehicleModel",
+        "vehiclePlateNumber",
+        "vehicleType"
+      ]
+    },
+    "z0": {
+      "status": "PICKUP_ASSIGNED",
+      "matchedJourneyId": "j-z",
+      "matchedDriverId": "d-z",
+      "assignedPlanId": "plan:j-z:v2",
+      "driverName": null,
+      "vehicle": [null, null, null, null],
+      "sharedRide": true,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "sharedRide",
+        "status",
+        "updatedAt"
+      ]
+    },
+    "z1": {
+      "status": "PICKUP_ASSIGNED",
+      "matchedJourneyId": "j-z",
+      "matchedDriverId": "d-z",
+      "assignedPlanId": "plan:j-z:v2",
+      "driverName": "Driver",
+      "vehicle": ["CAR", "Toyota", "Corolla", "GLD-Z"],
+      "sharedRide": true,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "driverName",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchDurationSeconds",
+        "matchedAt",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "sharedRide",
+        "status",
+        "updatedAt",
+        "vehicleMake",
+        "vehicleModel",
+        "vehiclePlateNumber",
+        "vehicleType"
+      ]
+    },
+    "w1": {
+      "status": "PICKUP_ASSIGNED",
+      "matchedJourneyId": "j-w",
+      "matchedDriverId": "d-w",
+      "assignedPlanId": "plan:j-w:v1",
+      "driverName": "Driver",
+      "vehicle": ["CAR", "Toyota", "Corolla", "GLD-W"],
+      "sharedRide": false,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "driverName",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchDurationSeconds",
+        "matchedAt",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "sharedRide",
+        "status",
+        "updatedAt",
+        "vehicleMake",
+        "vehicleModel",
+        "vehiclePlateNumber",
+        "vehicleType"
+      ]
+    },
+    "q1": {
+      "status": "SEARCHING",
+      "matchedJourneyId": null,
+      "matchedDriverId": null,
+      "assignedPlanId": null,
+      "driverName": null,
+      "vehicle": [null, null, null, null],
+      "sharedRide": null,
+      "keys": [
+        "assignedPlanId",
+        "destination",
+        "estimatedDistance",
+        "estimatedDuration",
+        "matchedDriverId",
+        "matchedJourneyId",
+        "origin",
+        "passengerId",
+        "passengerName",
+        "passengerPreferences",
+        "requestedAt",
+        "status"
+      ]
+    }
+  },
+  "journeys": {
+    "x": {
+      "status": "MATCHING",
+      "availableSeats": 2,
+      "matchedTripRequestIds": ["r-x1", "r-x2"],
+      "matchedTripRequestId": null,
+      "keys": [
+        "availableSeats",
+        "destination",
+        "driverId",
+        "matchedTripRequestIds",
+        "maxDetourDistance",
+        "maxDetourMinutes",
+        "origin",
+        "status",
+        "updatedAt"
+      ]
+    },
+    "y": {
+      "status": "MATCHING",
+      "availableSeats": 1,
+      "matchedTripRequestIds": ["r-y1"],
+      "matchedTripRequestId": null,
+      "keys": [
+        "availableSeats",
+        "destination",
+        "driverId",
+        "matchedTripRequestIds",
+        "maxDetourDistance",
+        "maxDetourMinutes",
+        "origin",
+        "status",
+        "updatedAt"
+      ]
+    },
+    "z": {
+      "status": "MATCHING",
+      "availableSeats": 3,
+      "matchedTripRequestIds": ["r-z0", "r-z1"],
+      "matchedTripRequestId": null,
+      "keys": [
+        "availableSeats",
+        "destination",
+        "driverId",
+        "matchedTripRequestIds",
+        "maxDetourDistance",
+        "maxDetourMinutes",
+        "origin",
+        "status",
+        "updatedAt"
+      ]
+    },
+    "w": {
+      "status": "MATCHING",
+      "availableSeats": 2,
+      "matchedTripRequestIds": ["r-w1"],
+      "matchedTripRequestId": null,
+      "keys": [
+        "availableSeats",
+        "destination",
+        "driverId",
+        "matchedTripRequestIds",
+        "maxDetourDistance",
+        "maxDetourMinutes",
+        "origin",
+        "status",
+        "updatedAt"
+      ]
+    },
+    "v": {
+      "status": "MATCHING",
+      "availableSeats": 1,
+      "matchedTripRequestIds": [],
+      "matchedTripRequestId": "r-asg",
+      "keys": [
+        "availableSeats",
+        "destination",
+        "driverId",
+        "matchedTripRequestId",
+        "matchedTripRequestIds",
+        "maxDetourDistance",
+        "maxDetourMinutes",
+        "origin",
+        "status",
+        "updatedAt"
+      ]
+    }
+  },
+  "plans": [
+    {
+      "label": "plan:j-w:v1",
+      "journeyId": "j-w",
+      "driverId": "d-w",
+      "requestIds": ["r-w1"],
+      "stops": [
+        {
+          "kind": "pickup",
+          "requestId": "r-w1"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-w1"
+        }
+      ],
+      "totalDistanceMeters": 1000,
+      "totalDurationSeconds": 1000,
+      "legs": [
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 149000,
+          "durationSeconds": 149000
+        },
+        {
+          "distanceMeters": 145000,
+          "durationSeconds": 145000
+        }
+      ],
+      "version": 1,
+      "supersedes": null
+    },
+    {
+      "label": "plan:j-x:v1",
+      "journeyId": "j-x",
+      "driverId": "d-x",
+      "requestIds": ["r-x1", "r-x2"],
+      "stops": [
+        {
+          "kind": "pickup",
+          "requestId": "r-x1"
+        },
+        {
+          "kind": "pickup",
+          "requestId": "r-x2"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-x1"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-x2"
+        }
+      ],
+      "totalDistanceMeters": 2000,
+      "totalDurationSeconds": 2000,
+      "legs": [
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 0,
+          "durationSeconds": 0
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 2000,
+          "durationSeconds": 2000
+        }
+      ],
+      "version": 1,
+      "supersedes": null
+    },
+    {
+      "label": "plan:j-y:v1",
+      "journeyId": "j-y",
+      "driverId": "d-y",
+      "requestIds": ["r-y1"],
+      "stops": [
+        {
+          "kind": "pickup",
+          "requestId": "r-y1"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-y1"
+        }
+      ],
+      "totalDistanceMeters": 1000,
+      "totalDurationSeconds": 1000,
+      "legs": [
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 3000,
+          "durationSeconds": 3000
+        }
+      ],
+      "version": 1,
+      "supersedes": null
+    },
+    {
+      "label": "plan:j-z:v1",
+      "journeyId": "j-z",
+      "driverId": "d-z",
+      "requestIds": ["r-z0"],
+      "stops": [
+        {
+          "kind": "pickup",
+          "requestId": "r-z0"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-z0"
+        }
+      ],
+      "totalDistanceMeters": 5000,
+      "totalDurationSeconds": 5000,
+      "legs": null,
+      "version": 1,
+      "supersedes": null
+    },
+    {
+      "label": "plan:j-z:v2",
+      "journeyId": "j-z",
+      "driverId": "d-z",
+      "requestIds": ["r-z0", "r-z1"],
+      "stops": [
+        {
+          "kind": "pickup",
+          "requestId": "r-z0"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-z0"
+        },
+        {
+          "kind": "pickup",
+          "requestId": "r-z1"
+        },
+        {
+          "kind": "dropoff",
+          "requestId": "r-z1"
+        }
+      ],
+      "totalDistanceMeters": 5000,
+      "totalDurationSeconds": 5000,
+      "legs": [
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        },
+        {
+          "distanceMeters": 1000,
+          "durationSeconds": 1000
+        }
+      ],
+      "version": 2,
+      "supersedes": "plan:j-z:v1"
+    }
+  ],
+  "optimizationRuns": [
+    {
+      "requestsEvaluated": 6,
+      "journeysEvaluated": 3,
+      "candidatesGenerated": 4,
+      "plansGenerated": 3,
+      "plansRejected": 0,
+      "unmatchedByReason": {
+        "no_candidate": 2
+      },
+      "finalAssignments": 4,
+      "journeysMatched": 3,
+      "decisions": [
+        {
+          "requestId": "r-q1",
+          "status": "unmatched",
+          "reason": "no_candidate",
+          "journeyId": null,
+          "driverId": null,
+          "additionalDistanceMeters": null,
+          "additionalDurationSeconds": null,
+          "seatsUsed": null,
+          "seatsAvailable": null
+        },
+        {
+          "requestId": "r-w1",
+          "status": "matched",
+          "reason": "matched",
+          "journeyId": "j-w",
+          "driverId": "d-w",
+          "additionalDistanceMeters": 290000,
+          "additionalDurationSeconds": 290000,
+          "seatsUsed": 1,
+          "seatsAvailable": 2
+        },
+        {
+          "requestId": "r-x1",
+          "status": "matched",
+          "reason": "matched",
+          "journeyId": "j-x",
+          "driverId": "d-x",
+          "additionalDistanceMeters": 0,
+          "additionalDurationSeconds": 0,
+          "seatsUsed": 2,
+          "seatsAvailable": 2
+        },
+        {
+          "requestId": "r-x2",
+          "status": "matched",
+          "reason": "matched",
+          "journeyId": "j-x",
+          "driverId": "d-x",
+          "additionalDistanceMeters": 0,
+          "additionalDurationSeconds": 0,
+          "seatsUsed": 2,
+          "seatsAvailable": 2
+        },
+        {
+          "requestId": "r-y1",
+          "status": "matched",
+          "reason": "matched",
+          "journeyId": "j-y",
+          "driverId": "d-y",
+          "additionalDistanceMeters": 0,
+          "additionalDurationSeconds": 0,
+          "seatsUsed": 1,
+          "seatsAvailable": 1
+        },
+        {
+          "requestId": "r-z1",
+          "status": "unmatched",
+          "reason": "no_candidate",
+          "journeyId": null,
+          "driverId": null,
+          "additionalDistanceMeters": null,
+          "additionalDurationSeconds": null,
+          "seatsUsed": null,
+          "seatsAvailable": null
+        }
+      ]
+    }
+  ],
+  "notifications": [
+    {
+      "type": "MATCHED_INTO_SHARED_RIDE",
+      "recipient": "p-z1",
+      "message": "You have been matched with a driver."
+    },
+    {
+      "type": "ROUTE_ADJUSTED_FOR_NEW_PASSENGER",
+      "recipient": "p-z0",
+      "message": "Your driver's route was adjusted to pick up another passenger."
+    }
+  ],
+  "auditLogs": [
+    "{\"action\":\"PLAN_REVISED\",\"entity\":\"driverJourneys/j-z\"}",
+    "{\"action\":\"TRIP_INSERTED_INTO_JOURNEY\",\"entity\":\"tripRequests/r-z1\"}"
+  ],
+  "pushes": [
+    "d-w | New passenger | You've been matched with 1 passenger.",
+    "d-x | New passengers | You've been matched with 2 passengers.",
+    "d-y | New passenger | You've been matched with 1 passenger.",
+    "d-z | New passenger | A new passenger has been matched to your journey.",
+    "p-w1 | Trip matched | You've been matched with a driver.",
+    "p-x1 | Trip matched | You've been matched with a driver.",
+    "p-x2 | Trip matched | You've been matched with a driver.",
+    "p-y1 | Trip matched | You've been matched with a driver.",
+    "p-z0 | Route updated | Your driver's route was adjusted to pick up another passenger.",
+    "p-z1 | Trip matched | You've been matched with a driver."
+  ]
+}

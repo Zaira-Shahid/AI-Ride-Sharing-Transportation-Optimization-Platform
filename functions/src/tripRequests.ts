@@ -349,6 +349,8 @@ export async function createTripRequest(
     tx.create(tripRef, {
       passengerId: caller.uid,
       passengerName: firstNameOf(user.get('name')),
+      // Only a company's request has the field (module A3a); a consumer's is exactly as it was.
+      ...(caller.companyId ? { companyId: caller.companyId } : {}),
       origin,
       destination,
       requestedAt: FieldValue.serverTimestamp(),

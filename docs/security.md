@@ -1156,6 +1156,45 @@ Design: `docs/a2c-employee-data-rights-design.md`. Code: `functions/src/employee
 - **Tests.** `tests/integration/employeeDataRights.int.test.ts` (18 tests, six guards mutation-checked) and
   the profile rules in `tests/integration/company-rules.int.test.ts`.
 
+### Company rides and tenant-safe matching (module A3a)
+
+Design: `docs/a3-company-matching-design.md`. Code: `functions/src/tenant.ts`, `employeeActing.ts`, and the changes to
+`matching.ts`, `optimizationRun.ts` and `planInsertion.ts`.
+
+- **Companies and consumers never meet.** The batch run reads every open request and available journey as it always has, groups
+  them by company (`tenantOf`), and runs the existing pipeline once per group, consumers first. The optimization service only ever
+  receives one group, so it can never be handed a mixed set. The candidate pool, insertion into a matching journey and
+  single-request assignment pair only within one company.
+- **Second line of defence.** The three places that commit a match (batch, insertion, single assignment) refuse a pairing whose two
+  sides belong to different companies, even if something upstream proposed it. A test names a consumer journey for a company request
+  from a hostile optimizer and checks nothing is written.
+- **No query ever asks about `companyId`.** Firestore's `== null` misses documents where the field is absent, and every consumer
+  document has no such field. So consumer documents are never written with it, and `tenantOf` reads missing, `null` and empty as the
+  same value. No backfill, no migration and no index were needed, and with no company data the split does nothing.
+- **Consumers are unchanged, and that is tested.** A characterization test, written and committed before any A3a code, records what
+  consumer matching did across every path in golden files. The same scenario, run with two companies on the same lines in the same
+  database, must give the identical consumer result. The consumer integration suites pass unmodified.
+- **Stamping.** A company ride carries `companyId`, taken from the membership document by the entry-point adapter and never from
+  anything the client sends (a test sends a forged one). Consumer documents have exactly the keys they had.
+- **Free rides.** No fare is worked out for a company ride, `captureTripPayment` skips it whatever else is true (Stripe is never
+  contacted), and no receipt or earning exists. Consumer completion is unchanged.
+- **Entry points.** `actingCaller` lets an employee use the same ride and driving functions. A consumer is returned exactly as it
+  came, with no reads (tested by counting them). An employee needs an active membership of an active company; to start or set up
+  driving they need the full effective capability (permission and a currently verified driver and vehicle); while driving, the
+  permission is enough, because revocation and removal already take a driver offline and this runs on every position update;
+  going offline is always allowed. An employee cannot be a rider and a driver at the same moment.
+- **Removal takes a driver out of the pool.** Removing a driving employee rejects their driver profile through the existing review,
+  which takes them offline and releases matched riders, so a removed employee is never left available for matching.
+- **Rules.** The ownership checks for trips, journeys, plans, driver profile and vehicle also accept the `EMPLOYEE` role, still tied
+  to the document's own uid. A colleague, and even a company administrator, cannot read someone's trip.
+- **Run logs.** A company's optimization run log carries its `companyId`; a consumer's is exactly what it was.
+- **Tests.** `tests/integration/consumer-matching-golden.int.test.ts` (with `golden/`), `company-matching.int.test.ts`,
+  `employee-rides.int.test.ts`, the employee rules in `company-rules.int.test.ts`, `functions/src/tenant.test.ts` and
+  `employeeActing.test.ts`. Each guard was mutation-checked.
+- **Known limits.** The pool is still read in full and split in memory (the code's own stance, "small enough not to need a
+  geospatial index yet"); a per-company indexed query is a later change if pools grow. Platform staff see company rides in the admin
+  console under the same privacy rules as any ride. The decline-within-a-time-limit flow is module A3b.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

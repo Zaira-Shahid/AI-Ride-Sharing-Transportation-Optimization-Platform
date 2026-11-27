@@ -6,6 +6,7 @@ import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/fire
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { enforceAppCheckFromEnvironment } from './appCheck.js';
+import { actingCaller } from './employeeActing.js';
 import {
   deleteEmployeeAccount,
   exportEmployeeData,
@@ -251,7 +252,11 @@ function companyCallerOf(request: {
   return { ...callerOf(request), companyId: request.auth?.token.companyId };
 }
 
-const companyDeps = () => ({ auth: getAuth(), firestore: getFirestore() });
+const companyDeps = () => ({
+  auth: getAuth(),
+  firestore: getFirestore(),
+  push: createPushProvider(pushConfigFromEnvironment()),
+});
 
 export const createCompany = onCall((request) =>
   createNewCompany(companyDeps(), companyCallerOf(request), request.data),
@@ -442,38 +447,55 @@ export const refundPayment = onCall((request) => {
   );
 });
 
-export const setAvailability = onCall((request) =>
+export const setAvailability = onCall(async (request) =>
   setDriverAvailability(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(
+      getFirestore(),
+      companyCallerOf(request),
+      'DRIVER',
+      (request.data as { status?: unknown } | null)?.status === 'OFFLINE' ? 'offline' : 'start',
+    ),
     request.data,
   ),
 );
 
-export const declareDestination = onCall((request) =>
-  declareDriverDestination({ firestore: getFirestore() }, callerOf(request), request.data),
+export const declareDestination = onCall(async (request) =>
+  declareDriverDestination(
+    { firestore: getFirestore() },
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'start'),
+    request.data,
+  ),
 );
 
-export const setJourneySeats = onCall((request) =>
-  setDriverJourneySeats({ firestore: getFirestore() }, callerOf(request), request.data),
+export const setJourneySeats = onCall(async (request) =>
+  setDriverJourneySeats(
+    { firestore: getFirestore() },
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'setup'),
+    request.data,
+  ),
 );
 
-export const setJourneyDetour = onCall((request) =>
-  setDriverJourneyDetour({ firestore: getFirestore() }, callerOf(request), request.data),
+export const setJourneyDetour = onCall(async (request) =>
+  setDriverJourneyDetour(
+    { firestore: getFirestore() },
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'setup'),
+    request.data,
+  ),
 );
 
-export const createTripRequest = onCall((request) =>
+export const createTripRequest = onCall(async (request) =>
   createPassengerTripRequest(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'PASSENGER', 'start'),
     request.data,
   ),
 );
 
-export const cancelTripRequest = onCall((request) =>
+export const cancelTripRequest = onCall(async (request) =>
   cancelPassengerTripRequest(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'PASSENGER', 'ongoing'),
     request.data,
   ),
 );
@@ -542,34 +564,34 @@ export const deleteMyAccount = onCall(async (request) => {
   );
 });
 
-export const headToPickup = onCall((request) =>
+export const headToPickup = onCall(async (request) =>
   driverHeadToPickup(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
     request.data,
   ),
 );
 
-export const confirmPickup = onCall((request) =>
+export const confirmPickup = onCall(async (request) =>
   driverConfirmPickup(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
     request.data,
   ),
 );
 
-export const startTransit = onCall((request) =>
+export const startTransit = onCall(async (request) =>
   driverStartTransit(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
     request.data,
   ),
 );
 
-export const approachDropoff = onCall((request) =>
+export const approachDropoff = onCall(async (request) =>
   driverApproachDropoff(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
     request.data,
   ),
 );
@@ -580,7 +602,7 @@ export const approachDropoff = onCall((request) =>
  * capture attempt is a no-op without it, the same "not configured yet" stance as everywhere else this
  * check appears.
  */
-export const completeDropoff = onCall((request) => {
+export const completeDropoff = onCall(async (request) => {
   const stripeConfig = stripeConfigFromEnvironment();
   return driverCompleteDropoff(
     {
@@ -588,7 +610,7 @@ export const completeDropoff = onCall((request) => {
       stripe: stripeConfig ? createStripeProvider(stripeConfig) : undefined,
       push: createPushProvider(pushConfigFromEnvironment()),
     },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
     request.data,
   );
 });
@@ -598,14 +620,18 @@ export const savePushToken = onCall((request) =>
   savePersonPushToken({ firestore: getFirestore() }, callerOf(request), request.data),
 );
 
-export const setJourneyOrigin = onCall((request) =>
-  setDriverJourneyOrigin({ firestore: getFirestore() }, callerOf(request), request.data),
+export const setJourneyOrigin = onCall(async (request) =>
+  setDriverJourneyOrigin(
+    { firestore: getFirestore() },
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'setup'),
+    request.data,
+  ),
 );
 
-export const updateDriverLocation = onCall((request) =>
+export const updateDriverLocation = onCall(async (request) =>
   updateDriverJourneyLocation(
     { firestore: getFirestore(), push: createPushProvider(pushConfigFromEnvironment()) },
-    callerOf(request),
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
     request.data,
   ),
 );

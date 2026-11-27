@@ -61,6 +61,8 @@ export interface OptimizationRunLog {
   /** The optimization service's own reported time for the /optimize call alone, not this whole cycle (candidate discovery and route-matrix building happen before it, and are not included). */
   executionTimeSeconds: number;
   decisions: OptimizationRunDecision[];
+  /** The company this cycle served (module A3a); absent on a consumer cycle, which is logged as it always was. */
+  companyId?: string;
 }
 
 export interface OptimizationRunRow extends OptimizationRunLog {
