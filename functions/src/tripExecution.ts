@@ -271,6 +271,11 @@ async function advance(
 
     tx.update(tripRef, {
       status: to,
+      // A driver who acts on a company ride has accepted it (module A3b): the window to decline closes.
+      // A consumer ride has no such marker, so nothing is added for one.
+      ...(trip.get('driverDecision.status') === 'OPEN'
+        ? { 'driverDecision.status': 'CONFIRMED' }
+        : {}),
       ...fareFields,
       // Phase 14 privacy retention: the moment the request ended, so the retention sweep can clear
       // its exact places 30 days later (updatedAt changes on every write and cannot say).
