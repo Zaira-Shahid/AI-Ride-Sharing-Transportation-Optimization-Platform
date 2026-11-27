@@ -48,6 +48,7 @@ import {
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { tryInsertIntoMatchingJourney, type PlanLeg } from './planInsertion.js';
 import { sendPushToUser } from './pushNotifications.js';
+import { groupByTenant, sameTenant, tenantOf, type Tenant } from './tenant.js';
 import type { PushProvider } from './pushProvider.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
 import { firstNameOf } from './tripRequests.js';
@@ -139,6 +140,8 @@ function pointOf(value: unknown): RoutePoint | null {
 
 interface OpenTripRequest {
   id: string;
+  /** The company this request belongs to, or null for a consumer (module A3a). */
+  tenant: Tenant;
   passengerId: string;
   origin: RoutePoint;
   destination: RoutePoint;
@@ -159,6 +162,8 @@ interface OpenTripRequest {
 
 interface AvailableJourney {
   id: string;
+  /** The company this journey belongs to, or null for a consumer (module A3a). */
+  tenant: Tenant;
   driverId: string;
   origin: RoutePoint;
   destination: RoutePoint;
@@ -201,6 +206,7 @@ async function readOpenTripRequests(firestore: Firestore): Promise<OpenTripReque
     }
     requests.push({
       id: doc.id,
+      tenant: tenantOf(data),
       passengerId,
       origin,
       destination,
@@ -244,6 +250,7 @@ async function readAvailableJourneys(firestore: Firestore): Promise<AvailableJou
     }
     journeys.push({
       id: doc.id,
+      tenant: tenantOf(data),
       driverId,
       origin,
       destination,
@@ -285,14 +292,68 @@ export interface BatchOptimizationOutcome {
  * public runBatchOptimization below, which adds phase 2 (insertion into already-MATCHING journeys)
  * afterwards, for whatever this phase leaves still searching.
  */
-async function matchIntoAvailableJourneys(deps: {
+interface PhaseOneDeps {
   firestore: Firestore;
   provider: RoutingProvider;
   optimizationService: OptimizationServiceConfig;
   push: PushProvider;
   limits?: LookupLimits;
   now?: () => number;
-}): Promise<Omit<BatchOptimizationOutcome, 'insertedRequestCount'>> {
+}
+
+type PhaseOneOutcome = Omit<BatchOptimizationOutcome, 'insertedRequestCount'>;
+
+/**
+ * Reads every open request and every available journey, as it always has, then runs the matching
+ * pipeline (matchGroup) once per company (module A3a): a company's requests only ever meet that
+ * company's journeys, and consumers only meet consumers, because the optimization service is only
+ * ever given one group at a time. The consumer group runs first and holds exactly what the single run
+ * used to hold, so with no company data this is the same run as before.
+ */
+async function matchIntoAvailableJourneys(deps: PhaseOneDeps): Promise<PhaseOneOutcome> {
+  const [requests, journeys] = await Promise.all([
+    readOpenTripRequests(deps.firestore),
+    readAvailableJourneys(deps.firestore),
+  ]);
+  const requestGroups = new Map(groupByTenant(requests));
+  const journeyGroups = new Map(groupByTenant(journeys));
+  const tenants = [...new Set<Tenant>([...requestGroups.keys(), ...journeyGroups.keys()])].sort(
+    (a, b) => (a === b ? 0 : a === null ? -1 : b === null ? 1 : a.localeCompare(b)),
+  );
+
+  const total: PhaseOneOutcome = {
+    requestCount: requests.length,
+    journeyCount: journeys.length,
+    matchedRequestCount: 0,
+    matchedJourneyCount: 0,
+    optimizationRunId: null,
+    requestIds: [],
+    planIds: [],
+  };
+  for (const tenant of tenants) {
+    const outcome = await matchGroup(
+      deps,
+      requestGroups.get(tenant) ?? [],
+      journeyGroups.get(tenant) ?? [],
+      tenant,
+    );
+    total.matchedRequestCount += outcome.matchedRequestCount;
+    total.matchedJourneyCount += outcome.matchedJourneyCount;
+    total.requestIds.push(...outcome.requestIds);
+    total.planIds.push(...outcome.planIds);
+    // The consumer group runs first, so its run is the one reported when there is one.
+    total.optimizationRunId ??= outcome.optimizationRunId;
+  }
+  return total;
+}
+
+/** One company's (or the consumers') share of phase 1: the pipeline as it was, on one group. */
+async function matchGroup(
+  deps: PhaseOneDeps,
+  requests: OpenTripRequest[],
+  journeys: AvailableJourney[],
+  tenant: Tenant,
+): Promise<PhaseOneOutcome> {
   const { firestore } = deps;
   const cycleStartedAt = (deps.now ?? Date.now)();
   const routeDeps = {
@@ -302,11 +363,7 @@ async function matchIntoAvailableJourneys(deps: {
     ...(deps.now ? { now: deps.now } : {}),
   };
 
-  const [requests, journeys] = await Promise.all([
-    readOpenTripRequests(firestore),
-    readAvailableJourneys(firestore),
-  ]);
-  const empty: Omit<BatchOptimizationOutcome, 'insertedRequestCount'> = {
+  const empty: PhaseOneOutcome = {
     requestCount: requests.length,
     journeyCount: journeys.length,
     matchedRequestCount: 0,
@@ -338,6 +395,8 @@ async function matchIntoAvailableJourneys(deps: {
       executionTimeSeconds: 0,
       decisions: [],
       ...partial,
+      // Only a company's run is marked; a consumer's run log is exactly what it always was.
+      ...(tenant !== null ? { companyId: tenant } : {}),
     });
 
   const requestById = new Map(requests.map((r) => [r.id, r]));
@@ -482,6 +541,16 @@ async function matchIntoAvailableJourneys(deps: {
         ) {
           return false;
         }
+      }
+
+      // Second line of defence (module A3a): never commit a pairing across companies, whatever
+      // proposed it. Both sides of a consumer pairing read as "no company", so this never fires for them.
+      if (
+        tripSnaps.some(
+          (tripSnap) => !sameTenant(tenantOf(tripSnap.data()), tenantOf(journeySnap.data())),
+        )
+      ) {
+        return false;
       }
 
       const driverName = firstNameOf(driverUserSnap.get('name'), 'Driver');
@@ -658,6 +727,7 @@ async function insertStillSearchingRequests(deps: {
       { ...deps, onPlanWritten: (planId) => planIds.push(planId) },
       {
         id: request.id,
+        tenant: request.tenant,
         passengerId: request.passengerId,
         origin: request.origin,
         destination: request.destination,

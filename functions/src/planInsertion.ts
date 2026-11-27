@@ -11,6 +11,7 @@ import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerC
 import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
 import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
+import { sameTenant, tenantOf, type Tenant } from './tenant.js';
 import { firstNameOf } from './tripRequests.js';
 
 // Modules 8.3 (plan versioning) and 8.4 (new passenger insertion), together: tries to fit a
@@ -54,6 +55,11 @@ interface ProtectedFields {
 /** The parts of a still-SEARCHING request insertion needs. */
 export interface InsertableTrip extends ProtectedFields {
   id: string;
+  /**
+   * The company this request belongs to; null or left out for a consumer (module A3a). It is only
+   * ever offered journeys of the same company.
+   */
+  tenant?: Tenant;
   passengerId: string;
   origin: RoutePoint;
   destination: RoutePoint;
@@ -77,6 +83,8 @@ interface ExistingPassenger extends ProtectedFields {
 
 interface MatchingJourneyPlan {
   planId: string;
+  /** The company this journey belongs to, or null for a consumer (module A3a). */
+  tenant: Tenant;
   journeyId: string;
   driverId: string;
   origin: RoutePoint;
@@ -228,6 +236,7 @@ async function readMatchingJourneyPlans(firestore: Firestore): Promise<MatchingJ
 
     plans.push({
       planId: planDoc.id,
+      tenant: tenantOf(data),
       journeyId: journeyDoc.id,
       driverId: data.driverId,
       origin,
@@ -421,7 +430,11 @@ export async function tryInsertIntoMatchingJourney(
 ): Promise<InsertionOutcome> {
   const { firestore } = deps;
   const now = (deps.now ?? Date.now)();
-  const plans = await readMatchingJourneyPlans(firestore);
+  // Only journeys of the request's own company (module A3a): with no company data this keeps every plan.
+  const requestTenant = request.tenant ?? null;
+  const plans = (await readMatchingJourneyPlans(firestore)).filter((plan) =>
+    sameTenant(plan.tenant, requestTenant),
+  );
   if (plans.length === 0) return 'unmatched';
 
   const sourceJourneys: CandidateSourceJourney[] = plans.map((plan) => ({
@@ -475,6 +488,8 @@ export async function tryInsertIntoMatchingJourney(
     if (!journeySnap.exists || journeySnap.get('status') !== 'MATCHING') return false;
     if (!oldPlanSnap.exists || oldPlanSnap.get('version') !== plan.version) return false;
     if (!newTripSnap.exists || newTripSnap.get('status') !== 'SEARCHING') return false;
+    // Second line of defence (module A3a): never commit a pairing across companies, whatever proposed it.
+    if (!sameTenant(tenantOf(newTripSnap.data()), tenantOf(journeySnap.data()))) return false;
     for (const snap of existingTripSnaps) {
       if (!snap.exists || snap.get('assignedPlanId') !== plan.planId) return false;
     }
