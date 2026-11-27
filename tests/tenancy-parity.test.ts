@@ -3,6 +3,8 @@ import * as shared from '@ridemesh/tenancy';
 import { describe, expect, it } from 'vitest';
 import * as fromFunctions from '../functions/src/companies';
 import * as drivingFromFunctions from '../functions/src/employeeDriving';
+import * as windowFromFunctions from '../functions/src/declineWindow';
+import * as decisionFromFunctions from '../functions/src/driverDecision';
 import {
   COMPANY_MEMBER_PLATFORM_ROLE as functionsPlatformRole,
   COMPANY_ROLES as functionsCompanyRoles,
@@ -166,6 +168,74 @@ describe('company onboarding: functions and the tenancy package stay aligned', (
 
   it.each(pairs)('%s validates the same inputs the same way', (_name, mine, theirs, inputs) => {
     for (const input of inputs) {
+      const a = mine.safeParse(input);
+      const b = theirs.safeParse(input);
+      expect(a.success, JSON.stringify(input)).toBe(b.success);
+      if (a.success) expect(a.data).toEqual(b.data);
+    }
+  });
+});
+
+describe('driver decline: functions and the tenancy package stay aligned', () => {
+  it('uses the same window limits', () => {
+    expect(windowFromFunctions.DECLINE_WINDOW_DEFAULT_MINUTES).toBe(
+      shared.DECLINE_WINDOW_DEFAULT_MINUTES,
+    );
+    expect(windowFromFunctions.DECLINE_WINDOW_MIN_MINUTES).toBe(shared.DECLINE_WINDOW_MIN_MINUTES);
+    expect(windowFromFunctions.DECLINE_WINDOW_MAX_MINUTES).toBe(shared.DECLINE_WINDOW_MAX_MINUTES);
+  });
+
+  it('reads the same window from the same settings', () => {
+    const settings: unknown[] = [
+      undefined,
+      null,
+      {},
+      7,
+      '10',
+      { driverDeclineWindowMinutes: 0 },
+      { driverDeclineWindowMinutes: 1 },
+      { driverDeclineWindowMinutes: 5 },
+      { driverDeclineWindowMinutes: 30 },
+      { driverDeclineWindowMinutes: 31 },
+      { driverDeclineWindowMinutes: -1 },
+      { driverDeclineWindowMinutes: 2.5 },
+      { driverDeclineWindowMinutes: '10' },
+      { driverDeclineWindowMinutes: null },
+      { driverDeclineWindowMinutes: Number.NaN },
+    ];
+    for (const value of settings) {
+      expect(windowFromFunctions.declineWindowMinutes(value), JSON.stringify(value)).toBe(
+        shared.declineWindowMinutes(value),
+      );
+    }
+  });
+
+  const inputs: [string, Parser, Parser][] = [
+    [
+      'declineMatchedRider',
+      decisionFromFunctions.declineMatchedRiderInputSchema,
+      shared.declineMatchedRiderInputSchema,
+    ],
+    [
+      'confirmMatchedRider',
+      decisionFromFunctions.confirmMatchedRiderInputSchema,
+      shared.confirmMatchedRiderInputSchema,
+    ],
+  ];
+  it.each(inputs)('%s validates the same inputs the same way', (_name, mine, theirs) => {
+    for (const input of [
+      { tripId: 'abc' },
+      { tripId: ' abc ' },
+      { tripId: 'a-b_c9' },
+      { tripId: '' },
+      { tripId: 'a/b' },
+      { tripId: 'a.b' },
+      { tripId: 'x'.repeat(128) },
+      { tripId: 'x'.repeat(129) },
+      { tripId: 7 },
+      {},
+      null,
+    ]) {
       const a = mine.safeParse(input);
       const b = theirs.safeParse(input);
       expect(a.success, JSON.stringify(input)).toBe(b.success);

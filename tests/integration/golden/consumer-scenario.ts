@@ -186,7 +186,17 @@ const COLLECTIONS_TO_CLEAR = [
  * test: a driver-role user left behind here is picked up by the driver-profile backfill test, which
  * creates profiles and audit entries for it.
  */
-const OWN_PREFIXES = [P, 'anoise-', 'hostile-', 'pool-', 'count-', 'assign-', 'ins-', 'e2e-'];
+const OWN_PREFIXES = [
+  P,
+  'anoise-',
+  'dec-',
+  'hostile-',
+  'pool-',
+  'count-',
+  'assign-',
+  'ins-',
+  'e2e-',
+];
 const mentionsOwn = (text: string) => OWN_PREFIXES.some((prefix) => text.includes(prefix));
 
 export async function clearScenarioCollections(): Promise<void> {
