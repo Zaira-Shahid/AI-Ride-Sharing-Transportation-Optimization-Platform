@@ -25,14 +25,14 @@ import { admin } from '../support';
 // consumer world with companies added), which must see the identical consumer result.
 
 export const NO_LIMITS = { globalSpacingMs: 0, perCallerPerMinute: 1_000 };
-const GENEROUS = {
+export const GENEROUS = {
   maxExtraTime: 60,
   maxDetourDistance: 10,
   allowSharedRide: true,
   allowRouteChange: true,
 };
 
-function positionalProvider(): RoutingProvider {
+export function positionalProvider(): RoutingProvider {
   return {
     route: (stops: RoutePoint[]) => {
       let distance = 0;
@@ -53,7 +53,7 @@ function positionalProvider(): RoutingProvider {
   };
 }
 
-function recordingPush(): PushProvider & { sent: SendPushParams[] } {
+export function recordingPush(): PushProvider & { sent: SendPushParams[] } {
   const sent: SendPushParams[] = [];
   return {
     sent,
@@ -85,7 +85,7 @@ interface OptimizeBody {
   available_seats: Record<string, number>;
 }
 
-function geometryOptimizer(): typeof fetch {
+export function geometryOptimizer(): typeof fetch {
   return ((url: string, init?: { body?: string }) => {
     const body = JSON.parse(init?.body ?? '{}') as CandidateBody & OptimizeBody;
     let payload: unknown;
@@ -187,7 +187,7 @@ export async function clearScenarioCollections(): Promise<void> {
   }
 }
 
-const line = (lat: number) => ({ latitude: lat, longitude: 0 });
+export const line = (lat: number) => ({ latitude: lat, longitude: 0 });
 
 async function seedDriver(label: string, vehicleExtras: Record<string, unknown> = {}) {
   const { firestore } = admin();
