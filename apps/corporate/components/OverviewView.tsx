@@ -29,8 +29,6 @@ export function OverviewView() {
   }, [client]);
 
   useEffect(() => {
-    // Starting the load from an effect is the point: it is how this page fetches its data.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 

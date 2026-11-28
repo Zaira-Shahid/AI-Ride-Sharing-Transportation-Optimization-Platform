@@ -271,7 +271,11 @@ export const createCompany = onCall((request) =>
 );
 
 export const updateCompanySettings = onCall((request) =>
-  updateCompanyDashboardSettings({ firestore: getFirestore() }, companyCallerOf(request), request.data),
+  updateCompanyDashboardSettings(
+    { firestore: getFirestore() },
+    companyCallerOf(request),
+    request.data,
+  ),
 );
 
 export const getCompanyOverview = onCall((request) =>

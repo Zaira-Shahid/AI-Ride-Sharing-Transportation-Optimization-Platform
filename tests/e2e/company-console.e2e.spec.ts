@@ -70,6 +70,12 @@ async function setClaims(email: string, claims: Record<string, string>) {
   expect(update.ok).toBe(true);
 }
 
+// Written as text because the browser's own objects are not part of this project's type libraries.
+const HYDRATED = `[...document.querySelectorAll('button, input')].some((element) =>
+  Object.keys(element).some((key) => key.startsWith('__reactFiber')))`;
+const SCROLLS_SIDEWAYS =
+  'document.documentElement.scrollWidth > document.documentElement.clientWidth';
+
 /**
  * Opens a page and waits until React has taken it over. The development server compiles a page the
  * first time it is asked for, and anything typed or clicked before that is lost (a click even submits
@@ -77,11 +83,7 @@ async function setClaims(email: string, claims: Record<string, string>) {
  */
 async function open(page: Page, path: string) {
   await page.goto(`${CONSOLE_URL}${path}`);
-  await page.waitForFunction(() =>
-    [...document.querySelectorAll('button, input')].some((element) =>
-      Object.keys(element).some((key) => key.startsWith('__reactFiber')),
-    ),
-  );
+  await page.waitForFunction(HYDRATED);
 }
 
 async function signUp(page: Page, name: string, email: string) {
@@ -320,10 +322,7 @@ test.describe('on a phone', () => {
   test('the menu opens and closes, and no page scrolls sideways', async ({ page }) => {
     await founderOnOverview(page, 'Phone Ltd');
 
-    const sideways = () =>
-      page.evaluate(
-        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-      );
+    const sideways = () => page.evaluate<boolean>(SCROLLS_SIDEWAYS);
     expect(await sideways()).toBe(false);
 
     const menu = page.getByRole('complementary', { name: 'Menu' });
@@ -343,12 +342,7 @@ test.describe('on a phone', () => {
     for (const path of ['/sign-in', '/sign-up', '/reset-password']) {
       await open(page, path);
       await expect(page.getByRole('heading').first()).toBeVisible();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        ),
-        path,
-      ).toBe(false);
+      expect(await page.evaluate<boolean>(SCROLLS_SIDEWAYS), path).toBe(false);
     }
   });
 });
