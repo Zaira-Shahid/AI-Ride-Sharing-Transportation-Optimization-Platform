@@ -11,4 +11,6 @@ export const TEST_PORTS = {
   driver: 8082 + TEST_PORT_OFFSET,
   /** The admin console (Next.js), whose usual dev port is 3000. */
   admin: 3000 + TEST_PORT_OFFSET,
+  /** The company console (Next.js), whose usual dev port is 3001. */
+  corporate: 3001 + TEST_PORT_OFFSET,
 } as const;

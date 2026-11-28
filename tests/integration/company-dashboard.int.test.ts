@@ -39,11 +39,13 @@ const settingsAudits = (boss: Founder) =>
 describe('updateCompanySettings', () => {
   it('changes the name and the window, and audits what changed', async () => {
     const boss = await founder('set-both', 'Before Ltd');
-    expect(await settings(boss, { name: '  After Ltd  ', driverDeclineWindowMinutes: 12 })).toEqual({
-      status: 'updated',
-      name: 'After Ltd',
-      driverDeclineWindowMinutes: 12,
-    });
+    expect(await settings(boss, { name: '  After Ltd  ', driverDeclineWindowMinutes: 12 })).toEqual(
+      {
+        status: 'updated',
+        name: 'After Ltd',
+        driverDeclineWindowMinutes: 12,
+      },
+    );
     expect(await companyDoc(boss)).toMatchObject({
       name: 'After Ltd',
       settings: { driverDeclineWindowMinutes: 12 },
@@ -106,7 +108,9 @@ describe('updateCompanySettings', () => {
       status: 'updated',
       driverDeclineWindowMinutes: 20,
     });
-    expect(await settings(boss, { name: 'Null Ltd', driverDeclineWindowMinutes: null })).toMatchObject({
+    expect(
+      await settings(boss, { name: 'Null Ltd', driverDeclineWindowMinutes: null }),
+    ).toMatchObject({
       status: 'updated',
       name: 'Null Ltd',
       driverDeclineWindowMinutes: 20,

@@ -7,13 +7,15 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./react": "./src/react.tsx"
+    "./react": "./src/react.tsx",
+    "./company": "./src/company.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ridemesh/config": "*",
+    "@ridemesh/tenancy": "*",
     "@ridemesh/types": "*",
     "firebase": "^12.19.0",
     "zod": "^4.6.5"
