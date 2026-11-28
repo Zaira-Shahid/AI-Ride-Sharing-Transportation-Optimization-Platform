@@ -307,6 +307,25 @@ test.describe('everyone else is turned away', () => {
     await expect(page.getByTestId('tile-employees')).toHaveCount(0);
   });
 
+  test('turns away an account that is given another role while it is still signing up', async ({
+    page,
+  }) => {
+    const email = uniqueEmail('console-late-role');
+    await signUp(page, 'Lena Late', email);
+    await expect(page.getByRole('heading', { name: 'Verify your email' })).toBeVisible();
+
+    // Elsewhere the account becomes a passenger, then its email is verified.
+    await setClaims(email, { role: 'PASSENGER' });
+    await clickVerificationLink(email);
+    await page.getByRole('button', { name: 'I have verified my email' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Not available' })).toBeVisible();
+    await expect(page.getByText(REFUSAL)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Create your company' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.getByRole('heading', { name: 'RideMesh Company' })).toBeVisible();
+  });
+
   test('keeps a signed-out visitor on the sign-in pages', async ({ page }) => {
     for (const path of ['/', '/create-company', '/verify-email', '/anything']) {
       await page.goto(`${CONSOLE_URL}${path}`);
