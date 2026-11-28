@@ -48,6 +48,7 @@ import {
 import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerConstraints.js';
 import { tryInsertIntoMatchingJourney, type PlanLeg } from './planInsertion.js';
 import { sendPushToUser } from './pushNotifications.js';
+import { readDeclineWindowMs, driverDecisionFor } from './declineWindow.js';
 import { groupByTenant, sameTenant, tenantOf, type Tenant } from './tenant.js';
 import type { PushProvider } from './pushProvider.js';
 import type { RoutePoint, RoutingProvider } from './routing.js';
@@ -142,6 +143,8 @@ interface OpenTripRequest {
   id: string;
   /** The company this request belongs to, or null for a consumer (module A3a). */
   tenant: Tenant;
+  /** Journeys whose driver declined this rider (module A3b); always empty for a consumer. */
+  declinedJourneyIds: string[];
   passengerId: string;
   origin: RoutePoint;
   destination: RoutePoint;
@@ -207,6 +210,11 @@ async function readOpenTripRequests(firestore: Firestore): Promise<OpenTripReque
     requests.push({
       id: doc.id,
       tenant: tenantOf(data),
+      declinedJourneyIds: Array.isArray(data.declinedJourneyIds)
+        ? (data.declinedJourneyIds as unknown[]).filter(
+            (id): id is string => typeof id === 'string',
+          )
+        : [],
       passengerId,
       origin,
       destination,
@@ -399,10 +407,14 @@ async function matchGroup(
       ...(tenant !== null ? { companyId: tenant } : {}),
     });
 
+  // A company's matches start a window in which the driver may decline (module A3b). Read once per
+  // company group; a consumer's group reads nothing.
+  const declineWindowMs = tenant !== null ? await readDeclineWindowMs(firestore, tenant) : 0;
+
   const requestById = new Map(requests.map((r) => [r.id, r]));
   const journeyById = new Map(journeys.map((j) => [j.id, j]));
 
-  const candidatesResponse = await requestCandidates(deps.optimizationService, {
+  const rawCandidates = await requestCandidates(deps.optimizationService, {
     requests: requests.map((r) => ({ id: r.id, origin: r.origin, destination: r.destination })),
     journeys: journeys.map((j) => ({
       id: j.id,
@@ -412,6 +424,15 @@ async function matchGroup(
       available_seats: j.availableSeats,
     })),
   });
+  // A rider is never offered again to a driver who declined them (module A3b). A consumer has no such
+  // list, so nothing is removed for one.
+  const candidatesResponse = {
+    ...rawCandidates,
+    candidates: rawCandidates.candidates.filter(
+      (candidate) =>
+        !requestById.get(candidate.request_id)?.declinedJourneyIds.includes(candidate.journey_id),
+    ),
+  };
   if (candidatesResponse.candidates.length === 0) {
     const optimizationRunId = await logCycle({});
     return { ...empty, optimizationRunId };
@@ -609,6 +630,8 @@ async function matchGroup(
           sharedRide: plan.request_ids.length > 1,
           matchedAt: Timestamp.fromMillis(now),
           matchDurationSeconds,
+          // Only a company ride has a decline window; a consumer ride is written exactly as before.
+          ...(tenant !== null ? { driverDecision: driverDecisionFor(now, declineWindowMs) } : {}),
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
@@ -719,15 +742,24 @@ async function insertStillSearchingRequests(deps: {
   const stillSearching = await readOpenTripRequests(deps.firestore);
   const requestIds: string[] = [];
   const planIds: string[] = [];
+  const windows = new Map<string, number>();
   for (const request of stillSearching) {
     if (request.estimatedDistanceMeters === null || request.estimatedDurationSeconds === null) {
       continue;
+    }
+    let declineWindowMs = 0;
+    if (request.tenant !== null) {
+      const known = windows.get(request.tenant);
+      declineWindowMs = known ?? (await readDeclineWindowMs(deps.firestore, request.tenant));
+      windows.set(request.tenant, declineWindowMs);
     }
     const outcome = await tryInsertIntoMatchingJourney(
       { ...deps, onPlanWritten: (planId) => planIds.push(planId) },
       {
         id: request.id,
         tenant: request.tenant,
+        declinedJourneyIds: request.declinedJourneyIds,
+        declineWindowMs,
         passengerId: request.passengerId,
         origin: request.origin,
         destination: request.destination,

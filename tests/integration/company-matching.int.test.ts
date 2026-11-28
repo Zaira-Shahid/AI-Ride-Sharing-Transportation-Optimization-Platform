@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Timestamp } from 'firebase-admin/firestore';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   assignSearchingTripRequest,
   findCandidateJourneysNow,
@@ -33,6 +33,8 @@ const GOLDEN = JSON.parse(
 ) as Record<string, unknown>;
 
 type Scenario = Awaited<ReturnType<typeof runConsumerScenario>>;
+
+afterAll(clearScenarioCollections);
 interface BatchPart {
   requestIds: string[];
   planIds: string[];

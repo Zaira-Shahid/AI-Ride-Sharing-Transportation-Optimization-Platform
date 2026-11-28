@@ -79,7 +79,7 @@ group with overlapping routes and asserts zero cross-matches. New composite Fire
 Callables (all validate input with shared zod schemas, check claims server-side, write audit entries):
 `createCompany`, `updateCompanySettings`, `inviteEmployee`, `revokeInvitation`, `acceptInvitation`, `removeEmployee`,
 `getCompanyDashboard` (aggregates), `listEmployees`, plus reuse of the existing `createTripRequest`, `declareDestination` and trip
-execution functions, which gain the tenant stamp. Accept/reject (Q3) adds `respondToMatch`.
+execution functions, which gain the tenant stamp. The Q3 decline window adds `declineMatchedRider` and `confirmMatchedRider` (built in A3b).
 Rate limits reuse the existing call-limit helpers (`callLimits.ts`).
 
 ## 5. Company dashboard (`apps/corporate`)

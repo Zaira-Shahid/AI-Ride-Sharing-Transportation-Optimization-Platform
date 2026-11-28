@@ -6,6 +6,10 @@ import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/fire
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { enforceAppCheckFromEnvironment } from './appCheck.js';
+import {
+  confirmMatchedRider as confirmCompanyRider,
+  declineMatchedRider as declineCompanyRider,
+} from './driverDecision.js';
 import { actingCaller } from './employeeActing.js';
 import {
   deleteEmployeeAccount,
@@ -618,6 +622,29 @@ export const completeDropoff = onCall(async (request) => {
 /** Module 10.2 (push tokens): saves the calling passenger's or driver's own Expo push token. */
 export const savePushToken = onCall((request) =>
   savePersonPushToken({ firestore: getFirestore() }, callerOf(request), request.data),
+);
+
+// Module A3b: a company driver's say over a match, inside the window the company sets. Both go through the
+// same adapter as every other driving function, so only an approved employee of the match's own company
+// can use them.
+export const declineMatchedRider = onCall(async (request) =>
+  declineCompanyRider(
+    {
+      firestore: getFirestore(),
+      provider: osrmFromEnvironment(),
+      push: createPushProvider(pushConfigFromEnvironment()),
+    },
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
+    request.data,
+  ),
+);
+
+export const confirmMatchedRider = onCall(async (request) =>
+  confirmCompanyRider(
+    { firestore: getFirestore() },
+    await actingCaller(getFirestore(), companyCallerOf(request), 'DRIVER', 'ongoing'),
+    request.data,
+  ),
 );
 
 export const setJourneyOrigin = onCall(async (request) =>

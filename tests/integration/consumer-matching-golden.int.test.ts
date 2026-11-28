@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { httpsCallable } from 'firebase/functions';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   createTripRequest,
   declareDestination,
@@ -26,6 +26,7 @@ import { clearScenarioCollections, runConsumerScenario } from './golden/consumer
 const GOLDEN_PATH = join(__dirname, 'golden', 'consumer-matching.golden.json');
 
 beforeEach(clearScenarioCollections);
+afterAll(clearScenarioCollections);
 
 describe('consumer matching, characterized (functions + firestore emulators)', () => {
   it('produces exactly the recorded results across every matching path', async () => {

@@ -136,6 +136,8 @@ export async function findCandidateJourneysNow(
    * consumer's. Defaults to the consumer network, so an omitted value can only ever narrow the pool.
    */
   tenant: Tenant = null,
+  /** Journeys never to offer this trip (module A3b: their driver declined it). Empty for a consumer. */
+  excludeJourneyIds: readonly string[] = [],
 ): Promise<CandidateJourney[]> {
   const snapshot = await deps.firestore
     .collection('driverJourneys')
@@ -143,7 +145,9 @@ export async function findCandidateJourneysNow(
     .get();
 
   const journeys: CandidateSourceJourney[] = snapshot.docs
-    .filter((doc) => sameTenant(tenantOf(doc.data()), tenant))
+    .filter(
+      (doc) => sameTenant(tenantOf(doc.data()), tenant) && !excludeJourneyIds.includes(doc.id),
+    )
     .map((doc) => {
       const data = doc.data();
       const driverId: unknown = data.driverId;
@@ -473,8 +477,16 @@ export async function assignSearchingTripRequest(
   const passengerMaxDetourDistanceKm = preferences.maxDetourDistance;
 
   const tripTenant = tenantOf(trip.data());
+  const declinedByDrivers: unknown = trip.get('declinedJourneyIds');
   const candidates = (
-    await findCandidateJourneysNow({ firestore }, { origin, destination }, tripTenant)
+    await findCandidateJourneysNow(
+      { firestore },
+      { origin, destination },
+      tripTenant,
+      Array.isArray(declinedByDrivers)
+        ? declinedByDrivers.filter((id): id is string => typeof id === 'string')
+        : [],
+    )
   ).slice(0, ASSIGN_CANDIDATES_CHECKED);
 
   const compatible: Array<

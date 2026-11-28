@@ -11,6 +11,7 @@ import { checkProtectedConstraints, cumulativeSecondsToStop } from './passengerC
 import { sendPushToUser } from './pushNotifications.js';
 import type { PushProvider } from './pushProvider.js';
 import { calculateRoute, type RoutePoint, type RoutingProvider } from './routing.js';
+import { driverDecisionFor } from './declineWindow.js';
 import { sameTenant, tenantOf, type Tenant } from './tenant.js';
 import { firstNameOf } from './tripRequests.js';
 
@@ -60,6 +61,10 @@ export interface InsertableTrip extends ProtectedFields {
    * ever offered journeys of the same company.
    */
   tenant?: Tenant;
+  /** Journeys whose driver declined this rider (module A3b); never offered again. Empty or left out for a consumer. */
+  declinedJourneyIds?: readonly string[];
+  /** How long the matched driver may decline, in milliseconds; for a company request only (module A3b). */
+  declineWindowMs?: number;
   passengerId: string;
   origin: RoutePoint;
   destination: RoutePoint;
@@ -432,8 +437,9 @@ export async function tryInsertIntoMatchingJourney(
   const now = (deps.now ?? Date.now)();
   // Only journeys of the request's own company (module A3a): with no company data this keeps every plan.
   const requestTenant = request.tenant ?? null;
-  const plans = (await readMatchingJourneyPlans(firestore)).filter((plan) =>
-    sameTenant(plan.tenant, requestTenant),
+  const declined = request.declinedJourneyIds ?? [];
+  const plans = (await readMatchingJourneyPlans(firestore)).filter(
+    (plan) => sameTenant(plan.tenant, requestTenant) && !declined.includes(plan.journeyId),
   );
   if (plans.length === 0) return 'unmatched';
 
@@ -547,6 +553,10 @@ export async function tryInsertIntoMatchingJourney(
       sharedRide: true,
       matchedAt: Timestamp.fromMillis(now),
       matchDurationSeconds,
+      // Only a company ride has a decline window (module A3b); a consumer ride is written as before.
+      ...(request.tenant
+        ? { driverDecision: driverDecisionFor(now, request.declineWindowMs ?? 0) }
+        : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
     tx.create(firestore.collection('auditLogs').doc(), {
