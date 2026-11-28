@@ -69,3 +69,7 @@ __pycache__/
 apps/admin/AGENTS.md
 apps/admin/CLAUDE.md
 demo-recording/
+
+# written into an app's folder by `next dev` (not part of the product)
+apps/*/AGENTS.md
+apps/*/CLAUDE.md

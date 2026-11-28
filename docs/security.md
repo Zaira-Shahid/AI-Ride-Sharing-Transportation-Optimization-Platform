@@ -1225,6 +1225,41 @@ changes to the batch run, insertion, candidate pool and trip steps.
   as other plan revisions already tolerate. Single-request assignment is not wired into any live trigger, so it does not start a
   window. The company's window is read from `settings`; the screen that sets it arrives with the company dashboard (A4).
 
+### The company console, first part (module A4a)
+
+Design: `docs/a4-company-dashboard-design.md`. Code: `apps/corporate`, `functions/src/companyDashboard.ts`,
+`packages/firebase/src/company.ts` (imported as `@ridemesh/firebase/company`, not from the package index, so the mobile apps'
+bundles do not change).
+
+- **Who gets in.** Only a company administrator sees the dashboard. The console reads the signed token
+  (`companyConsoleAccess`): an account with no role yet may verify its email and create a company; a passenger, a driver, platform
+  staff, an ordinary employee and a half-set token are signed out at sign-in with one plain message
+  ("This account cannot use the company console."). This decides what to draw; it is not the access control.
+- **The server decides.** Both new functions, `updateCompanySettings` and `getCompanyOverview`, call
+  `requireActiveCompanyAdmin`, which reads the membership and company documents, so an administrator who was demoted or whose
+  company is suspended is refused even while their token still says administrator (the console then shows the server's own
+  refusal on the overview).
+- **Settings.** The company name (2 to 100 characters) and the driver decline window (a whole number from 0 to 30) are
+  validated; a value that is already set answers "unchanged" and writes nothing, and each real change writes one
+  `COMPANY_SETTINGS_CHANGED` audit entry holding only the fields that changed. Limited to 30 changes per administrator per hour.
+  The window written is the one the matching code reads (module A3b).
+- **The overview shows counts only**: employees, pending invitations, applications waiting and approved drivers, from count
+  queries scoped to the caller's own company. It reads no trip, place or location, and returns nothing else (a test pins the exact
+  set of fields). An invitation that has expired is not counted as pending.
+- **Sign-up.** The account is created in the browser and the verification email sent; an existing account that already has a
+  passenger, driver, staff or employee role is not touched, and the person is signed out with the generic "already exists"
+  message. Passwords are never stored by the console.
+- **Colour and keyboard.** Every screen passes an automatic accessibility scan (axe, WCAG A and AA) and the sign-up form can be
+  completed from the keyboard alone. The scan found two problems that were fixed: error text that was slightly too dim on the dark
+  cards (a lighter red is used for text in this console only) and links in sentences that were told apart by colour alone
+  (they are underlined now).
+- **Tests.** `tests/integration/company-dashboard.int.test.ts` (28), `tests/corporate-console.test.ts` and
+  `packages/firebase/src/company.test.ts` (unit), the parity test, and `tests/e2e/company-console.e2e.spec.ts` (17, in a real
+  browser including a phone width and the accessibility scans).
+- **Known limits.** The menu has the overview only; employees, invitations, driver applications and settings arrive with module
+  A4b, so the overview's tiles do not link anywhere yet and its "get started" checklist is also in A4b. The verification email is
+  sent by Firebase from the project's own email settings.
+
 ## Tests
 
 - `npm test`: input validation, and a parity test that keeps `functions/src/roles.ts` aligned with

@@ -5,6 +5,7 @@ export const APP_DISPLAY_NAMES = {
   passenger: PRODUCT_NAME,
   driver: `${PRODUCT_NAME} Driver`,
   admin: `${PRODUCT_NAME} Operations`,
+  company: `${PRODUCT_NAME} Company`,
 } as const;
 
 // The admin identifier is recorded for completeness; the admin dashboard is a web app and does not

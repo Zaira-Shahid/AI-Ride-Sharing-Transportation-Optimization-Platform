@@ -20,7 +20,7 @@ const clientEnv = {
   EXPO_PUBLIC_FIREBASE_EMULATOR_PORT_OFFSET: String(TEST_PORT_OFFSET),
 };
 
-// The admin console (Next.js) reads the same fake project, under Next's own variable prefix.
+// The admin and company consoles (Next.js) read the same fake project, under Next's own variable prefix.
 const adminEnv = {
   NEXT_PUBLIC_FIREBASE_API_KEY: clientEnv.EXPO_PUBLIC_FIREBASE_API_KEY,
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: clientEnv.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -81,6 +81,15 @@ export default defineConfig({
       command: `npx next dev --port ${TEST_PORTS.admin}`,
       cwd: 'apps/admin',
       url: `http://localhost:${TEST_PORTS.admin}`,
+      timeout: 180_000,
+      reuseExistingServer: false,
+      env: adminEnv,
+    },
+    {
+      // The company console, the same way (its own dev port is 3001), with a build folder of its own.
+      command: `npx next dev --port ${TEST_PORTS.corporate}`,
+      cwd: 'apps/corporate',
+      url: `http://localhost:${TEST_PORTS.corporate}`,
       timeout: 180_000,
       reuseExistingServer: false,
       env: adminEnv,

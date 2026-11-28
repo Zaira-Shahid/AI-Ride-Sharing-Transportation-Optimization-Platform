@@ -37,6 +37,7 @@
     "test:e2e": "npm run build:functions && playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.1",
     "@eslint/js": "^10.0.0",
     "@firebase/rules-unit-testing": "^5.0.2",
     "@playwright/test": "^1.63.0",

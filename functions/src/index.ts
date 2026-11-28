@@ -27,6 +27,10 @@ import {
   setEmployeeVehicleCapacity as setCompanyVehicleCapacity,
 } from './employeeDriving.js';
 import {
+  getCompanyOverview as getOverviewOfCompany,
+  updateCompanySettings as updateCompanyDashboardSettings,
+} from './companyDashboard.js';
+import {
   acceptInvitation as acceptCompanyInvitation,
   createCompany as createNewCompany,
   inviteEmployee as inviteCompanyEmployee,
@@ -264,6 +268,18 @@ const companyDeps = () => ({
 
 export const createCompany = onCall((request) =>
   createNewCompany(companyDeps(), companyCallerOf(request), request.data),
+);
+
+export const updateCompanySettings = onCall((request) =>
+  updateCompanyDashboardSettings(
+    { firestore: getFirestore() },
+    companyCallerOf(request),
+    request.data,
+  ),
+);
+
+export const getCompanyOverview = onCall((request) =>
+  getOverviewOfCompany({ firestore: getFirestore() }, companyCallerOf(request)),
 );
 
 export const inviteEmployee = onCall((request) =>

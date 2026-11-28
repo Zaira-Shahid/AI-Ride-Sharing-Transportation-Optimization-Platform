@@ -63,6 +63,7 @@ describe('the ports the tests use', () => {
       passenger: 18_081,
       driver: 18_082,
       admin: 13_000,
+      corporate: 13_001,
     });
   });
 
@@ -72,8 +73,9 @@ describe('the ports the tests use', () => {
       // Expo's default, the emulator hub, logging, event and task emulators, and the UI's own ports.
       8081,
       8082,
-      // The admin console's own dev port.
+      // The admin console's own dev port, and the company console's.
       3000,
+      3001,
       4000,
       4400,
       4500,
