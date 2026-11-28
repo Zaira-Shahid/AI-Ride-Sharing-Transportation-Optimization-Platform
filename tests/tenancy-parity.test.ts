@@ -5,6 +5,7 @@ import * as fromFunctions from '../functions/src/companies';
 import * as drivingFromFunctions from '../functions/src/employeeDriving';
 import * as windowFromFunctions from '../functions/src/declineWindow';
 import * as decisionFromFunctions from '../functions/src/driverDecision';
+import * as dashboardFromFunctions from '../functions/src/companyDashboard';
 import {
   COMPANY_MEMBER_PLATFORM_ROLE as functionsPlatformRole,
   COMPANY_ROLES as functionsCompanyRoles,
@@ -238,6 +239,41 @@ describe('driver decline: functions and the tenancy package stay aligned', () =>
     ]) {
       const a = mine.safeParse(input);
       const b = theirs.safeParse(input);
+      expect(a.success, JSON.stringify(input)).toBe(b.success);
+      if (a.success) expect(a.data).toEqual(b.data);
+    }
+  });
+});
+
+describe('company dashboard: functions and the tenancy package stay aligned', () => {
+  it('uses the same limit', () => {
+    expect(dashboardFromFunctions.SETTINGS_CHANGES_PER_ADMIN_PER_HOUR).toBe(
+      shared.SETTINGS_CHANGES_PER_ADMIN_PER_HOUR,
+    );
+  });
+
+  it('updateCompanySettings validates the same inputs the same way', () => {
+    for (const input of [
+      { name: 'Acme' },
+      { name: '  Acme Ltd  ' },
+      { name: 'A' },
+      { name: 'x'.repeat(100) },
+      { name: 'x'.repeat(101) },
+      { driverDeclineWindowMinutes: 0 },
+      { driverDeclineWindowMinutes: 30 },
+      { driverDeclineWindowMinutes: 31 },
+      { driverDeclineWindowMinutes: -1 },
+      { driverDeclineWindowMinutes: 2.5 },
+      { driverDeclineWindowMinutes: '5' },
+      { name: 'Acme', driverDeclineWindowMinutes: 10 },
+      { name: null, driverDeclineWindowMinutes: 10 },
+      { name: 'Acme', driverDeclineWindowMinutes: null },
+      { name: null, driverDeclineWindowMinutes: null },
+      {},
+      null,
+    ]) {
+      const a = dashboardFromFunctions.updateCompanySettingsInputSchema.safeParse(input);
+      const b = shared.updateCompanySettingsInputSchema.safeParse(input);
       expect(a.success, JSON.stringify(input)).toBe(b.success);
       if (a.success) expect(a.data).toEqual(b.data);
     }

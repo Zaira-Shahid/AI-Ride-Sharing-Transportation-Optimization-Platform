@@ -1,5 +1,6 @@
 export * from './claims';
 export * from './company';
+export * from './dashboard';
 export * from './decline';
 export * from './driverCapability';
 export * from './driving';
