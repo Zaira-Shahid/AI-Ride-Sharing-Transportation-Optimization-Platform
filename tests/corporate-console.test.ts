@@ -103,7 +103,8 @@ describe('validateCreateCompany', () => {
     ['a phone with 7 digits', { ...good, phone: '1234567' }, true],
     ['a phone with 15 digits', { ...good, phone: '123456789012345' }, true],
     ['a phone with 16 digits', { ...good, phone: '1234567890123456' }, false],
-    ['a phone of more than 32 characters', { ...good, phone: `+${'1 '.repeat(20)}` }, false],
+    ['a phone of 32 characters', { ...good, phone: `+1${' '.repeat(23)}2345678` }, true],
+    ['a phone of 33 characters', { ...good, phone: `+1${' '.repeat(24)}2345678` }, false],
   ])('treats %s correctly', (_label, values, ok) => {
     expect(validateCreateCompany(values).ok).toBe(ok);
   });
